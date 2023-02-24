@@ -207,11 +207,22 @@ typedef struct m4x4_inv {
 //
 // :note utility macros
 //
+#if XI_COMPILER_CL
+    #if defined(XI_RUNTIME_BUILD)
+        #define XI_API __declspec(dllexport)
+    #else
+        #define XI_API __declspec(dllimport)
+    #endif
+#else
+    #define XI_API
+#endif
 
 #define XI_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define XI_OFFSET_OF(t, m) ((uptr) &(((t *) 0)->m))
 
-#define XI_ALIGN_POW2(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
+#define XI_ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
+#define XI_ALIGN_DOWN(x, a) ((x) & ~((a) - 1))
+
 #define XI_ALIGN4(x) (((x) + 3) & ~3)
 #define XI_ALIGN8(x) (((x) + 7) & ~7)
 #define XI_ALIGN16(x) (((x) + 15) & ~15)
@@ -220,6 +231,13 @@ typedef struct m4x4_inv {
 #define XI_MB(x) (((uptr) (x)) << 20ULL)
 #define XI_GB(x) (((uptr) (x)) << 30ULL)
 #define XI_TB(x) (((uptr) (x)) << 40ULL)
+
+#if !defined(XI_NO_ASSERT)
+    #include <assert.h>
+    #define XI_ASSERT(exp) assert(exp)
+#else
+    #define XI_ASSERT(exp) (void) exp
+#endif
 
 //
 // :note type limits
