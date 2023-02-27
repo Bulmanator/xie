@@ -92,8 +92,8 @@ void xi_arena_pop_to(xiArena *arena, uptr offset) {
 
         arena->committed -= to_decommit;
 
-        xi_os_virtual_memory_decommit((u8 *)arena->base + arena->committed, to_decommit);
-        xi_memory_zero((u8 *)arena->base + (arena->committed - left_over), left_over);
+        xi_os_virtual_memory_decommit((u8 *) arena->base + arena->committed, to_decommit);
+        xi_memory_zero((u8 *) arena->base + (arena->committed - left_over), left_over);
     }
 
     arena->offset      = offset;
