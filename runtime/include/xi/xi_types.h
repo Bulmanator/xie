@@ -71,10 +71,10 @@ typedef intptr_t  sptr;
 typedef float  f32;
 typedef double f64;
 
-typedef struct str8 {
-    uptr count;
+typedef struct string {
+    uptr count; // in bytes
     u8  *data;
-} str8;
+} string;
 
 typedef struct buffer {
     union {
@@ -83,7 +83,7 @@ typedef struct buffer {
             u8  *data;
         };
 
-        str8 str;
+        string str;
     };
 
     uptr limit;
@@ -213,8 +213,20 @@ typedef struct m4x4_inv {
     #else
         #define XI_API __declspec(dllimport)
     #endif
-#else
+#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
     #define XI_API
+#endif
+
+#if XI_COMPILER_CL
+    #define XI_EXPORT __declspec(dllexport)
+#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
+    #define XI_EXPORT
+#endif
+
+#if XI_COMPILER_CL
+    #define thread_var __declspec(thread)
+#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
+    #define thread_var __thread
 #endif
 
 #define XI_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -231,6 +243,9 @@ typedef struct m4x4_inv {
 #define XI_MB(x) (((uptr) (x)) << 20ULL)
 #define XI_GB(x) (((uptr) (x)) << 30ULL)
 #define XI_TB(x) (((uptr) (x)) << 40ULL)
+
+#define XI_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define XI_MAX(a, b) ((a) > (b) ? (a) : (b))
 
 #if !defined(XI_NO_ASSERT)
     #include <assert.h>

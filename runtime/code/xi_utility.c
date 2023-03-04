@@ -28,4 +28,30 @@ void xi_memory_copy(void *dst, void *src, uptr size) {
     }
 }
 
+u8 xi_char_to_lowercase(u8 c) {
+    u8 result = (c >= 'A' && c <= 'Z') ? (c + ('a' - 'A')) : c;
+    return result;
+}
 
+u8 xi_char_to_uppercase(u8 c) {
+    u8 result = (c >= 'a' && c <= 'z') ? (c - ('a' - 'A')) : c;
+    return result;
+}
+
+uptr xi_buffer_append(buffer *out, void *base, uptr count) {
+    uptr result = XI_MIN(count, out->limit - out->used);
+    xi_memory_copy(out->data + out->used, base, result);
+
+    out->used += result;
+
+    return result;
+}
+
+uptr xi_buffer_append_bytes(buffer *out, u8 byte, uptr count) {
+    uptr result = XI_MIN(count, out->limit - out->used);
+    xi_memory_set(out->data + out->used, byte, result);
+
+    out->used += result;
+
+    return result;
+}

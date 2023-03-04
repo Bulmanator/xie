@@ -66,11 +66,27 @@ void *xi_arena_push_aligned(xiArena *arena, uptr size, uptr alignment) {
         arena->offset      = allocation_end;
     }
 
+    XI_ASSERT(((u64) result & (alignment - 1)) == 0);
+
     return result;
 }
 
 void *xi_arena_push(xiArena *arena, uptr size) {
     void *result = xi_arena_push_aligned(arena, size, arena->default_alignment);
+    return result;
+}
+
+void *xi_arena_push_copy_aligned(xiArena *arena, void *src, uptr size, uptr alignment) {
+    void *result = xi_arena_push_aligned(arena, size, alignment);
+
+    xi_memory_copy(result, src, size);
+    return result;
+}
+
+void *xi_arena_push_copy(xiArena *arena, void *src, uptr size) {
+    void *result = xi_arena_push_aligned(arena, size, arena->default_alignment);
+
+    xi_memory_copy(result, src, size);
     return result;
 }
 
@@ -81,6 +97,9 @@ uptr xi_arena_offset_get(xiArena *arena) {
 
 void xi_arena_pop_to(xiArena *arena, uptr offset) {
     if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
+        // @todo: is this even needed because the next push call will always align up to the correct
+        // alignment
+        //
         offset = XI_ALIGN_UP(offset, arena->default_alignment);
     }
 
@@ -116,8 +135,27 @@ void xi_arena_reset(xiArena *arena) {
     arena->offset      = 0;
 
     if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
-        xi_os_virtual_memory_decommit(arena->base, arena->committed);
-        arena->committed = 0;
+        if (arena->committed > 0) {
+            xi_os_virtual_memory_decommit(arena->base, arena->committed);
+            arena->committed = 0;
+        }
+    }
+}
+
+static thread_var xiArena temp;
+
+xiArena *xi_temp_get() {
+    xiArena *result = &temp;
+    if (!result->base) {
+        xi_arena_init_virtual(result, XI_GB(1));
+    }
+
+    return result;
+}
+
+void xi_temp_reset() {
+    if (temp.base) {
+        xi_arena_reset(&temp);
     }
 }
 

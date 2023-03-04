@@ -15,5 +15,6 @@
 #endif
 
 #include "xi_utility.c"
-
 #include "xi_arena.c"
+#include "xi_string.c"
+
