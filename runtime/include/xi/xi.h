@@ -10,11 +10,15 @@ extern "C" {
 //   - math types
 //   - utility macros
 //   - arena memory allocation
+//     - temporary arena
 //   - interactive application support
 //     - window
+//   - string utilities
+//   - file system support
+//     - get user directory
+//     - get temp directory
 
 // xi runtime will supply
-//     - temporary arena
 //     - keyboard input
 //     - mouse input
 //     - controller input
@@ -35,8 +39,6 @@ extern "C" {
 //     - file read/write
 //     - file create/delete
 //     - get/set working directory
-//     - get user directory
-//     - get temp directory
 //   - thread work queue
 //   - asset management
 //     - images
@@ -61,6 +63,10 @@ typedef struct xiDisplay {
 
     f32 refresh_rate;
     f32 scale; // windows are dpi aware, for informational purposes
+
+    // @todo: add a name here so we can identify displays to the user
+    // at runtime
+    //
 
     // @todo: maybe we want to have supported modes here
     //
