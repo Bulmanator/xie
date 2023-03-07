@@ -12,6 +12,10 @@ rem build debug runtime .dll
 rem
 cl %compiler_flags% -Od -Zi -LD "..\runtime\code\xi.c" -Fe"xid.dll" -link %linker_flags%
 
+rem build opengl renderer .dll
+rem
+cl %compiler_flags% -Od -Zi -LD "..\renderer\win32_xi_opengl.c" -Fe"xi_opengld.dll" -link %linker_flags%
+
 rem build debug engine .exe
 rem
 cl %compiler_flags% -Od -Zi "..\engine\win32_xie.c" -Fe"xie_debug.exe" -link %linker_flags% -libpath:. xid.lib

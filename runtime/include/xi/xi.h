@@ -55,6 +55,8 @@ extern "C" {
 #include "xi_arena.h"
 #include "xi_string.h"
 
+#include "xi_renderer.h"
+
 #define XI_MAX_DISPLAYS 8
 
 typedef struct xiDisplay {

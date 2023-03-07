@@ -9,6 +9,11 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
+// @temp: for testing
+//
+#include <gl/gl.h>
+#pragma comment(lib, "opengl32.lib")
+
 #include <xi/xi.h>
 
 #define XI_MAX_GAME_LOAD_TRIES 10
@@ -523,10 +528,6 @@ static void win32_xi_context_update(xiWin32Context *context) {
     }
 
     if (!xi_str_equal(xi->window.title, context->window.last_title)) {
-        // @incomplete: for now i'm just comparing data pointers
-        // it should really be a string compare but runtime doesn't have string utilities
-        // yet
-        //
         xiArena *temp = xi_temp_get();
 
         LPWSTR title = win32_utf8_to_utf16(temp, xi->window.title);
@@ -669,10 +670,36 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
 
             context->window.last_title = xi->window.title;
 
+            if (xi->window.width == 0 || xi->window.height == 0) {
+                RECT client_rect;
+                GetClientRect(hwnd, &client_rect);
+
+                xi->window.width  = (client_rect.right - client_rect.left);
+                xi->window.height = (client_rect.bottom - client_rect.top);
+            }
+
+            // load and initialise renderer
+            //
+            HMODULE renderer = LoadLibraryA("xi_opengld.dll");
+            xiRendererInit *init = (xiRendererInit *) GetProcAddress(renderer, "win32_opengl_init");
+
+            if (init) {
+                init(&hwnd);
+            }
+
+            HDC hdc = GetDC(hwnd);
+
             context->running = true;
             while (context->running) {
                 win32_xi_context_update(context);
                 xi_temp_reset();
+
+                glViewport(0, 0, xi->window.width, xi->window.height);
+
+                glClearColor(1, 0, 0, 1);
+                glClear(GL_COLOR_BUFFER_BIT);
+
+                SwapBuffers(hdc);
             }
         }
         else {
