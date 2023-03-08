@@ -14,11 +14,11 @@ cl %compiler_flags% -Od -Zi -LD "..\runtime\code\xi.c" -Fe"xid.dll" -link %linke
 
 rem build opengl renderer .dll
 rem
-cl %compiler_flags% -Od -Zi -LD "..\renderer\win32_xi_opengl.c" -Fe"xi_opengld.dll" -link %linker_flags%
+cl %compiler_flags% -Od -Zi -LD "..\renderer\xi_opengl.c" -Fe"xi_opengld.dll" -link %linker_flags%  -libpath:. xid.lib
 
 rem build debug engine .exe
 rem
-cl %compiler_flags% -Od -Zi "..\engine\win32_xie.c" -Fe"xie_debug.exe" -link %linker_flags% -libpath:. xid.lib
+cl %compiler_flags% -Od -Zi "..\engine\win32_xie.c" -Fe"xie_debug.exe" -link %linker_flags%  -libpath:. xid.lib
 
 rem @todo: build release versions of both runtime and engine
 rem

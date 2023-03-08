@@ -34,6 +34,15 @@ string xi_str_wrap_cstr(u8 *data) {
     return result;
 }
 
+const char *xi_str_to_cstr(xiArena *arena, string str) {
+    char *result = xi_arena_push_size(arena, str.count + 1);
+
+    xi_memory_copy(result, str.data, str.count);
+    result[str.count] = 0;
+
+    return result;
+}
+
 b32 xi_str_is_valid(string str) {
     b32 result = (str.count > 0) && (str.data != 0);
     return result;
@@ -93,7 +102,7 @@ b32 xi_str_equal(string a, string b) {
     return result;
 }
 
-extern XI_API string xi_str_prefix(string str, uptr count) {
+string xi_str_prefix(string str, uptr count) {
     string result;
 
     XI_ASSERT(str.count >= count);
@@ -104,7 +113,7 @@ extern XI_API string xi_str_prefix(string str, uptr count) {
     return result;
 }
 
-extern XI_API string xi_str_suffix(string str, uptr count) {
+string xi_str_suffix(string str, uptr count) {
     string result;
 
     XI_ASSERT(str.count >= count);
@@ -115,7 +124,7 @@ extern XI_API string xi_str_suffix(string str, uptr count) {
     return result;
 }
 
-extern XI_API string xi_str_advance(string str, uptr count) {
+string xi_str_advance(string str, uptr count) {
     string result;
 
     XI_ASSERT(str.count >= count);
@@ -125,7 +134,8 @@ extern XI_API string xi_str_advance(string str, uptr count) {
 
     return result;
 }
-extern XI_API string xi_str_remove(string str, uptr count) {
+
+string xi_str_remove(string str, uptr count) {
     string result;
 
     XI_ASSERT(str.count >= count);
@@ -136,7 +146,7 @@ extern XI_API string xi_str_remove(string str, uptr count) {
     return result;
 }
 
-extern XI_API string xi_str_slice(string str, uptr start, uptr end) {
+string xi_str_slice(string str, uptr start, uptr end) {
     string result;
 
     XI_ASSERT(start <= end);
@@ -148,4 +158,18 @@ extern XI_API string xi_str_slice(string str, uptr start, uptr end) {
     return result;
 }
 
+string xi_str_find_from_left(string str, u32 codepoint) {
+    string result;
 
+    result.data  = str.data;
+    result.count = 0;
+
+    u8 cp = (u8) codepoint; // @todo: decode utf-8 correctly
+
+    while (str.count--) {
+        if (str.data[result.count] == cp) { break; }
+        result.count += 1;
+    }
+
+    return result;
+}

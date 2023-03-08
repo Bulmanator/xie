@@ -681,7 +681,7 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
             // load and initialise renderer
             //
             HMODULE renderer = LoadLibraryA("xi_opengld.dll");
-            xiRendererInit *init = (xiRendererInit *) GetProcAddress(renderer, "win32_opengl_init");
+            xiRendererInit *init = (xiRendererInit *) GetProcAddress(renderer, "xi_opengl_init");
 
             if (init) {
                 init(&hwnd);

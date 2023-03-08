@@ -1,14 +1,8 @@
-#define WIN32_LEAN_AND_MEAN 1
-#include <windows.h>
-#include <gl/gl.h>
-
-#include <xi/xi.h>
-
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "opengl32.lib")
 
-#define WGL_LOAD_FUNCTION(x) x = (xiFunction_##x *) wglGetProcAddress(#x)
+#define WGL_LOAD_FUNCTION(prefix, x) (prefix)->x = (xiOpenGL_##prefix##x *) wglGetProcAddress(XI_STRINGIFY(prefix##x))
 
 // from WGL_ARB_pixel_format
 //
@@ -65,9 +59,9 @@
 #define WGL_TYPE_RGBA_ARB            0x202B
 #define WGL_TYPE_COLORINDEX_ARB      0x202C
 
-typedef BOOL xiFunction_wglGetPixelFormatAttribivARB(HDC, int, int, UINT, const int *, int *);
-typedef BOOL xiFunction_wglGetPixelFormatAttribfvARB(HDC, int, int, UINT, const int *, FLOAT *);
-typedef BOOL xiFunction_wglChoosePixelFormatARB(HDC, const int *, const FLOAT *, UINT, int *, UINT *);
+typedef BOOL xiOpenGL_wglGetPixelFormatAttribivARB(HDC, int, int, UINT, const int *, int *);
+typedef BOOL xiOpenGL_wglGetPixelFormatAttribfvARB(HDC, int, int, UINT, const int *, FLOAT *);
+typedef BOOL xiOpenGL_wglChoosePixelFormatARB(HDC, const int *, const FLOAT *, UINT, int *, UINT *);
 
 // from EXT_framebuffer_sRGB
 //
@@ -75,7 +69,7 @@ typedef BOOL xiFunction_wglChoosePixelFormatARB(HDC, const int *, const FLOAT *,
 
 // from EXT_extensions_string
 //
-typedef const char *xiFunction_wglGetExtensionsStringEXT(void);
+typedef const char *xiOpenGL_wglGetExtensionsStringEXT(void);
 
 // from WGL_ARB_create_context
 //      WGL_ARB_create_context_profile
@@ -95,23 +89,55 @@ typedef const char *xiFunction_wglGetExtensionsStringEXT(void);
 #define ERROR_INVALID_VERSION_ARB 0x2095
 #define ERROR_INVALID_PROFILE_ARB 0x2096
 
-typedef HGLRC xiFunction_wglCreateContextAttribsARB(HDC, HGLRC, const int *);
+typedef HGLRC xiOpenGL_wglCreateContextAttribsARB(HDC, HGLRC, const int *);
 
-// global function pointers for wgl extension calls
+// from EXT_swap_control
 //
-static xiFunction_wglGetPixelFormatAttribivARB *wglGetPixelFormatAttribivARB;
-static xiFunction_wglGetPixelFormatAttribfvARB *wglGetPixelFormatAttribfvARB;
-static xiFunction_wglChoosePixelFormatARB      *wglChoosePixelFormatARB;
+typedef BOOL xiOpenGL_wglSwapIntervalEXT(int);
+typedef int  xiOpenGL_wglGetSwapIntervalEXT(void);
 
-static xiFunction_wglGetExtensionsStringEXT *wglGetExtensionsStringEXT;
+#define WGL_FUNCTION_POINTER(name) xiOpenGL_wgl##name *name
 
-static xiFunction_wglCreateContextAttribsARB *wglCreateContextAttribsARB;
+// main wgl context, this houses the win32 specific stuff
+//
+typedef struct xiWin32OpenGLContext {
+    xiOpenGLContext gl;
 
-extern XI_EXPORT XI_RENDERER_INIT(win32_opengl_init) {
+    HDC   hdc;
+    HGLRC hglrc;
+
+    // extension support
+    //
+    b32 WGL_EXT_framebuffer_sRGB;
+    b32 WGL_ARB_pixel_format;
+    b32 WGL_ARB_create_context;
+    b32 WGL_ARB_multisample;
+    b32 WGL_EXT_swap_control;
+
+    WGL_FUNCTION_POINTER(GetExtensionsStringEXT);
+
+    WGL_FUNCTION_POINTER(ChoosePixelFormatARB);
+    WGL_FUNCTION_POINTER(CreateContextAttribsARB);
+
+    WGL_FUNCTION_POINTER(SwapIntervalEXT);
+    WGL_FUNCTION_POINTER(GetSwapIntervalEXT);
+} xiWin32OpenGLContext;
+
+#undef WGL_FUNCTION_POINTER
+
+xiOpenGLContext *xi_os_opengl_context_create(void *platform) {
     // @todo: configure renderer
     // @todo: error checking!
     //
-    xiRenderer *result = 0;
+    xiOpenGLContext *gl = 0;
+
+    xiArena arena = { 0 };
+    xi_arena_init_virtual(&arena, XI_MB(64));
+
+    xiWin32OpenGLContext *wgl = xi_arena_push_type(&arena, xiWin32OpenGLContext);
+    gl = &wgl->gl;
+
+    gl->arena = arena;
 
     // we first have to make a dummy window to create an old opengl context and load
     // the new wgl choose pixel format and create context calls, after which we can
@@ -125,7 +151,7 @@ extern XI_EXPORT XI_RENDERER_INIT(win32_opengl_init) {
 
         RegisterClassA(&wnd_class);
 
-        HWND hwnd = CreateWindowA(wnd_class.lpszClassName, "opengl", WS_OVERLAPPEDWINDOW,
+        HWND hwnd = CreateWindowA(wnd_class.lpszClassName, "xie_wgl", WS_OVERLAPPEDWINDOW,
                 CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wnd_class.hInstance, 0);
 
         HDC hdc = GetDC(hwnd);
@@ -148,11 +174,35 @@ extern XI_EXPORT XI_RENDERER_INIT(win32_opengl_init) {
         HGLRC hglrc = wglCreateContext(hdc);
         wglMakeCurrent(hdc, hglrc);
 
-        WGL_LOAD_FUNCTION(wglGetPixelFormatAttribivARB);
-        WGL_LOAD_FUNCTION(wglGetPixelFormatAttribfvARB);
-        WGL_LOAD_FUNCTION(wglChoosePixelFormatARB);
-        WGL_LOAD_FUNCTION(wglGetExtensionsStringEXT);
-        WGL_LOAD_FUNCTION(wglCreateContextAttribsARB);
+        WGL_LOAD_FUNCTION(wgl, GetExtensionsStringEXT);
+
+        if (wgl->GetExtensionsStringEXT) {
+            const char *ext_str = wgl->GetExtensionsStringEXT();
+            string extensions   = xi_str_wrap_cstr((u8 *) ext_str);
+            string extension    = xi_str_find_from_left(extensions, ' ');
+
+#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
+
+            while (xi_str_is_valid(extension)) {
+                WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
+                else WGL_CHECK_EXTENSION(WGL_ARB_multisample)
+                else WGL_CHECK_EXTENSION(WGL_ARB_pixel_format)
+                else WGL_CHECK_EXTENSION(WGL_ARB_create_context)
+                else WGL_CHECK_EXTENSION(WGL_EXT_swap_control)
+
+                extensions = xi_str_advance(extensions, extension.count + 1);
+                extension  = xi_str_find_from_left(extensions, ' ');
+            }
+
+#undef WGL_CHECK_EXTENSION
+        }
+
+        if (wgl->WGL_ARB_pixel_format)   { WGL_LOAD_FUNCTION(wgl, ChoosePixelFormatARB);    }
+        if (wgl->WGL_ARB_create_context) { WGL_LOAD_FUNCTION(wgl, CreateContextAttribsARB); }
+        if (wgl->WGL_EXT_swap_control) {
+            WGL_LOAD_FUNCTION(wgl, SwapIntervalEXT);
+            WGL_LOAD_FUNCTION(wgl, GetSwapIntervalEXT);
+        }
 
         // clean up old context and dummy window
         //
@@ -165,13 +215,10 @@ extern XI_EXPORT XI_RENDERER_INIT(win32_opengl_init) {
         UnregisterClassA(wnd_class.lpszClassName, wnd_class.hInstance);
     }
 
-    // @todo: go through the extensions string and check support for extensions we want
-    //
-
     HWND window = *(HWND *) platform;
-    HDC  hdc    = GetDC(window);
+    wgl->hdc = GetDC(window);
 
-    {
+    if (wgl->WGL_ARB_pixel_format) {
         UINT num_attribs = 0;
         int attribs[32];
 
@@ -202,30 +249,30 @@ extern XI_EXPORT XI_RENDERER_INIT(win32_opengl_init) {
         attribs[num_attribs++] = WGL_ACCELERATION_ARB;
         attribs[num_attribs++] = WGL_FULL_ACCELERATION_ARB;
 
-
-        // @todo: check if sRGB is supported and enable here
-        //
+        if (wgl->WGL_EXT_framebuffer_sRGB) {
+            attribs[num_attribs++] = WGL_FRAMEBUFFER_SRGB_CAPABLE_EXT;
+            attribs[num_attribs++] = GL_TRUE;
+        }
 
         XI_ASSERT(num_attribs <= 32);
 
-        // end off the list with GL_NONE to signify the end
+        // end off the list with GL_NONE
         //
         attribs[num_attribs] = GL_NONE;
 
         UINT num_formats;
         int pixel_format;
 
-        wglChoosePixelFormatARB(hdc, attribs, 0, 1, &pixel_format, &num_formats);
+        wgl->ChoosePixelFormatARB(wgl->hdc, attribs, 0, 1, &pixel_format, &num_formats);
 
         PIXELFORMATDESCRIPTOR pfd;
         pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR);
 
-        DescribePixelFormat(hdc, pixel_format, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
-        SetPixelFormat(hdc, pixel_format, &pfd);
+        DescribePixelFormat(wgl->hdc, pixel_format, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
+        SetPixelFormat(wgl->hdc, pixel_format, &pfd);
     }
 
-    HGLRC hglrc;
-    {
+    if (wgl->WGL_ARB_create_context) {
         // create context
         //
         // @todo: debug bit needs to be conditional
@@ -234,16 +281,30 @@ extern XI_EXPORT XI_RENDERER_INIT(win32_opengl_init) {
 
         const int attribs[] = {
             WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
-            WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+            WGL_CONTEXT_MINOR_VERSION_ARB, 4,
             WGL_CONTEXT_FLAGS_ARB,         flags,
             WGL_CONTEXT_PROFILE_MASK_ARB,  WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
             GL_NONE
         };
 
-        hglrc = wglCreateContextAttribsARB(hdc, 0, attribs);
+        wgl->hglrc = wgl->CreateContextAttribsARB(wgl->hdc, 0, attribs);
+
+        if (wgl->hglrc) {
+            wglMakeCurrent(wgl->hdc, wgl->hglrc);
+
+            gl->info.srgb        = wgl->WGL_EXT_framebuffer_sRGB;
+            gl->info.multisample = wgl->WGL_ARB_multisample && false; // this will check if it was enabled
+
+            glGetIntegerv(GL_MAJOR_VERSION, &gl->info.major_version);
+            glGetIntegerv(GL_MINOR_VERSION, &gl->info.minor_version);
+
+            // @todo: load opengl extension functions here
+            //
+            WGL_LOAD_FUNCTION(gl, GenVertexArrays);
+        }
     }
 
-    wglMakeCurrent(hdc, hglrc);
+    if (wgl->WGL_EXT_swap_control) { wgl->SwapIntervalEXT(1); }
 
-    return result;
+    return gl;
 }

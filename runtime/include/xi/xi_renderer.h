@@ -13,9 +13,24 @@ typedef XI_RENDERER_INIT(xiRendererInit);
 typedef XI_RENDERER_SUBMIT(xiRendererSubmit);
 
 typedef struct xiRenderer {
-    buffer commands;
+    xiRendererInit   *init;
+    xiRendererSubmit *submit;
 
     xiArena uniform;
+
+    buffer commands;
+
+    struct {
+        void   *base; // @incomplete: add actual vertex type
+        u32    count;
+        u32    limit;
+    } vertices;
+
+    struct {
+        u16 *base;
+        u32  count;
+        u32  limit;
+    } indices;
 } xiRenderer;
 
 #endif  // XI_RENDERER_H_

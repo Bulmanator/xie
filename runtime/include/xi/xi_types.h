@@ -44,6 +44,22 @@ extern "C" {
 #endif
 
 //
+// :note operating system detection
+//
+#define XI_OS_WIN32 0
+#define XI_OS_LINUX 0
+
+#if defined(_WIN32)
+    #undef  XI_OS_WIN32
+    #define XI_OS_WIN32 1
+#elif defined(__linux__)
+    #undef  XI_OS_LINUX
+    #define XI_OS_LINUX 1
+
+    #error "linux support has not been implemented"
+#endif
+
+//
 // :note core types
 //
 
@@ -228,6 +244,8 @@ typedef struct m4x4_inv {
 #elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
     #define thread_var __thread
 #endif
+
+#define XI_STRINGIFY(x) #x
 
 #define XI_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define XI_OFFSET_OF(t, m) ((uptr) &(((t *) 0)->m))
