@@ -5,7 +5,7 @@
 // _all_ counts are expected to be in number of bytes, not characters
 //
 
-#define xi_str_wrap_const(x) xi_str_wrap_count((u8 *) x, sizeof(x) - sizeof(*(x)))
+#define xi_str_wrap_const(x) { sizeof(x) - sizeof(*(x)), (u8 *) (x) }
 
 extern XI_API string xi_str_wrap_count(u8 *data, uptr count);
 extern XI_API string xi_str_wrap_range(u8 *start, u8 *end);

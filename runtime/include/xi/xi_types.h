@@ -220,6 +220,14 @@ typedef struct m4x4_inv {
     m4x4 inv;
 } m4x4_inv;
 
+// :note vertex type
+//
+typedef struct vert3 {
+    v3  p;
+    v2  uv; // @todo: does this need to be full precision?
+    u32 c;
+} vert3; // 24 bytes
+
 //
 // :note utility macros
 //

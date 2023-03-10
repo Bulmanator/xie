@@ -28,6 +28,32 @@ void xi_arena_init_virtual(xiArena *arena, uptr size) {
     arena->pad       = 0;
 }
 
+void xi_arena_deinit(xiArena *arena) {
+    b32   virtual = (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) != 0;
+    void *base    = arena->base;
+    uptr  size    = arena->size;
+
+    XI_ASSERT(base != 0);
+
+    arena->base   = 0;
+    arena->size   = 0;
+    arena->offset = 0;
+
+    arena->last_offset       = 0;
+    arena->default_alignment = 0;
+
+    arena->committed = 0;
+    arena->flags     = 0;
+
+    if (virtual) {
+        xi_os_virtual_memory_release(base, size);
+
+        // we don't want to touch the arena after calling this in-case the user has passed us a pointer
+        // to an arena stored inside its own reserved base
+        //
+    }
+}
+
 void *xi_arena_push_aligned(xiArena *arena, uptr size, uptr alignment) {
     void *result = 0;
 
@@ -66,6 +92,7 @@ void *xi_arena_push_aligned(xiArena *arena, uptr size, uptr alignment) {
         arena->offset      = allocation_end;
     }
 
+    XI_ASSERT(result != 0);
     XI_ASSERT(((u64) result & (alignment - 1)) == 0);
 
     return result;
@@ -92,16 +119,16 @@ void *xi_arena_push_copy(xiArena *arena, void *src, uptr size) {
 
 uptr xi_arena_offset_get(xiArena *arena) {
     uptr result = arena->offset;
+
+    if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
+        result = XI_ALIGN_UP(result, arena->default_alignment);
+    }
+
     return result;
 }
 
 void xi_arena_pop_to(xiArena *arena, uptr offset) {
-    if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
-        // @todo: is this even needed because the next push call will always align up to the correct
-        // alignment
-        //
-        offset = XI_ALIGN_UP(offset, arena->default_alignment);
-    }
+    XI_ASSERT(offset <= arena->offset); // can't pop forward
 
     if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
         uptr page_size    = xi_os_page_size_get();

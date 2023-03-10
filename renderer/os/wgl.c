@@ -103,6 +103,9 @@ typedef int  xiOpenGL_wglGetSwapIntervalEXT(void);
 typedef struct xiWin32OpenGLContext {
     xiOpenGLContext gl;
 
+    b32 valid;
+
+    HWND  hwnd;
     HDC   hdc;
     HGLRC hglrc;
 
@@ -125,17 +128,17 @@ typedef struct xiWin32OpenGLContext {
 
 #undef WGL_FUNCTION_POINTER
 
-xiOpenGLContext *xi_os_opengl_context_create(void *platform) {
+static XI_RENDERER_SUBMIT(wgl_renderer_submit);
+
+xiOpenGLContext *gl_os_context_create(void *platform) {
     // @todo: configure renderer
     // @todo: error checking!
     //
-    xiOpenGLContext *gl = 0;
-
     xiArena arena = { 0 };
     xi_arena_init_virtual(&arena, XI_MB(64));
 
     xiWin32OpenGLContext *wgl = xi_arena_push_type(&arena, xiWin32OpenGLContext);
-    gl = &wgl->gl;
+    xiOpenGLContext *gl = &wgl->gl;
 
     gl->arena = arena;
 
@@ -181,7 +184,7 @@ xiOpenGLContext *xi_os_opengl_context_create(void *platform) {
             string extensions   = xi_str_wrap_cstr((u8 *) ext_str);
             string extension    = xi_str_find_from_left(extensions, ' ');
 
-#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
+#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, (string) xi_str_wrap_const(#name))) { wgl->name = true; }
 
             while (xi_str_is_valid(extension)) {
                 WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
@@ -215,8 +218,8 @@ xiOpenGLContext *xi_os_opengl_context_create(void *platform) {
         UnregisterClassA(wnd_class.lpszClassName, wnd_class.hInstance);
     }
 
-    HWND window = *(HWND *) platform;
-    wgl->hdc = GetDC(window);
+    wgl->hwnd = *(HWND *) platform;
+    wgl->hdc  = GetDC(wgl->hwnd);
 
     if (wgl->WGL_ARB_pixel_format) {
         UINT num_attribs = 0;
@@ -290,21 +293,74 @@ xiOpenGLContext *xi_os_opengl_context_create(void *platform) {
         wgl->hglrc = wgl->CreateContextAttribsARB(wgl->hdc, 0, attribs);
 
         if (wgl->hglrc) {
-            wglMakeCurrent(wgl->hdc, wgl->hglrc);
+            if (wglMakeCurrent(wgl->hdc, wgl->hglrc)) {
+                gl->info.srgb        = wgl->WGL_EXT_framebuffer_sRGB;
+                gl->info.multisample = wgl->WGL_ARB_multisample && false; // this will check if it was enabled
 
-            gl->info.srgb        = wgl->WGL_EXT_framebuffer_sRGB;
-            gl->info.multisample = wgl->WGL_ARB_multisample && false; // this will check if it was enabled
+                // @todo: load opengl extension functions here
+                //
+                WGL_LOAD_FUNCTION(gl, GenVertexArrays);
+                WGL_LOAD_FUNCTION(gl, GenBuffers);
+                WGL_LOAD_FUNCTION(gl, BindBuffer);
+                WGL_LOAD_FUNCTION(gl, BufferStorage);
+                WGL_LOAD_FUNCTION(gl, MapBufferRange);
+                WGL_LOAD_FUNCTION(gl, GenProgramPipelines);
+                WGL_LOAD_FUNCTION(gl, CreateShader);
+                WGL_LOAD_FUNCTION(gl, ShaderSource);
+                WGL_LOAD_FUNCTION(gl, CompileShader);
+                WGL_LOAD_FUNCTION(gl, GetShaderiv);
+                WGL_LOAD_FUNCTION(gl, CreateProgram);
+                WGL_LOAD_FUNCTION(gl, ProgramParameteri);
+                WGL_LOAD_FUNCTION(gl, AttachShader);
+                WGL_LOAD_FUNCTION(gl, LinkProgram);
+                WGL_LOAD_FUNCTION(gl, DetachShader);
+                WGL_LOAD_FUNCTION(gl, GetProgramiv);
+                WGL_LOAD_FUNCTION(gl, GetProgramInfoLog);
+                WGL_LOAD_FUNCTION(gl, DeleteProgram);
+                WGL_LOAD_FUNCTION(gl, GetShaderInfoLog);
+                WGL_LOAD_FUNCTION(gl, DeleteShader);
 
-            glGetIntegerv(GL_MAJOR_VERSION, &gl->info.major_version);
-            glGetIntegerv(GL_MINOR_VERSION, &gl->info.minor_version);
+                gl->renderer.init   = xi_opengl_init;
+                gl->renderer.submit = wgl_renderer_submit;
 
-            // @todo: load opengl extension functions here
-            //
-            WGL_LOAD_FUNCTION(gl, GenVertexArrays);
+                wgl->valid = true;
+            }
         }
     }
 
     if (wgl->WGL_EXT_swap_control) { wgl->SwapIntervalEXT(1); }
 
+    if (!wgl->valid) {
+        xi_arena_deinit(&arena);
+        wgl = 0;
+        gl  = 0;
+    }
+
     return gl;
+}
+
+void gl_os_context_delete(xiOpenGLContext *gl) {
+    xiWin32OpenGLContext *wgl = (xiWin32OpenGLContext *) gl;
+
+    wglMakeCurrent(0, 0);
+    wglDeleteContext(wgl->hglrc);
+
+    ReleaseDC(wgl->hwnd, wgl->hdc);
+
+    xiArena arena = gl->arena;
+    xi_arena_deinit(&arena);
+}
+
+XI_RENDERER_SUBMIT(wgl_renderer_submit) {
+    xiWin32OpenGLContext *wgl = (xiWin32OpenGLContext *) renderer;
+
+    XI_ASSERT((wgl != 0) && wgl->valid);
+
+    if (wgl->WGL_EXT_swap_control) {
+        wgl->SwapIntervalEXT(renderer->setup.vsync ? 1 : 0);
+    }
+
+    //xi_opengl_renderer_submit((xiOpenGLContext *) renderer);
+
+    SwapBuffers(wgl->hdc);
 }

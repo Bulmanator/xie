@@ -40,6 +40,10 @@ typedef struct xiArena {
 extern XI_API void xi_arena_init_from(xiArena *arena, void *base, uptr size);
 extern XI_API void xi_arena_init_virtual(xiArena *arena, uptr size);
 
+// release any virtual memory associated with the arena and reset all members to zero
+//
+extern XI_API void xi_arena_deinit(xiArena *arena);
+
 // base arena push allocation calls
 //
 extern XI_API void *xi_arena_push_aligned(xiArena *arena, uptr size, uptr alignment);

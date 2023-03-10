@@ -16,12 +16,13 @@ typedef struct xiRenderer {
     xiRendererInit   *init;
     xiRendererSubmit *submit;
 
-    xiArena uniform;
-
-    buffer commands;
+    struct {
+        b32 vsync;
+        v2u window_dim;
+    } setup;
 
     struct {
-        void   *base; // @incomplete: add actual vertex type
+        vert3 *base;
         u32    count;
         u32    limit;
     } vertices;
@@ -31,6 +32,9 @@ typedef struct xiRenderer {
         u32  count;
         u32  limit;
     } indices;
+
+    xiArena uniforms;
+    buffer  commands;
 } xiRenderer;
 
 #endif  // XI_RENDERER_H_
