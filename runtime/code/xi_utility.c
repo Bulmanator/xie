@@ -46,12 +46,3 @@ uptr xi_buffer_append(buffer *out, void *base, uptr count) {
 
     return result;
 }
-
-uptr xi_buffer_append_bytes(buffer *out, u8 byte, uptr count) {
-    uptr result = XI_MIN(count, out->limit - out->used);
-    xi_memory_set(out->data + out->used, byte, result);
-
-    out->used += result;
-
-    return result;
-}

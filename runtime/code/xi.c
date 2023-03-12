@@ -9,3 +9,4 @@
 #include "xi_arena.c"
 #include "xi_string.c"
 
+#include "xi_renderer.c"

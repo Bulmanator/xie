@@ -16,7 +16,6 @@ extern XI_API u8 xi_char_to_uppercase(u8 c);
 // otherwise will be the size of the remainding space before copy
 //
 extern XI_API uptr xi_buffer_append(buffer *out, void *base, uptr count);
-extern XI_API uptr xi_buffer_append_bytes(buffer *out, u8 byte, uptr count);
 
 #if defined(__cplusplus)
 }

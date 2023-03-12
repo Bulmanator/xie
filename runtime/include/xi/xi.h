@@ -130,6 +130,39 @@ typedef struct xiContext {
 #define XI_GAME_INIT(name) void name(xiContext *xi)
 typedef XI_GAME_INIT(xiGameInit);
 
+#define XI_GAME_RENDER(name) void name(xiContext *xi, xiRenderer *renderer)
+typedef XI_GAME_RENDER(xiGameRender);
+
+enum xiGameCodeType {
+    XI_GAME_CODE_TYPE_DYNAMIC = 0,
+    XI_GAME_CODE_TYPE_STATIC
+};
+
+typedef struct xiGameCode {
+    u32 type;
+    union {
+        struct {
+            string lib;      // basename of the .dll/.so to load, extension will be added by platform
+                             // @todo: do we allow absolute paths here?
+                             //
+            string init;     // name of the init function to load
+            string simulate; // name of the simulate function to load
+            string render;   // name of the render function to load
+        } names;
+
+        struct {
+            xiGameInit *init; // direct pointer to the init function to call
+            // xiGameSimulate *simulate; // direct pointer to the simulate function to call
+            xiGameRender *render; // direct pointer to the render function to call
+        } functions;
+    };
+} xiGameCode;
+
+// this will execute the main loop of the engine. game code can either be supplied directly via
+// function pointers or via names to the functions and executable to load dynamically.
+//
+extern XI_API int xie_run(xiGameCode *code);
+
 #if defined(__cplusplus)
 }
 #endif

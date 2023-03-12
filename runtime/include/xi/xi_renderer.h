@@ -12,6 +12,19 @@ typedef struct xiRenderer xiRenderer;
 typedef XI_RENDERER_INIT(xiRendererInit);
 typedef XI_RENDERER_SUBMIT(xiRendererSubmit);
 
+enum xiRenderCommandType {
+    XI_RENDER_COMMAND_INVALID = 0,
+    XI_RENDER_COMMAND_xiRenderCommandDraw
+};
+
+typedef struct xiRenderCommandDraw {
+    u32 vertex_offset;
+    u32 vertex_count;
+
+    u32 index_offset;
+    u32 index_count;
+} xiRenderCommandDraw;
+
 typedef struct xiRenderer {
     xiRendererInit   *init;
     xiRendererSubmit *submit;
@@ -35,6 +48,13 @@ typedef struct xiRenderer {
 
     xiArena uniforms;
     buffer  commands;
+
+    xiRenderCommandDraw *draw_call;
 } xiRenderer;
+
+// 2d textureless quads
+//
+extern XI_API void xi_quad_draw_xy(xiRenderer *renderer, v4 colour,
+        v2 center, v2 dimension, f32 angle);
 
 #endif  // XI_RENDERER_H_

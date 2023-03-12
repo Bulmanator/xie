@@ -176,7 +176,7 @@ b32 gl_base_shader_compile(xiOpenGLContext *gl) {
 
     string vertex_code =
         xi_str_wrap_const("void main() {"
-                          "    gl_Position = transform * v4(vertex_position, 1.0);"
+                          "    gl_Position = v4(vertex_position, 1.0);"
 
                           "    fragment_uv     = vertex_uv;"
                           "    fragment_colour = vertex_colour;"
@@ -185,13 +185,71 @@ b32 gl_base_shader_compile(xiOpenGLContext *gl) {
     if (gl_shader_compile(gl, &gl->base_vs, GL_VERTEX_SHADER, vertex_code)) {
         string fragment_code =
             xi_str_wrap_const("void main() {"
-                              "    output_colour = texture(image, fragment_uv) * fragment_colour;"
+                              "    output_colour = fragment_colour;"
                               "}");
 
         result = gl_shader_compile(gl, &gl->base_fs, GL_FRAGMENT_SHADER, fragment_code);
     }
 
     return result;
+}
+
+static void xi_opengl_submit(xiOpenGLContext *gl) {
+    xiRenderer *renderer = &gl->renderer;
+
+    glViewport(0, 0, renderer->setup.window_dim.w, renderer->setup.window_dim.h);
+
+    // setup buffers
+    //
+    gl->BindVertexArray(gl->vao);
+
+    gl->BindBuffer(GL_ARRAY_BUFFER, gl->vbo);
+    gl->BindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
+
+    gl->VertexAttribPointer(0, 3, GL_FLOAT,         GL_FALSE, sizeof(vert3), (void *) XI_OFFSET_OF(vert3, p));
+    gl->VertexAttribPointer(1, 2, GL_FLOAT,         GL_FALSE, sizeof(vert3), (void *) XI_OFFSET_OF(vert3, uv));
+    gl->VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(vert3), (void *) XI_OFFSET_OF(vert3, c));
+
+    gl->EnableVertexAttribArray(0);
+    gl->EnableVertexAttribArray(1);
+    gl->EnableVertexAttribArray(2);
+
+    // setup shader
+    //
+    gl->UseProgramStages(gl->pipeline, GL_VERTEX_SHADER_BIT,   gl->base_vs);
+    gl->UseProgramStages(gl->pipeline, GL_FRAGMENT_SHADER_BIT, gl->base_fs);
+
+    gl->BindProgramPipeline(gl->pipeline);
+
+    buffer *commands = &renderer->commands;
+    for (uptr offset = 0; offset < commands->used;) {
+        u32 type = *(u32 *) (commands->data + offset);
+        offset += sizeof(u32);
+
+        switch (type) {
+            case XI_RENDER_COMMAND_xiRenderCommandDraw: {
+                xiRenderCommandDraw *draw = (xiRenderCommandDraw *) (commands->data + offset);
+                offset += sizeof(xiRenderCommandDraw);
+
+                void *index_offset = (void *) (draw->index_offset * sizeof(u16));
+                u32   index_count  = draw->index_count;
+
+                gl->DrawElementsBaseVertex(GL_TRIANGLES, index_count,
+                        GL_UNSIGNED_SHORT, index_offset, draw->vertex_offset);
+            }
+            break;
+        }
+    }
+
+    // reset immediate mode buffers for next frame
+    //
+    renderer->commands.used  = 0;
+    renderer->vertices.count = 0;
+    renderer->indices.count  = 0;
+
+    xi_arena_reset(&renderer->uniforms);
+
+    renderer->draw_call = 0;
 }
 
 #if XI_OS_WIN32

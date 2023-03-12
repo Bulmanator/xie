@@ -31,6 +31,8 @@ typedef char      GLchar;
 #define GL_COMPILE_STATUS                  0x8B81
 #define GL_LINK_STATUS                     0x8B82
 #define GL_PROGRAM_SEPARABLE               0x8258
+#define GL_VERTEX_SHADER_BIT               0x00000001
+#define GL_FRAGMENT_SHADER_BIT             0x00000002
 
 // any function typedefs for extension functions to load dynamically
 //
@@ -51,6 +53,12 @@ typedef void xiOpenGL_glGetProgramInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
 typedef void xiOpenGL_glDeleteProgram(GLuint);
 typedef void xiOpenGL_glGetShaderInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
 typedef void xiOpenGL_glDeleteShader(GLuint);
+typedef void xiOpenGL_glBindVertexArray(GLuint);
+typedef void xiOpenGL_glVertexAttribPointer(GLuint, GLint, GLenum, GLboolean, GLsizei, const GLvoid *);
+typedef void xiOpenGL_glEnableVertexAttribArray(GLuint);
+typedef void xiOpenGL_glUseProgramStages(GLuint, GLbitfield, GLuint);
+typedef void xiOpenGL_glBindProgramPipeline(GLuint);
+typedef void xiOpenGL_glDrawElementsBaseVertex(GLenum, GLsizei, GLenum, void *, GLint);
 
 typedef void *xiOpenGL_glMapBufferRange(GLenum, GLintptr, GLsizeiptr, GLbitfield);
 
@@ -108,11 +116,20 @@ typedef struct xiOpenGLContext {
     GL_FUNCTION_POINTER(DeleteProgram);
     GL_FUNCTION_POINTER(GetShaderInfoLog);
     GL_FUNCTION_POINTER(DeleteShader);
+    GL_FUNCTION_POINTER(BindVertexArray);
+    GL_FUNCTION_POINTER(VertexAttribPointer);
+    GL_FUNCTION_POINTER(EnableVertexAttribArray);
+    GL_FUNCTION_POINTER(UseProgramStages);
+    GL_FUNCTION_POINTER(BindProgramPipeline);
+    GL_FUNCTION_POINTER(DrawElementsBaseVertex);
 } xiOpenGLContext;
 
 #undef GL_FUNCTION_POINTER
 
 // base shader code
+//
+// @todo: this messes with the define for xi_str_wrap_const and makes it kind of a pain to use elsewhere
+// in c so this should be moved to the general compile function
 //
 static const string shader_header =
                   xi_str_wrap_const("#version 440 core\n"

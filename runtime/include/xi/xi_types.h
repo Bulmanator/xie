@@ -52,6 +52,8 @@ extern "C" {
 #if defined(_WIN32)
     #undef  XI_OS_WIN32
     #define XI_OS_WIN32 1
+
+    #pragma warning(disable : 4201) // nonstandard extension used : nameless struct/union
 #elif defined(__linux__)
     #undef  XI_OS_LINUX
     #define XI_OS_LINUX 1
@@ -187,6 +189,11 @@ typedef union v4 {
         f32 _w;
     };
 
+    struct {
+        v3  rgb;
+        f32 _a;
+    };
+
     f32 e[4];
 } v4;
 
@@ -225,6 +232,7 @@ typedef struct m4x4_inv {
 typedef struct vert3 {
     v3  p;
     v2  uv; // @todo: does this need to be full precision?
+            // this need an extra component for the texture index
     u32 c;
 } vert3; // 24 bytes
 

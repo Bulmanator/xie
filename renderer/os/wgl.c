@@ -319,6 +319,12 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
                 WGL_LOAD_FUNCTION(gl, DeleteProgram);
                 WGL_LOAD_FUNCTION(gl, GetShaderInfoLog);
                 WGL_LOAD_FUNCTION(gl, DeleteShader);
+                WGL_LOAD_FUNCTION(gl, BindVertexArray);
+                WGL_LOAD_FUNCTION(gl, VertexAttribPointer);
+                WGL_LOAD_FUNCTION(gl, EnableVertexAttribArray);
+                WGL_LOAD_FUNCTION(gl, UseProgramStages);
+                WGL_LOAD_FUNCTION(gl, BindProgramPipeline);
+                WGL_LOAD_FUNCTION(gl, DrawElementsBaseVertex);
 
                 gl->renderer.init   = xi_opengl_init;
                 gl->renderer.submit = wgl_renderer_submit;
@@ -360,7 +366,10 @@ XI_RENDERER_SUBMIT(wgl_renderer_submit) {
         wgl->SwapIntervalEXT(renderer->setup.vsync ? 1 : 0);
     }
 
-    //xi_opengl_renderer_submit((xiOpenGLContext *) renderer);
+    glClearColor(1, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    xi_opengl_submit((xiOpenGLContext *) renderer);
 
     SwapBuffers(wgl->hdc);
 }
