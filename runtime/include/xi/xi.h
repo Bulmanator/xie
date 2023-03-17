@@ -66,9 +66,7 @@ typedef struct xiDisplay {
     f32 refresh_rate;
     f32 scale; // windows are dpi aware, for informational purposes
 
-    // @todo: add a name here so we can identify displays to the user
-    // at runtime
-    //
+    string name;
 
     // @todo: maybe we want to have supported modes here
     //
@@ -103,7 +101,7 @@ typedef struct xiContext {
         u32 width;
         u32 height;
 
-        u32 display_index; // index from zero < system.display_count
+        u32 display; // index from zero < system.display_count
         u32 state;
 
         string title;

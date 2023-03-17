@@ -3,6 +3,8 @@
 #include <shellscalingapi.h>
 #include <shlobj.h>
 
+#include <stdio.h>
+
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "shcore.lib")
@@ -15,6 +17,8 @@
 //
 #define XI_CREATE_WINDOW  (WM_USER + 0x1234)
 #define XI_DESTROY_WINDOW (WM_USER + 0x1235)
+
+#define XI_MAX_TITLE_COUNT 1024
 
 // information passed to XI_CREATE_WINDOW
 //
@@ -29,6 +33,21 @@ typedef struct xiWin32WindowInfo {
     HINSTANCE hInstance;
 } xiWin32WindowInfo;
 
+typedef struct xiWin32DisplayInfo {
+    HMONITOR handle;
+
+    b32 is_primary;
+
+    // this is to get the actual device name
+    //
+    string gdi_name; // \\.\DISPLAY[n]
+
+    RECT bounds;
+    u32 dpi; // raw dpi value
+
+    xiDisplay xi;
+} xiWin32DisplayInfo;
+
 // context containing any required win32 information
 //
 typedef struct xiWin32Context {
@@ -41,18 +60,26 @@ typedef struct xiWin32Context {
     DWORD main_thread;
     HWND  create_window;
 
+    u32 display_count;
+    xiWin32DisplayInfo displays[XI_MAX_DISPLAYS];
+
     struct {
         HWND handle;
+
+        LONG windowed_style; // style before entering fullscreen
         WINDOWPLACEMENT placement;
 
         b32 user_resizing;
 
+        u32 dpi;
+
         u32    last_state;
-        string last_title;
+        buffer title;
     } window;
 
     struct {
         b32 dynamic;
+        u64 last_time;
 
         HMODULE dll;
         LPWSTR dll_src_path; // where the game dll is compiled to
@@ -123,6 +150,14 @@ static DWORD win32_wstr_length_get(LPCWSTR wstr) {
     return result;
 }
 
+static string win32_wcstr_wrap(LPWSTR str) {
+    string result;
+    result.count = (win32_wstr_length_get(str) << 1);
+    result.data  = (u8 *) str;
+
+    return result;
+}
+
 static string win32_utf8_to_utf16(xiArena *arena, string str) {
     string result = { 0 };
 
@@ -170,10 +205,10 @@ static LONG win32_window_style_get_for_state(LONG old_state, u32 state) {
         }
         break;
         case XI_WINDOW_STATE_WINDOWED: {
-            result |= (WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX));
+            result |= WS_OVERLAPPEDWINDOW;
+            result &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
         }
         break;
-
         case XI_WINDOW_STATE_BORDERLESS:
         case XI_WINDOW_STATE_FULLSCREEN: {
             result &= ~WS_OVERLAPPEDWINDOW;
@@ -235,6 +270,52 @@ static LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARA
             }
         }
         break;
+        case WM_DPICHANGED: {
+            if (context) {
+                OutputDebugStringW(L"DPI CHANGED!\n");
+
+                LPRECT rect = (LPRECT) lParam;
+                LONG style  = GetWindowLongW(hwnd, GWL_STYLE);
+                WORD dpi    = LOWORD(wParam);
+
+                int x = rect->left;
+                int y = rect->top;
+
+                AdjustWindowRectExForDpi(rect, style, FALSE, 0, dpi);
+
+                int width  = (rect->right - rect->left);
+                int height = (rect->bottom - rect->top);
+
+                UINT flags = SWP_NOOWNERZORDER | SWP_NOZORDER;
+
+                SetWindowPos(hwnd, HWND_TOP, x, y, width, height, flags);
+
+                context->window.dpi = dpi;
+            }
+        }
+        break;
+        case WM_GETDPISCALEDSIZE: {
+            if (context) {
+                // we have to interact with this message instead of just using the standard LPRECT
+                // provided to WM_DPICHANGED because the client resolutions it provides are incorrect
+                //
+                LONG dpi   = (LONG) wParam;
+                PSIZE size = (PSIZE) lParam;
+
+                RECT client_rect;
+                GetClientRect(hwnd, &client_rect);
+
+                f32 scale = (f32) dpi / context->window.dpi;
+
+                // may produce off by 1px errors when scaling odd resolutions
+                //
+                size->cx = (LONG) (scale * (client_rect.right - client_rect.left));
+                size->cy = (LONG) (scale * (client_rect.bottom - client_rect.top));
+
+                result = TRUE;
+            }
+        }
+        break;
         default: {
             result = DefWindowProcW(hwnd, message, wParam, lParam);
         }
@@ -250,17 +331,17 @@ static BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor, HDC hdcMonitor,
     (void) lpRect;
     (void) hdcMonitor;
 
-    xiContext *xi = (xiContext *) lParam;
+    xiWin32Context *context = (xiWin32Context *) lParam;
 
     // @todo: i need to store the rect bounds of each monitors instead of just the information we
     // pass back to the game becasue they will be used to center windows and place windows
     // on different displays depending on init parameters
     //
 
-    if (xi->system.display_count < XI_MAX_DISPLAYS) {
+    if (context->display_count < XI_MAX_DISPLAYS) {
         result = TRUE;
 
-        xiDisplay *display = &xi->system.displays[xi->system.display_count];
+        xiWin32DisplayInfo *info = &context->displays[context->display_count];
 
         MONITORINFOEXW monitor_info = { 0 };
         monitor_info.cbSize = sizeof(MONITORINFOEXW);
@@ -268,22 +349,107 @@ static BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor, HDC hdcMonitor,
         if (GetMonitorInfoW(hMonitor, (LPMONITORINFO) &monitor_info)) {
             UINT xdpi, ydpi;
             if (GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &xdpi, &ydpi) == S_OK) {
-                display->scale = (f32) xdpi / 96.0f;
+                info->xi.scale = (f32) xdpi / 96.0f;
+                info->bounds   = monitor_info.rcMonitor;
+                info->dpi      = xdpi;
 
                 DEVMODEW mode = { 0 };
                 mode.dmSize = sizeof(DEVMODEW);
                 if (EnumDisplaySettingsW(monitor_info.szDevice, ENUM_CURRENT_SETTINGS, &mode)) {
-                    display->width        = mode.dmPelsWidth;
-                    display->height       = mode.dmPelsHeight;
-                    display->refresh_rate = (f32) mode.dmDisplayFrequency;
+                    OutputDebugStringW(monitor_info.szDevice);
+                    OutputDebugStringW(L"\n");
 
-                    xi->system.display_count += 1;
+                    string name = win32_wcstr_wrap(monitor_info.szDevice);
+
+                    info->gdi_name.count = name.count;
+                    info->gdi_name.data  = xi_arena_push_copy(&context->arena, name.data, name.count);
+
+                    info->handle = hMonitor;
+
+                    info->xi.width  = mode.dmPelsWidth;
+                    info->xi.height = mode.dmPelsHeight;
+
+                    info->xi.refresh_rate = (f32) mode.dmDisplayFrequency;
+
+                    info->is_primary = (monitor_info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+
+                    context->display_count += 1;
                 }
             }
         }
     }
 
     return result;
+}
+
+static void win32_display_info_get(xiWin32Context *context) {
+    EnumDisplayMonitors(0, 0, win32_displays_enumerate, (LPARAM) &context->xi);
+
+    xiArena *temp = xi_temp_get();
+
+    u32 path_count = 0;
+    u32 mode_count = 0;
+
+    DISPLAYCONFIG_PATH_INFO *paths = 0;
+    DISPLAYCONFIG_MODE_INFO *modes = 0;
+
+    u32 flags = QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE;
+
+    LONG result;
+
+    do {
+        result = GetDisplayConfigBufferSizes(flags, &path_count, &mode_count);
+        if (result == ERROR_SUCCESS) {
+            paths = xi_arena_push_array(temp, DISPLAYCONFIG_PATH_INFO, path_count);
+            modes = xi_arena_push_array(temp, DISPLAYCONFIG_MODE_INFO, mode_count);
+
+            result = QueryDisplayConfig(flags, &path_count, paths, &mode_count, modes, 0);
+        }
+    }
+    while (result == ERROR_INSUFFICIENT_BUFFER);
+
+    if (result == ERROR_SUCCESS) {
+        for (u32 it = 0; it < path_count; ++it) {
+            DISPLAYCONFIG_PATH_INFO *path = &paths[it];
+
+            DISPLAYCONFIG_SOURCE_DEVICE_NAME source_name = { 0 };
+            source_name.header.adapterId = path->sourceInfo.adapterId;
+            source_name.header.id        = path->sourceInfo.id;
+            source_name.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            source_name.header.size      = sizeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME);
+
+            result = DisplayConfigGetDeviceInfo(&source_name.header);
+            if (result == ERROR_SUCCESS) {
+                string gdi_name = win32_wcstr_wrap(source_name.viewGdiDeviceName);
+
+                DISPLAYCONFIG_TARGET_DEVICE_NAME target_name = { 0 };
+                target_name.header.adapterId = path->targetInfo.adapterId;
+                target_name.header.id        = path->targetInfo.id;
+                target_name.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+                target_name.header.size      = sizeof(DISPLAYCONFIG_TARGET_DEVICE_NAME);
+
+                result = DisplayConfigGetDeviceInfo(&target_name.header);
+                if (result == ERROR_SUCCESS) {
+                    string name = win32_wcstr_wrap(target_name.monitorFriendlyDeviceName);
+
+                    for (u32 d = 0; d < context->display_count; ++d) {
+                        xiWin32DisplayInfo *display = &context->displays[d];
+                        if (xi_str_equal(display->gdi_name, gdi_name)) {
+                            display->xi.name = win32_utf16_to_utf8(&context->arena, name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    xiContext *xi = &context->xi;
+
+    xi->system.display_count = context->display_count;
+
+    for (u32 it = 0; it < context->display_count; ++it) {
+        xi->system.displays[it] = context->displays[it].xi;
+    }
 }
 
 //
@@ -413,6 +579,10 @@ static string win32_system_path_get(xiArena *arena, u32 type, b32 convert_backsl
 //
 // :note game code management
 //
+static b32 win32_game_code_is_valid(xiWin32Context *context) {
+    b32 result = (context->game.init != 0) && (context->game.render != 0); // && (context->game.simulate != 0)
+    return result;
+}
 
 static void win32_game_code_init(xiWin32Context *context) {
     xiArena *temp = xi_temp_get();
@@ -422,11 +592,13 @@ static void win32_game_code_init(xiWin32Context *context) {
     if (code->type == XI_GAME_CODE_TYPE_STATIC) {
         context->game.init     = code->functions.init;
         // context->game.simulate = code->functions.simulate;
-        // context->game.render   = code->functions.render;
+        context->game.render   = code->functions.render;
 
         context->game.dynamic  = false;
     }
     else {
+        context->game.dynamic = true;
+
         string exe_path = win32_system_path_get(temp, WIN32_PATH_TYPE_EXECUTABLE, false);
         string dll_name = win32_utf8_to_utf16(temp, code->names.lib);
 
@@ -459,18 +631,82 @@ static void win32_game_code_init(xiWin32Context *context) {
         if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
             context->game.dll = LoadLibraryW(context->game.dll_dst_path);
             if (context->game.dll) {
-                // @hardcode: the function names will be configurable in the future
-                //
-                context->game.init   = (xiGameInit *)   GetProcAddress(context->game.dll, "game_init");
-                context->game.render = (xiGameRender *) GetProcAddress(context->game.dll, "game_render");
+                LPSTR init     = xi_arena_push_copy(&context->arena, code->names.init.data,     code->names.init.count     + 1);
+                LPSTR simulate = xi_arena_push_copy(&context->arena, code->names.simulate.data, code->names.simulate.count + 1);
+                LPSTR render   = xi_arena_push_copy(&context->arena, code->names.render.data,   code->names.render.count   + 1);
+
+                context->game.init_name     = init;
+                context->game.simulate_name = simulate;
+                context->game.render_name   = render;
+
+                context->game.init   = (xiGameInit *)   GetProcAddress(context->game.dll, init);
+                context->game.render = (xiGameRender *) GetProcAddress(context->game.dll, render);
+
+                if (win32_game_code_is_valid(context)) {
+                    WIN32_FILE_ATTRIBUTE_DATA attributes;
+                    if (GetFileAttributesExW(context->game.dll_src_path, GetFileExInfoStandard, &attributes)) {
+                        context->game.last_time =
+                            ((u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
+                            ((u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
+
+                    }
+                }
             }
         }
     }
 }
 
-static b32 win32_game_code_is_valid(xiWin32Context *context) {
-    b32 result = (context->game.init != 0); // && (context->game.simulate != 0) && (context->game.render != 0);
-    return result;
+static void win32_game_code_reload(xiWin32Context *context) {
+    // @todo: we should really be reading the .dll file to see if it has debug information. this is
+    // because the .pdb file location is hardcoded into the debug data directory. when debugging on
+    // some debuggers (like microsoft visual studio) it will lock the .pdb file and prevent the compiler
+    // from writing to it causing a whole host of issues
+    //
+    // there are several ways around this, loading the .dll patching the .pdb path to something unique
+    // is the "proper" way, you can also specify the /pdb linker flag with msvc.
+    //
+    // this doesn't affect because remedybg doesn't lock the .pdb file
+    //
+    WIN32_FILE_ATTRIBUTE_DATA attributes;
+    if (GetFileAttributesExW(context->game.dll_src_path, GetFileExInfoStandard, &attributes)) {
+        u64 time = ((u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
+                   ((u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
+
+        if (time != context->game.last_time) {
+            if (context->game.dll) {
+                FreeLibrary(context->game.dll);
+
+                context->game.dll    = 0;
+                context->game.init   = 0;
+                context->game.render = 0;
+            }
+
+            if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
+                context->game.dll = LoadLibraryW(context->game.dll_dst_path);
+                if (context->game.dll) {
+                    // @hardcode: should be able to change this to whatever, just need to push zstr
+                    //
+                    context->game.init   = (xiGameInit *)   GetProcAddress(context->game.dll, "game_init");
+                    context->game.render = (xiGameRender *) GetProcAddress(context->game.dll, "game_render");
+
+                    if (win32_game_code_is_valid(context)) {
+                        context->game.last_time = time;
+
+                        // call init again but signal to the developer that the code was reloaded
+                        // rather than initially called
+                        //
+                        context->xi.flags |= XI_CONTEXT_FLAG_RELOADED;
+                        context->game.init(&context->xi);
+
+                        // remove the flag again so subsequent calls to simulate or render don't
+                        // look like a reload
+                        //
+                        context->xi.flags &= ~XI_CONTEXT_FLAG_RELOADED;
+                    }
+                }
+            }
+        }
+    }
 }
 
 //
@@ -506,7 +742,12 @@ static void win32_xi_context_update(xiWin32Context *context) {
             u32 width  = (client_rect.right  - client_rect.left);
             u32 height = (client_rect.bottom - client_rect.top);
 
-            if (width != xi->window.width || height != xi->window.height) {
+            f32 current_scale = (f32) context->window.dpi / USER_DEFAULT_SCREEN_DPI;
+
+            u32 desired_width  = (u32) (current_scale * xi->window.width);
+            u32 desired_height = (u32) (current_scale * xi->window.height);
+
+            if (width != desired_width || height != desired_height) {
                 LONG style       = GetWindowLongW(hwnd, GWL_STYLE);
                 HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
 
@@ -540,6 +781,12 @@ static void win32_xi_context_update(xiWin32Context *context) {
                 // entering fullscreen
                 //
                 SetWindowPlacement(hwnd, &context->window.placement);
+
+                // we have to restore the style to back before we went into fullscreen otherwise
+                // the client area will include the old decorations area making it slightly too big
+                //
+                SetWindowLongW(hwnd, GWL_STYLE, context->window.windowed_style);
+                SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, flags);
             }
 
             if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
@@ -563,6 +810,8 @@ static void win32_xi_context_update(xiWin32Context *context) {
                         h = (info.rcMonitor.bottom - info.rcMonitor.top);
 
                         flags &= ~(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+
+                        context->window.windowed_style = GetWindowLongW(hwnd, GWL_STYLE);
                     }
                 }
             }
@@ -596,13 +845,14 @@ static void win32_xi_context_update(xiWin32Context *context) {
         }
     }
 
-    if (!xi_str_equal(xi->window.title, context->window.last_title)) {
+    if (!xi_str_equal(xi->window.title, context->window.title.str)) {
+        context->window.title.used = XI_MIN(xi->window.title.count, context->window.title.limit);
+        xi_memory_copy(context->window.title.data, xi->window.title.data, context->window.title.used);
+
         xiArena *temp = xi_temp_get();
+        string new_title = win32_utf8_to_utf16(temp, xi->window.title);
 
-        string title = win32_utf8_to_utf16(temp, xi->window.title);
-        SetWindowTextW(context->window.handle, (LPWSTR) title.data);
-
-        context->window.last_title = xi->window.title;
+        SetWindowTextW(context->window.handle, (LPWSTR) new_title.data);
     }
 
     // process windows messages that our application received
@@ -627,22 +877,41 @@ static void win32_xi_context_update(xiWin32Context *context) {
     RECT client_area;
     GetClientRect(context->window.handle, &client_area);
 
-    xi->window.width  = (client_area.right - client_area.left);
-    xi->window.height = (client_area.bottom - client_area.top);
+    u32 width  = (client_area.right - client_area.left);
+    u32 height = (client_area.bottom - client_area.top);
+
+    if (width != 0 && height != 0) {
+        xi->window.width  = width;
+        xi->window.height = height;
+    }
+
+    xi->window.title = context->window.title.str;
+
+    // update the index of the display that the window is currently on
+    //
+    HMONITOR monitor = MonitorFromWindow(context->window.handle, MONITOR_DEFAULTTONEAREST);
+    for (u32 it = 0; it < context->display_count; ++it) {
+        if (context->displays[it].handle == monitor) {
+            xi->window.display = it;
+            break;
+        }
+    }
 
     // @todo: update other state that the game context needs and that didn't come from
     // messages
     //
+
+    if (context->game.dynamic) {
+        // reload the code if it needs to be
+        //
+        win32_game_code_reload(context);
+    }
 }
 
 static DWORD WINAPI win32_main_thread(LPVOID param) {
     DWORD result = 0;
 
     xiWin32Context *context = (xiWin32Context *) param;
-
-    // @todo: eventually we will load a configuration file here which will tell us some information
-    // about the game, where the loaded code is and its functions names, set the icon etc.
-    //
 
     WNDCLASSW wnd_class = { 0 };
     wnd_class.style         = CS_OWNDC;
@@ -654,10 +923,16 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
     wnd_class.lpszClassName = L"xi_game_window_class";
 
     if (RegisterClassW(&wnd_class)) {
-        EnumDisplayMonitors(0, 0, win32_displays_enumerate, (LPARAM) &context->xi);
+        win32_display_info_get(context);
 
         xiArena   *temp = xi_temp_get();
         xiContext *xi   = &context->xi;
+
+        // setup title buffer
+        //
+        context->window.title.used  = 0;
+        context->window.title.limit = XI_MAX_TITLE_COUNT;
+        context->window.title.data  = xi_arena_push_array(&context->arena, u8, XI_MAX_TITLE_COUNT);
 
         SYSTEM_INFO system_info;
         GetSystemInfo(&system_info);
@@ -679,51 +954,65 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
             context->game.init(xi);
         }
 
+        u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
+        xiWin32DisplayInfo *display = &context->displays[display_index];
+
+        UINT dpi  = display->dpi;
+        f32 scale = display->xi.scale;
+
+        XI_ASSERT(scale >= 1.0f);
+
         xiWin32WindowInfo window_info = { 0 };
-        window_info.lpClassName  = wnd_class.lpszClassName;
-        window_info.dwStyle      = win32_window_style_get_for_state(0, xi->window.state) | WS_VISIBLE;
-        window_info.X            = CW_USEDEFAULT;
-        window_info.Y            = CW_USEDEFAULT;
-        window_info.nWidth       = CW_USEDEFAULT;
-        window_info.nHeight      = CW_USEDEFAULT;
-        window_info.hInstance    = wnd_class.hInstance;
+        window_info.lpClassName = wnd_class.lpszClassName;
+        window_info.dwStyle     = win32_window_style_get_for_state(0, xi->window.state);
+        window_info.hInstance   = wnd_class.hInstance;
 
-        // @todo: we should center the window on the display that has been selected
-        //
-
-        if (xi->window.width != 0 && xi->window.height != 0) {
-            RECT rect;
-            rect.left   = 0;
-            rect.top    = 0;
-            rect.right  = xi->window.width;
-            rect.bottom = xi->window.height;
-
-            u32 index = XI_MIN(xi->window.display_index, xi->system.display_count);
-            UINT dpi  = (UINT) (96.0f * xi->system.displays[index].scale);
-
-            if (AdjustWindowRectExForDpi(&rect, window_info.dwStyle, FALSE, 0, dpi)) {
-                window_info.nWidth  = (rect.right - rect.left);
-                window_info.nHeight = (rect.bottom - rect.top);
-            }
-            else {
-                window_info.nWidth  = xi->window.width;
-                window_info.nHeight = xi->window.height;
-            }
+        if (xi->window.width == 0 || xi->window.height == 0) {
+            // just default to 1280x720 if the user doesn't specify a window size
+            // could use CW_USEDEFAULT but its a pain because you can't properly
+            // specify X,Y with it
+            //
+            xi->window.width  = 1280;
+            xi->window.height = 720;
         }
 
-        LPWSTR title;
-        if (xi_str_is_valid(xi->window.title)) {
-            title = (LPWSTR) win32_utf8_to_utf16(temp, xi->window.title).data;
+        RECT rect;
+        rect.left   = 0;
+        rect.top    = 0;
+        rect.right  = (LONG) (scale * xi->window.width);
+        rect.bottom = (LONG) (scale * xi->window.height);
+
+        // set the window size scaled correctly
+        //
+        xi->window.width  = rect.right;
+        xi->window.height = rect.bottom;
+
+        if (AdjustWindowRectExForDpi(&rect, window_info.dwStyle, FALSE, 0, dpi)) {
+            window_info.nWidth  = (rect.right - rect.left);
+            window_info.nHeight = (rect.bottom - rect.top);
         }
         else {
-            title = L"xie";
+            window_info.nWidth  = xi->window.width;
+            window_info.nHeight = xi->window.height;
         }
 
-        window_info.lpWindowName = title;
+        window_info.X = display->bounds.left + ((s32) (display->xi.width  - window_info.nWidth)  >> 1);
+        window_info.Y = display->bounds.top  + ((s32) (display->xi.height - window_info.nHeight) >> 1);
+
+        if (xi_str_is_valid(xi->window.title)) {
+            xi->window.title.count = XI_MIN(xi->window.title.count, context->window.title.limit);
+            string title = win32_utf8_to_utf16(temp, xi->window.title);
+
+            window_info.lpWindowName = (LPWSTR) title.data;
+        }
+        else {
+            window_info.lpWindowName = L"xie";
+        }
 
         HWND hwnd = (HWND) SendMessageW(context->create_window, XI_CREATE_WINDOW, (WPARAM) &window_info, 0);
         if (hwnd != 0) {
             context->window.handle = hwnd;
+            context->window.dpi    = dpi;
 
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR) context);
 
@@ -739,18 +1028,45 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
 
                 SetWindowLongW(hwnd, GWL_STYLE, style);
                 SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, flags);
+
+                context->window.last_state = xi->window.state;
             }
 
-            context->window.last_state = xi->window.state;
-            context->window.last_title = xi->window.title;
+            // we copy the title into our own buffer, that is capped at 1024 bytes
+            // in the event the incoming title is stored in .bss storage we can't store a pointer
+            // to it directly due to dynamic code reloading
+            //
+            {
+                string title = xi->window.title;
+                if (!xi_str_is_valid(title)) {
+                    title = (string) xi_str_wrap_const("xie");
+                }
 
-            if (xi->window.width == 0 || xi->window.height == 0) {
-                RECT client_rect;
-                GetClientRect(hwnd, &client_rect);
+                XI_ASSERT(title.count <= XI_MAX_TITLE_COUNT);
 
-                xi->window.width  = (client_rect.right - client_rect.left);
-                xi->window.height = (client_rect.bottom - client_rect.top);
+                xi_memory_copy(context->window.title.data, title.data, title.count);
+
+                context->window.title.used = title.count;
+                xi->window.title = context->window.title.str;
             }
+
+            // we setup the window as normal and then after creation set it to fullscreen
+            // this way we can get an initial window placement to return the window back into windowed
+            // mode with
+            //
+            if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
+                if (GetWindowPlacement(hwnd, &context->window.placement)) {
+                    int x = display->bounds.left;
+                    int y = display->bounds.top;
+
+                    int w = (display->bounds.right - display->bounds.left);
+                    int h = (display->bounds.bottom - display->bounds.top);
+
+                    SetWindowPos(hwnd, HWND_TOP, x, y, w, h, SWP_NOZORDER | SWP_NOOWNERZORDER);
+                }
+            }
+
+            ShowWindow(hwnd, SW_SHOW);
 
             // load and initialise renderer
             //
