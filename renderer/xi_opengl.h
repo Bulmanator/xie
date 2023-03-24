@@ -126,59 +126,6 @@ typedef struct xiOpenGLContext {
 
 #undef GL_FUNCTION_POINTER
 
-// base shader code
-//
-// @todo: this messes with the define for xi_str_wrap_const and makes it kind of a pain to use elsewhere
-// in c so this should be moved to the general compile function
-//
-static const string shader_header =
-                  xi_str_wrap_const("#version 440 core\n"
-                                    "#define f32 float\n"
-                                    "#define f64 double\n"
-
-                                    "#define v2u uvec2\n"
-                                    "#define v2s ivec2\n"
-
-                                    "#define v2 vec2\n"
-                                    "#define v3 vec3\n"
-                                    "#define v4 vec4\n"
-
-                                    "#define m2x2 mat2\n"
-                                    "#define m4x4 mat4\n"
-
-                                   "layout(row_major, binding = 0) uniform xiGlobals {"
-                                   "    m4x4 transform;"
-                                   "    v4   camera_position;"
-                                   "    f32  time;"
-                                   "    f32  dt;"
-                                   "    f32  unused0;"
-                                   "    f32  unused1;"
-                                   "};");
-
-static const string vertex_defines =
-                  xi_str_wrap_const("layout(location = 0) in v3 vertex_position;"
-                                    "layout(location = 1) in v2 vertex_uv;"
-                                    "layout(location = 2) in v4 vertex_colour;"
-
-                                    // this has to be re-declared if you are using GL_PROGRAM_SEPARABLE
-                                    //
-                                    "out gl_PerVertex {"
-                                    "    vec4  gl_Position;"
-                                    "    float gl_PointSize;"
-                                    "    float gl_ClipDistance[];"
-                                    "};"
-
-                                    "layout(location = 0) out v2 fragment_uv;"
-                                    "layout(location = 1) out v4 fragment_colour;");
-
-static const string fragment_defines =
-                  xi_str_wrap_const("layout(location = 0) in v2 fragment_uv;"
-                                    "layout(location = 1) in v4 fragment_colour;"
-
-                                    "layout(location = 0) out v4 output_colour;"
-
-                                    "layout(binding = 1) uniform sampler2D image;");
-
 // os specific calls
 //
 static xiOpenGLContext *gl_os_context_create(void *platform);

@@ -66,6 +66,7 @@ extern "C" {
 //
 
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdbool.h>
 
 typedef uint8_t  u8;

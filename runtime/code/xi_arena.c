@@ -169,10 +169,10 @@ void xi_arena_reset(xiArena *arena) {
     }
 }
 
-static thread_var xiArena temp;
+static thread_var xiArena __tls_temp;
 
 xiArena *xi_temp_get() {
-    xiArena *result = &temp;
+    xiArena *result = &__tls_temp;
     if (!result->base) {
         xi_arena_init_virtual(result, XI_GB(1));
     }
@@ -181,8 +181,8 @@ xiArena *xi_temp_get() {
 }
 
 void xi_temp_reset() {
-    if (temp.base) {
-        xi_arena_reset(&temp);
+    if (__tls_temp.base) {
+        xi_arena_reset(&__tls_temp);
     }
 }
 

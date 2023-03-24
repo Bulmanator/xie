@@ -182,19 +182,30 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
         if (wgl->GetExtensionsStringEXT) {
             const char *ext_str = wgl->GetExtensionsStringEXT();
             string extensions   = xi_str_wrap_cstr((u8 *) ext_str);
-            string extension    = xi_str_find_from_left(extensions, ' ');
 
-#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, (string) xi_str_wrap_const(#name))) { wgl->name = true; }
+            uptr next_space = 0;
+            if (xi_str_find_first(extensions, &next_space, ' ')) {
+                string extension = xi_str_prefix(extensions, next_space);
 
-            while (xi_str_is_valid(extension)) {
-                WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
-                else WGL_CHECK_EXTENSION(WGL_ARB_multisample)
-                else WGL_CHECK_EXTENSION(WGL_ARB_pixel_format)
-                else WGL_CHECK_EXTENSION(WGL_ARB_create_context)
-                else WGL_CHECK_EXTENSION(WGL_EXT_swap_control)
+#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
 
-                extensions = xi_str_advance(extensions, extension.count + 1);
-                extension  = xi_str_find_from_left(extensions, ' ');
+                while (xi_str_is_valid(extension)) {
+                    WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
+                    else WGL_CHECK_EXTENSION(WGL_ARB_multisample)
+                    else WGL_CHECK_EXTENSION(WGL_ARB_pixel_format)
+                    else WGL_CHECK_EXTENSION(WGL_ARB_create_context)
+                    else WGL_CHECK_EXTENSION(WGL_EXT_swap_control)
+
+                    extensions = xi_str_advance(extensions, next_space + 1);
+
+                    next_space = 0;
+                    if (xi_str_find_first(extensions, &next_space, ' ')) {
+                        extension = xi_str_prefix(extensions, next_space);
+                    }
+                    else {
+                        break;
+                    }
+                }
             }
 
 #undef WGL_CHECK_EXTENSION

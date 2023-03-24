@@ -34,17 +34,16 @@ string xi_str_wrap_cstr(u8 *data) {
     return result;
 }
 
-const char *xi_str_to_cstr(xiArena *arena, string str) {
-    char *result = xi_arena_push_size(arena, str.count + 1);
-
-    xi_memory_copy(result, str.data, str.count);
-    result[str.count] = 0;
-
+b32 xi_str_is_valid(string str) {
+    b32 result = (str.count > 0) && (str.data != 0);
     return result;
 }
 
-b32 xi_str_is_valid(string str) {
-    b32 result = (str.count > 0) && (str.data != 0);
+string xi_str_copy(xiArena *arena, string str) {
+    string result;
+    result.count = str.count;
+    result.data  = xi_arena_push_copy(arena, str.data, result.count);
+
     return result;
 }
 
@@ -98,6 +97,83 @@ b32 xi_str_equal(string a, string b) {
             }
         }
     }
+
+    return result;
+}
+
+#include <stdio.h> // for vsnprintf
+
+// @todo: we will probably want to move away from vsnprintf at some point as it would allow us
+// to print our own types like vectors, matrices and have direct support for counted strings
+//
+
+static uptr xi_format_print(string out, const char *format, va_list args) {
+    uptr result = vsnprintf((char *) out.data, out.count, format, args);
+    return result;
+}
+
+string xi_str_format_args(xiArena *arena, const char *format, va_list args) {
+    string result;
+
+    va_list copy;
+    va_copy(copy, args);
+
+    string test;
+    test.count = 1024;
+    test.data  = xi_arena_push_size(arena, test.count);
+
+    uptr count = xi_format_print(test, format, args);
+    if (count > test.count) {
+        xi_arena_pop_size(arena, test.count);
+
+        result.count = count;
+        result.data  = xi_arena_push_size(arena, count);
+
+        xi_format_print(result, format, copy);
+    }
+    else {
+        result.data  = test.data;
+        result.count = count;
+
+        xi_arena_pop_size(arena, test.count - count);
+    }
+
+    return result;
+}
+
+string xi_str_format_buffer_args(buffer *b, const char *format, va_list args) {
+    string result;
+
+    result.data  = &b->data[b->used];
+    result.count = (b->limit - b->used);
+
+    xi_format_print(result, format, args);
+
+    return result;
+}
+
+string xi_str_format(xiArena *arena, const char *format, ...) {
+    string result;
+
+    va_list args;
+    va_start(args, format);
+
+    result = xi_str_format_args(arena, format, args);
+
+    va_end(args);
+
+    return result;
+}
+
+string xi_str_format_buffer(buffer *b, const char *format, ...) {
+    string result;
+
+    va_list args;
+    va_start(args, format);
+
+    result = xi_str_format_buffer_args(b, format, args);
+
+    va_end(args);
 
     return result;
 }
@@ -158,17 +234,43 @@ string xi_str_slice(string str, uptr start, uptr end) {
     return result;
 }
 
-string xi_str_find_from_left(string str, u32 codepoint) {
-    string result;
+b32 xi_str_find_first(string str, uptr *offset, u32 codepoint) {
+    b32 result = false;
 
-    result.data  = str.data;
-    result.count = 0;
+    // @incomplete: decode utf8 correctly, this only supports ascii
+    //
+    // :utf8
+    //
+    u8 cp = (u8) codepoint;
 
-    u8 cp = (u8) codepoint; // @todo: decode utf-8 correctly
-
+    uptr index = 0;
     while (str.count--) {
-        if (str.data[result.count] == cp) { break; }
-        result.count += 1;
+        if (str.data[index] == cp) {
+            *offset = index;
+            result  = true;
+            break;
+        }
+
+        index += 1;
+    }
+
+    return result;
+}
+
+b32 xi_str_find_last(string str, uptr *offset, u32 codepoint) {
+    b32 result = false;
+
+    // :utf8
+    //
+    u8 cp = (u8) codepoint;
+
+    uptr index = str.count;
+    while (index--) {
+        if (str.data[index] == cp) {
+            *offset = index;
+            result  = true;
+            break;
+        }
     }
 
     return result;

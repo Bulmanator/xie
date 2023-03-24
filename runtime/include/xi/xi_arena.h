@@ -71,11 +71,11 @@ extern XI_API void *xi_arena_push_copy(xiArena *arena, void *src, uptr size);
 #define xi_arena_push_size_copy_aligned(arena, src, size, alignment) xi_arena_push_copy_aligned(arena, src, size, alignment)
 #define xi_arena_push_size_copy(arena, src, size) xi_arena_push_copy(arena, src, size)
 
-#define xi_arena_push_type_copy_aligned(arena, src, type, alignment) (type *) xi_arena_push_copy_aligned(arena, src, sizeof(type), alignment)
+#define xi_arena_push_copy_type_aligned(arena, src, type, alignment) (type *) xi_arena_push_copy_aligned(arena, src, sizeof(type), alignment)
 #define xi_arena_push_copy_type(arena, src, type) (type *) xi_arena_push_copy(arena, src, sizeof(type))
 
-#define xi_arena_push_array_copy_aligned(arena, src, type, count, alignment) (type *) xi_arena_push_copy_aligned(arena, src, (count) * sizeof(type), alignment)
-#define xi_arena_push_array_copy(arena, src, type, count) (type *) xi_arena_push_copy(arena, src, (count) * sizeof(type))
+#define xi_arena_push_copy_array_aligned(arena, src, type, count, alignment) (type *) xi_arena_push_copy_aligned(arena, src, (count) * sizeof(type), alignment)
+#define xi_arena_push_copy_array(arena, src, type, count) (type *) xi_arena_push_copy(arena, src, (count) * sizeof(type))
 
 // get the current offset of the arena
 //

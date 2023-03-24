@@ -57,6 +57,8 @@ extern "C" {
 
 #include "xi_renderer.h"
 
+#include "xi_fileio.h"
+
 #define XI_MAX_DISPLAYS 8
 
 typedef struct xiDisplay {
@@ -114,7 +116,8 @@ typedef struct xiContext {
         uptr processor_count;
 
         // :note encoded in utf-8
-        // these paths do not end with a terminating forward slash
+        // these paths do not end with a terminating forward slash and are not guaranteed to be
+        // null-terminated
         //
         string working_path;
         string executable_path;
@@ -140,9 +143,6 @@ typedef struct xiGameCode {
     u32 type;
     union {
         struct {
-            string lib;      // basename of the .dll/.so to load, extension will be added by platform
-                             // @todo: do we allow absolute paths here?
-                             //
             string init;     // name of the init function to load
             string simulate; // name of the simulate function to load
             string render;   // name of the render function to load

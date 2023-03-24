@@ -111,6 +111,55 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 static b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, string code) {
     b32 result = false;
 
+    const string shader_header =
+                  xi_str_wrap_const("#version 440 core\n"
+                                    "#define f32 float\n"
+                                    "#define f64 double\n"
+
+                                    "#define v2u uvec2\n"
+                                    "#define v2s ivec2\n"
+
+                                    "#define v2 vec2\n"
+                                    "#define v3 vec3\n"
+                                    "#define v4 vec4\n"
+
+                                    "#define m2x2 mat2\n"
+                                    "#define m4x4 mat4\n"
+
+                                   "layout(row_major, binding = 0) uniform xiGlobals {"
+                                   "    m4x4 transform;"
+                                   "    v4   camera_position;"
+                                   "    f32  time;"
+                                   "    f32  dt;"
+                                   "    f32  unused0;"
+                                   "    f32  unused1;"
+                                   "};");
+
+    const string vertex_defines =
+                  xi_str_wrap_const("layout(location = 0) in v3 vertex_position;"
+                                    "layout(location = 1) in v2 vertex_uv;"
+                                    "layout(location = 2) in v4 vertex_colour;"
+
+                                    // this has to be re-declared if you are using GL_PROGRAM_SEPARABLE
+                                    //
+                                    "out gl_PerVertex {"
+                                    "    vec4  gl_Position;"
+                                    "    float gl_PointSize;"
+                                    "    float gl_ClipDistance[];"
+                                    "};"
+
+                                    "layout(location = 0) out v2 fragment_uv;"
+                                    "layout(location = 1) out v4 fragment_colour;");
+
+    const string fragment_defines =
+                  xi_str_wrap_const("layout(location = 0) in v2 fragment_uv;"
+                                    "layout(location = 1) in v4 fragment_colour;"
+
+                                    "layout(location = 0) out v4 output_colour;"
+
+                                    "layout(binding = 1) uniform sampler2D image;");
+
+
     GLuint shader = gl->CreateShader(stage);
     if (shader) {
         GLint lengths[3] = { (GLint) shader_header.count, 0, (GLint) code.count };
