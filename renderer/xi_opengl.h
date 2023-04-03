@@ -71,8 +71,8 @@ typedef struct xiOpenGLContext {
     xiRenderer renderer;
 
     struct {
-        b32 srgb;
-        b32 multisample;
+        xi_b32 srgb;
+        xi_b32 multisample;
 
         GLint major_version;
         GLint minor_version;
@@ -88,7 +88,7 @@ typedef struct xiOpenGLContext {
 
     GLuint ubo;
 
-    u32 shader_count; // a shader contains a single stage
+    xi_u32 shader_count; // a shader contains a single stage
     GLuint *shaders;
 
     GLuint base_vs;
@@ -133,6 +133,6 @@ static void gl_os_context_delete(xiOpenGLContext *gl);
 
 // generic opengl calls
 //
-static b32 gl_base_shader_compile(xiOpenGLContext *gl);
+static xi_b32 gl_base_shader_compile(xiOpenGLContext *gl);
 
 #endif  // XI_OPENGL_H_

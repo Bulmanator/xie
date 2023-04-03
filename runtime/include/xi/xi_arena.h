@@ -24,21 +24,21 @@ enum xiArenaFlags {
 
 typedef struct xiArena {
     void *base;
-    uptr  size;
-    uptr  offset;
+    xi_uptr size;
+    xi_uptr offset;
 
-    uptr last_offset;
-    uptr default_alignment;
+    xi_uptr last_offset;
+    xi_uptr default_alignment;
 
-    uptr committed;
-    u64  flags;
-    u64  pad;
+    xi_uptr committed;
+    xi_u64  flags;
+    xi_u64  pad;
 } xiArena;
 
 // arena initialisation
 //
-extern XI_API void xi_arena_init_from(xiArena *arena, void *base, uptr size);
-extern XI_API void xi_arena_init_virtual(xiArena *arena, uptr size);
+extern XI_API void xi_arena_init_from(xiArena *arena, void *base, xi_uptr size);
+extern XI_API void xi_arena_init_virtual(xiArena *arena, xi_uptr size);
 
 // release any virtual memory associated with the arena and reset all members to zero
 //
@@ -46,8 +46,8 @@ extern XI_API void xi_arena_deinit(xiArena *arena);
 
 // base arena push allocation calls
 //
-extern XI_API void *xi_arena_push_aligned(xiArena *arena, uptr size, uptr alignment);
-extern XI_API void *xi_arena_push(xiArena *arena, uptr size);
+extern XI_API void *xi_arena_push_aligned(xiArena *arena, xi_uptr size, xi_uptr alignment);
+extern XI_API void *xi_arena_push(xiArena *arena, xi_uptr size);
 
 // arena push macros, these are preferred to the base calls above
 //
@@ -63,8 +63,8 @@ extern XI_API void *xi_arena_push(xiArena *arena, uptr size);
 // base arena push copy allocation calls
 // like the push calls above but take a source pointer to copy data to
 //
-extern XI_API void *xi_arena_push_copy_aligned(xiArena *arena, void *src, uptr size, uptr alignment);
-extern XI_API void *xi_arena_push_copy(xiArena *arena, void *src, uptr size);
+extern XI_API void *xi_arena_push_copy_aligned(xiArena *arena, void *src, xi_uptr size, xi_uptr alignment);
+extern XI_API void *xi_arena_push_copy(xiArena *arena, void *src, xi_uptr size);
 
 // arena push copy macros, like standard push calls these are preferred to the base calls
 //
@@ -79,12 +79,12 @@ extern XI_API void *xi_arena_push_copy(xiArena *arena, void *src, uptr size);
 
 // get the current offset of the arena
 //
-extern XI_API uptr xi_arena_offset_get(xiArena *arena);
+extern XI_API xi_uptr xi_arena_offset_get(xiArena *arena);
 
 // pop allocation calls
 //
-extern XI_API void xi_arena_pop_to(xiArena *arena, uptr offset);
-extern XI_API void xi_arena_pop_size(xiArena *arena, uptr size);
+extern XI_API void xi_arena_pop_to(xiArena *arena, xi_uptr offset);
+extern XI_API void xi_arena_pop_size(xiArena *arena, xi_uptr size);
 extern XI_API void xi_arena_pop_last(xiArena *arena);
 
 // utility pop macros for dealing with typed removal

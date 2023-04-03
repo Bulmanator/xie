@@ -1,14 +1,14 @@
 #define xi_render_command_push(renderer, type) \
     xi_render_command_push_size(renderer, XI_RENDER_COMMAND_##type, sizeof(type))
 
-static void *xi_render_command_push_size(xiRenderer *renderer, u32 type, uptr size) {
+XI_INTERNAL void *xi_render_command_push_size(xiRenderer *renderer, xi_u32 type, xi_uptr size) {
     void *result = 0;
 
-    buffer *commands = &renderer->commands;
+    xi_buffer *commands = &renderer->commands;
 
-    uptr total = size + sizeof(u32);
+    xi_uptr total = size + sizeof(xi_u32);
     if ((commands->used + total) <= commands->limit) {
-        u32 *header = (u32 *) (commands->data + commands->used);
+        xi_u32 *header = (xi_u32 *) (commands->data + commands->used);
 
         header[0] = type;
         result    = (void *) (header + 1);
@@ -19,7 +19,7 @@ static void *xi_render_command_push_size(xiRenderer *renderer, u32 type, uptr si
     return result;
 }
 
-static xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *renderer) {
+XI_INTERNAL xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *renderer) {
     xiRenderCommandDraw *result = renderer->draw_call;
     if (!result) {
         result = xi_render_command_push(renderer, xiRenderCommandDraw);
@@ -37,14 +37,16 @@ static xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *renderer) {
     return result;
 }
 
-static void xi_quad_draw_vertices(xiRenderer *renderer, vert3 vt0, vert3 vt1, vert3 vt2, vert3 vt3) {
+XI_INTERNAL void xi_quad_draw_vertices(xiRenderer *renderer,
+        xi_vert3 vt0, xi_vert3 vt1, xi_vert3 vt2, xi_vert3 vt3)
+{
     xiRenderCommandDraw *cmd = xi_renderer_draw_call_issue(renderer);
 
     XI_ASSERT(cmd);
 
     if (cmd) {
-        vert3 *vertices = renderer->vertices.base + cmd->vertex_offset + cmd->vertex_count;
-        u16   *indices  = renderer->indices.base  + cmd->index_offset  + cmd->index_count;
+        xi_vert3 *vertices = renderer->vertices.base + cmd->vertex_offset + cmd->vertex_count;
+        xi_u16   *indices  = renderer->indices.base  + cmd->index_offset  + cmd->index_count;
 
         // set vertices for this quad
         //
@@ -57,7 +59,7 @@ static void xi_quad_draw_vertices(xiRenderer *renderer, vert3 vt0, vert3 vt1, ve
 
         // set the indices for this quad
         //
-        u16 offset = (u16) cmd->vertex_count;
+        xi_u16 offset = (xi_u16) cmd->vertex_count;
 
         indices[0] = 0 + offset;
         indices[1] = 1 + offset;
@@ -75,14 +77,14 @@ static void xi_quad_draw_vertices(xiRenderer *renderer, vert3 vt0, vert3 vt1, ve
     }
 }
 
-void xi_quad_draw_xy(xiRenderer *renderer, v4 colour,
-        v2 center, v2 dimension, f32 angle)
+void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
+        xi_v2 center, xi_v2 dimension, xi_f32 angle)
 {
     // @todo: rotate the quad
     //
     (void) angle;
 
-    // convert colour to pre-multiplied alpha and then pack into u32
+    // convert colour to pre-multiplied alpha and then pack into xi_u32
     //
     // @todo: i need to implement math functions
     //
@@ -90,17 +92,17 @@ void xi_quad_draw_xy(xiRenderer *renderer, v4 colour,
     colour.g *= colour.a;
     colour.b *= colour.a;
 
-    u32 ucolour =
-        ((u32) (colour.a * 255) << 24) |
-        ((u32) (colour.r * 255) << 16) |
-        ((u32) (colour.g * 255) <<  8) |
-        ((u32) (colour.b * 255) <<  0);
+    xi_u32 ucolour =
+        ((xi_u32) (colour.a * 255) << 24) |
+        ((xi_u32) (colour.r * 255) << 16) |
+        ((xi_u32) (colour.g * 255) <<  8) |
+        ((xi_u32) (colour.b * 255) <<  0);
 
-    v2 half_dim;
+    xi_v2 half_dim;
     half_dim.x = (0.5f * dimension.x);
     half_dim.y = (0.5f * dimension.y);
 
-    vert3 vt[4];
+    xi_vert3 vt[4];
 
     vt[0].p.x  = center.x - half_dim.x;
     vt[0].p.y  = center.y + half_dim.y;

@@ -12,6 +12,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "pathcch.lib")
+#pragma comment(lib, "synchronization.lib")
 
 #define XI_MAX_GAME_LOAD_TRIES 10
 
@@ -38,14 +39,14 @@ typedef struct xiWin32WindowInfo {
 typedef struct xiWin32DisplayInfo {
     HMONITOR handle;
 
-    b32 is_primary;
+    xi_b32 is_primary;
 
     // this is to get the actual device name
     //
     LPWSTR name; // \\.\DISPLAY[n]
 
     RECT bounds;
-    u32 dpi; // raw dpi value
+    xi_u32 dpi; // raw dpi value
 
     xiDisplay xi;
 } xiWin32DisplayInfo;
@@ -55,14 +56,14 @@ typedef struct xiWin32DisplayInfo {
 typedef struct xiWin32Context {
     xiContext xi;
 
-    b32 running;
+    xi_b32 running;
 
     xiArena arena;
 
     DWORD main_thread;
     HWND  create_window;
 
-    u32 display_count;
+    xi_u32 display_count;
     xiWin32DisplayInfo displays[XI_MAX_DISPLAYS];
 
     struct {
@@ -71,17 +72,17 @@ typedef struct xiWin32Context {
         LONG windowed_style; // style before entering fullscreen
         WINDOWPLACEMENT placement;
 
-        b32 user_resizing;
+        xi_b32 user_resizing;
 
-        u32 dpi;
+        xi_u32 dpi;
 
-        u32    last_state;
-        buffer title;
+        xi_u32    last_state;
+        xi_buffer title;
     } window;
 
     struct {
-        b32 dynamic;
-        u64 last_time;
+        xi_b32 dynamic;
+        xi_u64 last_time;
 
         HMODULE dll;
         LPWSTR dll_src_path; // where the game dll is compiled to
@@ -91,8 +92,9 @@ typedef struct xiWin32Context {
         LPSTR simulate_name;
         LPSTR render_name;
 
-        xiGameInit   *init;
-        xiGameRender *render;
+        xiGameInit     *init;
+        xiGameSimulate *simulate;
+        xiGameRender   *render;
 
         xiGameCode *code;
     } game;
@@ -100,47 +102,77 @@ typedef struct xiWin32Context {
 
 // :note win32 memory allocation functions
 //
-uptr xi_os_allocation_granularity_get() {
+xi_uptr xi_os_allocation_granularity_get() {
     SYSTEM_INFO info;
     GetSystemInfo(&info);
 
-    uptr result = info.dwAllocationGranularity;
+    xi_uptr result = info.dwAllocationGranularity;
     return result;
 }
 
-uptr xi_os_page_size_get() {
+xi_uptr xi_os_page_size_get() {
     SYSTEM_INFO info;
     GetSystemInfo(&info);
 
-    uptr result = info.dwPageSize;
+    xi_uptr result = info.dwPageSize;
     return result;
 }
 
-void *xi_os_virtual_memory_reserve(uptr size) {
+void *xi_os_virtual_memory_reserve(xi_uptr size) {
     void *result = VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
     return result;
 }
 
-b32 xi_os_virtual_memory_commit(void *base, uptr size) {
-    b32 result = VirtualAlloc(base, size, MEM_COMMIT, PAGE_READWRITE) != 0;
+xi_b32 xi_os_virtual_memory_commit(void *base, xi_uptr size) {
+    xi_b32 result = VirtualAlloc(base, size, MEM_COMMIT, PAGE_READWRITE) != 0;
     return result;
 }
 
-void xi_os_virtual_memory_decommit(void *base, uptr size) {
+void xi_os_virtual_memory_decommit(void *base, xi_uptr size) {
     VirtualFree(base, size, MEM_DECOMMIT);
 }
 
-void xi_os_virtual_memory_release(void *base, uptr size) {
+void xi_os_virtual_memory_release(void *base, xi_uptr size) {
     (void) size; // :note not needed by VirtualFree when releasing memory
 
     VirtualFree(base, 0, MEM_RELEASE);
+}
+
+// :note win32 threading
+//
+XI_INTERNAL DWORD win32_thread_proc(LPVOID arg) {
+    xiThreadQueue *queue = (xiThreadQueue *) arg;
+    xi_thread_run(queue);
+
+    return 0;
+}
+
+void xi_os_thread_start(xiThreadQueue *arg) {
+    DWORD id;
+    HANDLE handle = CreateThread(0, 0, win32_thread_proc, (void *) arg, 0, &id);
+    CloseHandle(handle);
+}
+
+void xi_os_futex_wait(xiFutex *futex, xiFutex value) {
+    for (;;) {
+        WaitOnAddress(futex, (PVOID) &value, sizeof(value), INFINITE);
+        if (*futex != value) { break; }
+    }
+}
+
+void xi_os_futex_signal(xiFutex *futex) {
+    WakeByAddressSingle((PVOID) futex);
+}
+
+void xi_os_futex_broadcast(xiFutex *futex) {
+    WakeByAddressAll((PVOID) futex);
 }
 
 //
 // :note utility functions
 //
 
-static DWORD win32_wstr_count(LPCWSTR wstr) {
+XI_INTERNAL DWORD win32_wstr_count(LPCWSTR wstr) {
     DWORD result = 0;
     while (wstr[result] != L'\0') {
         result += 1;
@@ -149,7 +181,7 @@ static DWORD win32_wstr_count(LPCWSTR wstr) {
     return result;
 }
 
-static BOOL win32_wstr_equal(LPWSTR a, LPWSTR b) {
+XI_INTERNAL BOOL win32_wstr_equal(LPWSTR a, LPWSTR b) {
     BOOL result = TRUE;
 
     while (*a++ && *b++) {
@@ -162,7 +194,7 @@ static BOOL win32_wstr_equal(LPWSTR a, LPWSTR b) {
     return result;
 }
 
-static LPWSTR win32_utf8_to_utf16(string str) {
+XI_INTERNAL LPWSTR win32_utf8_to_utf16(xi_string str) {
     LPWSTR result = 0;
 
     DWORD count = MultiByteToWideChar(CP_UTF8, 0, (LPCCH) str.data, (int) str.count, 0, 0);
@@ -178,15 +210,15 @@ static LPWSTR win32_utf8_to_utf16(string str) {
     return result;
 }
 
-static string win32_utf16_to_utf8(LPWSTR wstr) {
-    string result = { 0 };
+XI_INTERNAL xi_string win32_utf16_to_utf8(LPWSTR wstr) {
+    xi_string result = { 0 };
 
     DWORD count = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, 0, 0, 0, 0);
     if (count) {
         xiArena *temp = xi_temp_get();
 
         result.count = count - 1;
-        result.data  = xi_arena_push_array(temp, u8, count);
+        result.data  = xi_arena_push_array(temp, xi_u8, count);
 
         WideCharToMultiByte(CP_UTF8, 0, wstr, -1, (LPSTR) result.data, count, 0, 0);
     }
@@ -197,7 +229,7 @@ static string win32_utf16_to_utf8(LPWSTR wstr) {
 //
 // :note window and display management
 //
-static LONG win32_window_style_get_for_state(LONG old_state, u32 state) {
+XI_INTERNAL LONG win32_window_style_get_for_state(LONG old_state, xi_u32 state) {
     LONG result = old_state;
 
     switch (state) {
@@ -224,7 +256,7 @@ static LONG win32_window_style_get_for_state(LONG old_state, u32 state) {
     return result;
 }
 
-static LRESULT CALLBACK win32_window_creation_handler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+XI_INTERNAL LRESULT CALLBACK win32_window_creation_handler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
 
     switch (message) {
@@ -249,7 +281,7 @@ static LRESULT CALLBACK win32_window_creation_handler(HWND hwnd, UINT message, W
     return result;
 }
 
-static LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+XI_INTERNAL LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
 
     xiWin32Context *context = (xiWin32Context *) GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -273,8 +305,6 @@ static LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARA
         break;
         case WM_DPICHANGED: {
             if (context) {
-                OutputDebugStringW(L"DPI CHANGED!\n");
-
                 LPRECT rect = (LPRECT) lParam;
                 LONG style  = GetWindowLongW(hwnd, GWL_STYLE);
                 WORD dpi    = LOWORD(wParam);
@@ -306,7 +336,7 @@ static LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARA
                 RECT client_rect;
                 GetClientRect(hwnd, &client_rect);
 
-                f32 scale = (f32) dpi / context->window.dpi;
+                xi_f32 scale = (xi_f32) dpi / context->window.dpi;
 
                 // may produce off by 1px errors when scaling odd resolutions
                 //
@@ -326,7 +356,9 @@ static LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARA
     return result;
 }
 
-static BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lpRect, LPARAM lParam) {
+XI_INTERNAL BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor,
+        HDC hdcMonitor, LPRECT lpRect, LPARAM lParam)
+{
     BOOL result = FALSE;
 
     (void) lpRect;
@@ -350,7 +382,7 @@ static BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor, HDC hdcMonitor,
         if (GetMonitorInfoW(hMonitor, (LPMONITORINFO) &monitor_info)) {
             UINT xdpi, ydpi;
             if (GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &xdpi, &ydpi) == S_OK) {
-                info->xi.scale = (f32) xdpi / 96.0f;
+                info->xi.scale = (xi_f32) xdpi / 96.0f;
                 info->bounds   = monitor_info.rcMonitor;
                 info->dpi      = xdpi;
 
@@ -359,13 +391,13 @@ static BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor, HDC hdcMonitor,
                 if (EnumDisplaySettingsW(monitor_info.szDevice, ENUM_CURRENT_SETTINGS, &mode)) {
                     info->handle = hMonitor;
 
-                    uptr count = win32_wstr_count(monitor_info.szDevice) + 1;
+                    xi_uptr count = win32_wstr_count(monitor_info.szDevice) + 1;
                     info->name = xi_arena_push_copy_array(&context->arena, monitor_info.szDevice, WCHAR, count);
 
                     info->xi.width  = mode.dmPelsWidth;
                     info->xi.height = mode.dmPelsHeight;
 
-                    info->xi.refresh_rate = (f32) mode.dmDisplayFrequency;
+                    info->xi.refresh_rate = (xi_f32) mode.dmDisplayFrequency;
 
                     info->is_primary = (monitor_info.dwFlags & MONITORINFOF_PRIMARY) != 0;
 
@@ -378,18 +410,18 @@ static BOOL CALLBACK win32_displays_enumerate(HMONITOR hMonitor, HDC hdcMonitor,
     return result;
 }
 
-static void win32_display_info_get(xiWin32Context *context) {
+XI_INTERNAL void win32_display_info_get(xiWin32Context *context) {
     EnumDisplayMonitors(0, 0, win32_displays_enumerate, (LPARAM) &context->xi);
 
     xiArena *temp = xi_temp_get();
 
-    u32 path_count = 0;
-    u32 mode_count = 0;
+    xi_u32 path_count = 0;
+    xi_u32 mode_count = 0;
 
     DISPLAYCONFIG_PATH_INFO *paths = 0;
     DISPLAYCONFIG_MODE_INFO *modes = 0;
 
-    u32 flags = QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE;
+    xi_u32 flags = QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE;
 
     LONG result;
 
@@ -405,7 +437,7 @@ static void win32_display_info_get(xiWin32Context *context) {
     while (result == ERROR_INSUFFICIENT_BUFFER);
 
     if (result == ERROR_SUCCESS) {
-        for (u32 it = 0; it < path_count; ++it) {
+        for (xi_u32 it = 0; it < path_count; ++it) {
             DISPLAYCONFIG_PATH_INFO *path = &paths[it];
 
             DISPLAYCONFIG_SOURCE_DEVICE_NAME source_name = { 0 };
@@ -428,10 +460,10 @@ static void win32_display_info_get(xiWin32Context *context) {
                 if (result == ERROR_SUCCESS) {
                     LPWSTR monitor_name = target_name.monitorFriendlyDeviceName;
 
-                    for (u32 d = 0; d < context->display_count; ++d) {
+                    for (xi_u32 d = 0; d < context->display_count; ++d) {
                         xiWin32DisplayInfo *display = &context->displays[d];
                         if (win32_wstr_equal(display->name, gdi_name)) {
-                            string name = win32_utf16_to_utf8(monitor_name);
+                            xi_string name = win32_utf16_to_utf8(monitor_name);
                             display->xi.name = xi_str_copy(&context->arena, name);
                         }
                     }
@@ -444,7 +476,7 @@ static void win32_display_info_get(xiWin32Context *context) {
 
     xi->system.display_count = context->display_count;
 
-    for (u32 it = 0; it < context->display_count; ++it) {
+    for (xi_u32 it = 0; it < context->display_count; ++it) {
         xi->system.displays[it] = context->displays[it].xi;
     }
 }
@@ -470,7 +502,7 @@ enum xiWin32PathType {
 // remove the volume letter designator from win32 paths, as without this there is no way to know if
 // certain paths reside on other drives than the working drive
 //
-static LPWSTR win32_system_path_get(u32 type) {
+XI_INTERNAL LPWSTR win32_system_path_get(xi_u32 type) {
     LPWSTR result = 0;
 
     xiArena *temp = xi_temp_get();
@@ -562,7 +594,7 @@ static LPWSTR win32_system_path_get(u32 type) {
     return result;
 }
 
-static void win32_path_convert_from_api_buffer(WCHAR *out, uptr cch_limit, string path) {
+XI_INTERNAL void win32_path_convert_from_api_buffer(WCHAR *out, xi_uptr cch_limit, xi_string path) {
     LPWSTR wpath = win32_utf8_to_utf16(path);
     if (wpath) {
         WCHAR *start = wpath;
@@ -571,11 +603,11 @@ static void win32_path_convert_from_api_buffer(WCHAR *out, uptr cch_limit, strin
             start += 1;
         }
 
-        b32 requires_volume = (path.count >= 1) && (path.data[0] == '/');
-        b32 is_absolute     = (path.count == 3) &&
-                              ((path.data[0] >= 'A'  && path.data[0]  <= 'Z') ||
-                              (path.data[0] >= 'a'  && path.data[0]  >= 'z')) &&
-                              (path.data[1] == ':') && (path.data[2] == '/');
+        xi_b32 requires_volume = (path.count >= 1) && (path.data[0] == '/');
+        xi_b32 is_absolute     = (path.count == 3) &&
+                                 ((path.data[0] >= 'A' && path.data[0]  <= 'Z') ||
+                                 (path.data[0] >= 'a'  && path.data[0]  >= 'z')) &&
+                                 (path.data[1] == ':') && (path.data[2] == '/');
 
         if (is_absolute) {
             // this checks if there is a drive letter on the path, if there is we take the path
@@ -605,22 +637,22 @@ static void win32_path_convert_from_api_buffer(WCHAR *out, uptr cch_limit, strin
 
 // this function assumes you are supplying a 'win32' absolute path
 //
-static string win32_path_convert_to_api(xiArena *arena, WCHAR *wpath) {
-    string path = win32_utf16_to_utf8(wpath);
+XI_INTERNAL xi_string win32_path_convert_to_api(xiArena *arena, WCHAR *wpath) {
+    xi_string path = win32_utf16_to_utf8(wpath);
 
-    for (uptr it = 0; it < path.count; ++it) {
+    for (xi_uptr it = 0; it < path.count; ++it) {
         if (path.data[it] == '\\') { path.data[it] = '/'; }
     }
 
-    string result = xi_str_copy(arena, path);
+    xi_string result = xi_str_copy(arena, path);
     return result;
 }
 
 void win32_directory_list_builder_get_recursive(xiArena *arena,
-        xiDirectoryListBuilder *builder, LPWSTR path, uptr path_limit, b32 recursive)
+        xiDirectoryListBuilder *builder, LPWSTR path, xi_uptr path_limit, xi_b32 recursive)
 {
     xiArena *temp = xi_temp_get();
-    string base = win32_path_convert_to_api(temp, path);
+    xi_string base = win32_path_convert_to_api(temp, path);
 
     PathCchAppendEx(path, path_limit, L"*", PATHCCH_ALLOW_LONG_PATHS);
 
@@ -640,19 +672,19 @@ void win32_directory_list_builder_get_recursive(xiArena *arena,
             if (data.cFileName[0] == L'.' && data.cFileName[1] == L'.' && data.cFileName[2] == 0) { continue; }
 
             FILETIME time = data.ftLastWriteTime;
-            b32 is_dir    = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            xi_b32 is_dir = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 
-            string name = win32_utf16_to_utf8(data.cFileName);
-            string full_path = xi_str_format(arena, "%.*s/%.*s", xi_str_unpack(base), xi_str_unpack(name));
+            xi_string name = win32_utf16_to_utf8(data.cFileName);
+            xi_string full_path = xi_str_format(arena, "%.*s/%.*s", xi_str_unpack(base), xi_str_unpack(name));
 
-            // we know there is going to be at least one forward slash because of the format string above
+            // we know there is going to be at least one forward slash because of the format xi_string above
             //
-            uptr last_slash = 0;
+            xi_uptr last_slash = 0;
             xi_str_find_last(full_path, &last_slash, '/');
 
-            string basename = xi_str_advance(full_path, last_slash + 1);
+            xi_string basename = xi_str_advance(full_path, last_slash + 1);
 
-            uptr last_dot = 0;
+            xi_uptr last_dot = 0;
             if (xi_str_find_last(basename, &last_dot, '.')) {
                 // dot may not be found in the case of directory names and files without extensions
                 //
@@ -663,8 +695,8 @@ void win32_directory_list_builder_get_recursive(xiArena *arena,
             entry.type     = is_dir ? XI_DIRECTORY_ENTRY_TYPE_DIRECTORY : XI_DIRECTORY_ENTRY_TYPE_FILE;
             entry.path     = full_path;
             entry.basename = basename;
-            entry.size     = ((u64) data.nFileSizeHigh  << 32) | ((u64) data.nFileSizeLow);
-            entry.time     = ((u64) time.dwHighDateTime << 32) | ((u64) time.dwLowDateTime);
+            entry.size     = ((xi_u64) data.nFileSizeHigh  << 32) | ((xi_u64) data.nFileSizeLow);
+            entry.time     = ((xi_u64) time.dwHighDateTime << 32) | ((xi_u64) time.dwLowDateTime);
 
             xi_directory_list_builder_append(builder, &entry);
 
@@ -683,15 +715,17 @@ void win32_directory_list_builder_get_recursive(xiArena *arena,
     }
 }
 
-void xi_os_directory_list_build(xiArena *arena, xiDirectoryListBuilder *builder, string path, b32 recursive) {
+void xi_os_directory_list_build(xiArena *arena,
+        xiDirectoryListBuilder *builder, xi_string path, xi_b32 recursive)
+{
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
 
     win32_directory_list_builder_get_recursive(arena, builder, wpath, PATHCCH_MAX_CCH, recursive);
 }
 
-b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, string path) {
-    b32 result = false;
+xi_b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, xi_string path) {
+    xi_b32 result = false;
 
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
@@ -699,17 +733,17 @@ b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, s
     WIN32_FILE_ATTRIBUTE_DATA data;
     if (GetFileAttributesExW(wpath, GetFileExInfoStandard, &data)) {
         FILETIME time = data.ftLastWriteTime;
-        b32 is_dir    = ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+        xi_b32 is_dir = ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
 
-        string full_path = win32_path_convert_to_api(arena, wpath);
-        string basename = full_path;
+        xi_string full_path = win32_path_convert_to_api(arena, wpath);
+        xi_string basename = full_path;
 
-        uptr last_slash = 0;
+        xi_uptr last_slash = 0;
         if (xi_str_find_last(full_path, &last_slash, '/')) {
             basename = xi_str_advance(basename, last_slash + 1);
         }
 
-        uptr last_dot = 0;
+        xi_uptr last_dot = 0;
         if (xi_str_find_last(basename, &last_dot, '.')) {
             basename = xi_str_prefix(basename, last_dot);
         }
@@ -717,8 +751,8 @@ b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, s
         entry->type     = is_dir ? XI_DIRECTORY_ENTRY_TYPE_DIRECTORY : XI_DIRECTORY_ENTRY_TYPE_FILE;
         entry->path     = full_path;
         entry->basename = basename;
-        entry->size     = ((u64) data.nFileSizeHigh  << 32) | ((u64) data.nFileSizeLow);
-        entry->time     = ((u64) time.dwHighDateTime << 32) | ((u64) time.dwLowDateTime);
+        entry->size     = ((xi_u64) data.nFileSizeHigh  << 32) | ((xi_u64) data.nFileSizeLow);
+        entry->time     = ((xi_u64) time.dwHighDateTime << 32) | ((xi_u64) time.dwLowDateTime);
 
         result = true;
     }
@@ -726,13 +760,13 @@ b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, s
     return result;
 }
 
-b32 xi_os_directory_create(string path) {
-    b32 result = true;
+xi_b32 xi_os_directory_create(xi_string path) {
+    xi_b32 result = true;
 
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
 
-    uptr it = 0;
+    xi_uptr it = 0;
     while (wpath[it] != 0) {
         if (wpath[it] == L'\\') {
             wpath[it] = L'\0'; // temporarily null terminate at this segment
@@ -750,19 +784,31 @@ b32 xi_os_directory_create(string path) {
         it += 1;
     }
 
-    result = CreateDirectoryW(wpath, 0) != FALSE;
+    if (result) {
+        // will return false if the path already exists, we get the file attributes
+        // of the path to check if it is a directory, if not, return false
+        //
+        if (!CreateDirectoryW(wpath, 0)) {
+            DWORD error = GetLastError();
+            if (error == ERROR_ALREADY_EXISTS) {
+                DWORD attrs = GetFileAttributesW(wpath);
+                result = ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0);
+            }
+        }
+    }
+
     return result;
 }
 
-void xi_os_directory_delete(string path) {
+void xi_os_directory_delete(xi_string path) {
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
 
     RemoveDirectoryW(wpath);
 }
 
-b32 xi_os_file_open(xiFileHandle *handle, string path, u32 access) {
-    b32 result = false;
+xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
+    xi_b32 result = false;
 
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
@@ -794,15 +840,15 @@ void xi_os_file_close(xiFileHandle *handle) {
     handle->valid = false;
 }
 
-void xi_os_file_delete(string path) {
+void xi_os_file_delete(xi_string path) {
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
 
     DeleteFileW(wpath);
 }
 
-b32 xi_os_file_read(xiFileHandle *handle, void *dst, uptr offset, uptr size) {
-    b32 result = false;
+xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr size) {
+    xi_b32 result = false;
 
     if (handle->valid) {
         result = true;
@@ -813,8 +859,8 @@ b32 xi_os_file_read(xiFileHandle *handle, void *dst, uptr offset, uptr size) {
         overlapped.Offset     = (DWORD) offset;
         overlapped.OffsetHigh = (DWORD) (offset >> 32);
 
-        u8 *data = (u8 *) dst;
-        uptr to_read = size;
+        xi_u8 *data = (xi_u8 *) dst;
+        xi_uptr to_read = size;
         do {
             DWORD nread = 0;
             if (ReadFile(oshandle, data, (DWORD) to_read, &nread, &overlapped)) {
@@ -836,8 +882,8 @@ b32 xi_os_file_read(xiFileHandle *handle, void *dst, uptr offset, uptr size) {
     return result;
 }
 
-b32 xi_os_file_write(xiFileHandle *handle, void *src, uptr offset, uptr size) {
-    b32 result = false;
+xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr size) {
+    xi_b32 result = false;
 
     if (handle->valid) {
         result = true;
@@ -848,8 +894,8 @@ b32 xi_os_file_write(xiFileHandle *handle, void *src, uptr offset, uptr size) {
         overlapped.Offset     = (DWORD) offset;
         overlapped.OffsetHigh = (DWORD) (offset >> 32);
 
-        u8 *data = (u8 *) src;
-        uptr to_write = size;
+        xi_u8 *data = (xi_u8 *) src;
+        xi_uptr to_write = size;
         do {
             DWORD nwritten = 0;
             if (WriteFile(oshandle, data, (DWORD) to_write, &nwritten, &overlapped)) {
@@ -874,17 +920,17 @@ b32 xi_os_file_write(xiFileHandle *handle, void *src, uptr offset, uptr size) {
 //
 // :note game code management
 //
-static b32 win32_game_code_is_valid(xiWin32Context *context) {
-    b32 result = (context->game.init != 0) && (context->game.render != 0); // && (context->game.simulate != 0)
+XI_INTERNAL xi_b32 win32_game_code_is_valid(xiWin32Context *context) {
+    xi_b32 result = (context->game.init != 0) && (context->game.simulate != 0) && (context->game.render != 0);
     return result;
 }
 
-static void win32_game_code_init(xiWin32Context *context) {
+XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
     xiGameCode *code = context->game.code;
 
     if (code->type == XI_GAME_CODE_TYPE_STATIC) {
         context->game.init     = code->functions.init;
-        // context->game.simulate = code->functions.simulate;
+        context->game.simulate = code->functions.simulate;
         context->game.render   = code->functions.render;
 
         context->game.dynamic  = false;
@@ -908,7 +954,7 @@ static void win32_game_code_init(xiWin32Context *context) {
         xiDirectoryList dll_list = { 0 };
         xi_directory_list_filter_for_extension(temp, &dll_list, &full_list, xi_str_wrap_const(".dll"));
 
-        for (u32 it = 0; it < dll_list.count; ++it) {
+        for (xi_u32 it = 0; it < dll_list.count; ++it) {
             xiDirectoryEntry *entry = &dll_list.entries[it];
 
             WCHAR wpath[PATHCCH_MAX_CCH];
@@ -945,7 +991,7 @@ static void win32_game_code_init(xiWin32Context *context) {
 
         WCHAR dst_path[MAX_PATH + 1];
         if (GetTempFileNameW(temp_path, L"xie", 0x1234, dst_path)) {
-            u32 count = win32_wstr_count(dst_path) + 1;
+            DWORD count = win32_wstr_count(dst_path) + 1;
             context->game.dll_dst_path = xi_arena_push_copy_array(&context->arena, dst_path, WCHAR, count);
         }
 
@@ -954,6 +1000,8 @@ static void win32_game_code_init(xiWin32Context *context) {
             if (context->game.dll) {
                 context->game.init =
                     (xiGameInit *) GetProcAddress(context->game.dll, context->game.init_name);
+                context->game.simulate =
+                    (xiGameSimulate *) GetProcAddress(context->game.dll, context->game.simulate_name);
                 context->game.render =
                     (xiGameRender *) GetProcAddress(context->game.dll, context->game.render_name);
 
@@ -961,8 +1009,8 @@ static void win32_game_code_init(xiWin32Context *context) {
                     WIN32_FILE_ATTRIBUTE_DATA attributes;
                     if (GetFileAttributesExW(context->game.dll_src_path, GetFileExInfoStandard, &attributes)) {
                         context->game.last_time =
-                            ((u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
-                            ((u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
+                            ((xi_u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
+                            ((xi_u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
 
                     }
                 }
@@ -971,7 +1019,7 @@ static void win32_game_code_init(xiWin32Context *context) {
     }
 }
 
-static void win32_game_code_reload(xiWin32Context *context) {
+XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
     // @todo: we should really be reading the .dll file to see if it has debug information. this is
     // because the .pdb file location is hardcoded into the debug data directory. when debugging on
     // some debuggers (like microsoft visual studio) it will lock the .pdb file and prevent the compiler
@@ -984,8 +1032,8 @@ static void win32_game_code_reload(xiWin32Context *context) {
     //
     WIN32_FILE_ATTRIBUTE_DATA attributes;
     if (GetFileAttributesExW(context->game.dll_src_path, GetFileExInfoStandard, &attributes)) {
-        u64 time = ((u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
-                   ((u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
+        xi_u64 time = ((xi_u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
+                      ((xi_u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
 
         if (time != context->game.last_time) {
             if (context->game.dll) {
@@ -1010,13 +1058,7 @@ static void win32_game_code_reload(xiWin32Context *context) {
                         // call init again but signal to the developer that the code was reloaded
                         // rather than initially called
                         //
-                        context->xi.flags |= XI_CONTEXT_FLAG_RELOADED;
-                        context->game.init(&context->xi);
-
-                        // remove the flag again so subsequent calls to simulate or render don't
-                        // look like a reload
-                        //
-                        context->xi.flags &= ~XI_CONTEXT_FLAG_RELOADED;
+                        context->game.init(&context->xi, XI_GAME_RELOADED);
                     }
                 }
             }
@@ -1028,7 +1070,7 @@ static void win32_game_code_reload(xiWin32Context *context) {
 // :note update pass
 //
 
-static void win32_xi_context_update(xiWin32Context *context) {
+XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     xiContext *xi = &context->xi;
 
     // check for any changes to the xiContext structure which may have been issued during
@@ -1054,13 +1096,13 @@ static void win32_xi_context_update(xiWin32Context *context) {
             RECT client_rect;
             GetClientRect(hwnd, &client_rect);
 
-            u32 width  = (client_rect.right  - client_rect.left);
-            u32 height = (client_rect.bottom - client_rect.top);
+            xi_u32 width  = (client_rect.right  - client_rect.left);
+            xi_u32 height = (client_rect.bottom - client_rect.top);
 
-            f32 current_scale = (f32) context->window.dpi / USER_DEFAULT_SCREEN_DPI;
+            xi_f32 current_scale = (xi_f32) context->window.dpi / USER_DEFAULT_SCREEN_DPI;
 
-            u32 desired_width  = (u32) (current_scale * xi->window.width);
-            u32 desired_height = (u32) (current_scale * xi->window.height);
+            xi_u32 desired_width  = (xi_u32) (current_scale * xi->window.width);
+            xi_u32 desired_height = (xi_u32) (current_scale * xi->window.height);
 
             if (width != desired_width || height != desired_height) {
                 LONG style       = GetWindowLongW(hwnd, GWL_STYLE);
@@ -1087,8 +1129,8 @@ static void win32_xi_context_update(xiWin32Context *context) {
             LONG old_style = GetWindowLongW(hwnd, GWL_STYLE);
             LONG new_style = win32_window_style_get_for_state(old_style, xi->window.state);
 
-            s32 x = 0, y = 0;
-            s32 w = 0, h = 0;
+            xi_s32 x = 0, y = 0;
+            xi_s32 w = 0, h = 0;
             UINT flags = SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER;
 
             if (context->window.last_state == XI_WINDOW_STATE_FULLSCREEN) {
@@ -1175,7 +1217,6 @@ static void win32_xi_context_update(xiWin32Context *context) {
         switch (msg.message) {
             case WM_QUIT: { context->running = false; } break;
             case WM_CLOSE: {
-                SendMessageW(context->create_window, XI_DESTROY_WINDOW, msg.wParam, 0);
                 PostQuitMessage(0);
             }
             break;
@@ -1190,8 +1231,8 @@ static void win32_xi_context_update(xiWin32Context *context) {
     RECT client_area;
     GetClientRect(context->window.handle, &client_area);
 
-    u32 width  = (client_area.right - client_area.left);
-    u32 height = (client_area.bottom - client_area.top);
+    xi_u32 width  = (client_area.right - client_area.left);
+    xi_u32 height = (client_area.bottom - client_area.top);
 
     if (width != 0 && height != 0) {
         xi->window.width  = width;
@@ -1203,7 +1244,7 @@ static void win32_xi_context_update(xiWin32Context *context) {
     // update the index of the display that the window is currently on
     //
     HMONITOR monitor = MonitorFromWindow(context->window.handle, MONITOR_DEFAULTTONEAREST);
-    for (u32 it = 0; it < context->display_count; ++it) {
+    for (xi_u32 it = 0; it < context->display_count; ++it) {
         if (context->displays[it].handle == monitor) {
             xi->window.display = it;
             break;
@@ -1221,7 +1262,7 @@ static void win32_xi_context_update(xiWin32Context *context) {
     }
 }
 
-static DWORD WINAPI win32_main_thread(LPVOID param) {
+XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
     DWORD result = 0;
 
     xiWin32Context *context = (xiWin32Context *) param;
@@ -1244,7 +1285,7 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
         //
         context->window.title.used  = 0;
         context->window.title.limit = XI_MAX_TITLE_COUNT;
-        context->window.title.data  = xi_arena_push_array(&context->arena, u8, XI_MAX_TITLE_COUNT);
+        context->window.title.data  = xi_arena_push_array(&context->arena, xi_u8, XI_MAX_TITLE_COUNT);
 
         LPWSTR exe_path     = win32_system_path_get(WIN32_PATH_TYPE_EXECUTABLE);
         LPWSTR temp_path    = win32_system_path_get(WIN32_PATH_TYPE_TEMP);
@@ -1262,15 +1303,29 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
         xi->system.processor_count = system_info.dwNumberOfProcessors;
 
         win32_game_code_init(context);
-        if (win32_game_code_is_valid(context)) {
-            context->game.init(xi);
+        if (context->game.init != 0) {
+            // call pre-init for engine system configurations
+            //
+            // @todo: this could, and probably should, just be replaced with a configuration file in
+            // the future. or could just have both a pre-init call and a configuration file
+            //
+            context->game.init(xi, XI_GAME_PRE_INIT);
         }
 
-        u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
+        if (xi->thread_pool.thread_count == 0) {
+            // we just choose the number of cpus reported to us by the operating system if the
+            // user doesn't specify an amount of threads
+            //
+            xi->thread_pool.thread_count = system_info.dwNumberOfProcessors;
+        }
+
+        xi_thread_pool_init(&context->arena, &xi->thread_pool);
+
+        xi_u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
         xiWin32DisplayInfo *display = &context->displays[display_index];
 
-        UINT dpi  = display->dpi;
-        f32 scale = display->xi.scale;
+        UINT dpi = display->dpi;
+        xi_f32 scale = display->xi.scale;
 
         XI_ASSERT(scale >= 1.0f);
 
@@ -1308,8 +1363,8 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
             window_info.nHeight = xi->window.height;
         }
 
-        window_info.X = display->bounds.left + ((s32) (display->xi.width  - window_info.nWidth)  >> 1);
-        window_info.Y = display->bounds.top  + ((s32) (display->xi.height - window_info.nHeight) >> 1);
+        window_info.X = display->bounds.left + ((xi_s32) (display->xi.width  - window_info.nWidth)  >> 1);
+        window_info.Y = display->bounds.top  + ((xi_s32) (display->xi.height - window_info.nHeight) >> 1);
 
         if (xi_str_is_valid(xi->window.title)) {
             xi->window.title.count   = XI_MIN(xi->window.title.count, context->window.title.limit);
@@ -1347,7 +1402,7 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
             // to it directly due to dynamic code reloading
             //
             {
-                string title = xi->window.title;
+                xi_string title = xi->window.title;
                 if (!xi_str_is_valid(title)) {
                     title = xi_str_wrap_const("xie");
                 }
@@ -1390,10 +1445,21 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
                 renderer = init(&hwnd);
             }
 
+            if (context->game.init != 0) {
+                // once all of the engine systems have been setup, send the game code a post init
+                // call which allows them to call any init they require using the engine systems
+                //
+                context->game.init(xi, XI_GAME_POST_INIT);
+            }
+
             context->running = true;
             while (context->running) {
                 win32_xi_context_update(context);
                 xi_temp_reset();
+
+                if (context->game.simulate) {
+                    context->game.simulate(xi);
+                }
 
                 if (renderer) {
                     if (context->game.render) {
@@ -1419,6 +1485,9 @@ static DWORD WINAPI win32_main_thread(LPVOID param) {
         result = 1;
     }
 
+    // destroy our window
+    //
+    SendMessageW(context->create_window, XI_DESTROY_WINDOW, (WPARAM) context->window.handle, 0);
     ExitProcess(result);
 }
 

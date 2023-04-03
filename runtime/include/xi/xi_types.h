@@ -62,6 +62,21 @@ extern "C" {
 #endif
 
 //
+// :note intrinsic includes
+//
+#if XI_COMPILE_CL
+    // architecture specific includes are dealt with internally
+    //
+    #include <intrin.h>
+#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
+    #if XI_ARCH_AMD64
+        #include <x86intrin.h>
+    #elif XI_ARCH_AARCH64
+        #include <arm_neon.h>
+    #endif
+#endif
+
+//
 // :note core types
 //
 
@@ -69,173 +84,173 @@ extern "C" {
 #include <stdarg.h>
 #include <stdbool.h>
 
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
+typedef uint8_t  xi_u8;
+typedef uint16_t xi_u16;
+typedef uint32_t xi_u32;
+typedef uint64_t xi_u64;
 
-typedef int8_t  s8;
-typedef int16_t s16;
-typedef int32_t s32;
-typedef int64_t s64;
+typedef int8_t  xi_s8;
+typedef int16_t xi_s16;
+typedef int32_t xi_s32;
+typedef int64_t xi_s64;
 
-typedef int8_t  b8;
-typedef int16_t b16;
-typedef int32_t b32;
-typedef int64_t b64;
+typedef int8_t  xi_b8;
+typedef int16_t xi_b16;
+typedef int32_t xi_b32;
+typedef int64_t xi_b64;
 
-typedef uintptr_t uptr;
-typedef intptr_t  sptr;
+typedef uintptr_t xi_uptr;
+typedef intptr_t  xi_sptr;
 
-typedef float  f32;
-typedef double f64;
+typedef float  xi_f32;
+typedef double xi_f64;
 
-typedef struct string {
-    uptr count; // in bytes
-    u8  *data;
-} string;
+typedef struct xi_string {
+    xi_uptr count; // in bytes
+    xi_u8  *data;
+} xi_string;
 
-typedef struct buffer {
+typedef struct xi_buffer {
     union {
         struct {
-            uptr used;
-            u8  *data;
+            xi_uptr used;
+            xi_u8  *data;
         };
 
-        string str;
+        xi_string str;
     };
 
-    uptr limit;
-} buffer;
+    xi_uptr limit;
+} xi_buffer;
 
 //
 // :note math types
 //
 
-typedef union v2u {
+typedef union xi_v2u {
     struct {
-        u32 x, y;
+        xi_u32 x, y;
     };
 
     struct {
-        u32 w, h;
+        xi_u32 w, h;
     };
 
-    u32 e[2];
-} v2u;
+    xi_u32 e[2];
+} xi_v2u;
 
 
-typedef union v2s {
+typedef union xi_v2s {
     struct {
-        s32 x, y;
-    };
-
-    struct {
-        s32 w, h;
-    };
-
-    s32 e[2];
-} v2s;
-
-typedef union v2 {
-    struct {
-        f32 x, y;
+        xi_s32 x, y;
     };
 
     struct {
-        f32 u, v;
+        xi_s32 w, h;
+    };
+
+    xi_s32 e[2];
+} xi_v2s;
+
+typedef union xi_v2 {
+    struct {
+        xi_f32 x, y;
     };
 
     struct {
-        f32 w, h;
-    };
-
-    f32 e[2];
-} v2;
-
-typedef union v3 {
-    struct {
-        f32 x, y, z;
+        xi_f32 u, v;
     };
 
     struct {
-        f32 r, g, b;
+        xi_f32 w, h;
+    };
+
+    xi_f32 e[2];
+} xi_v2;
+
+typedef union xi_v3 {
+    struct {
+        xi_f32 x, y, z;
     };
 
     struct {
-        f32 w, h, d;
+        xi_f32 r, g, b;
     };
 
     struct {
-        v2  xy;
-        f32 _z;
-    };
-
-    f32 e[3];
-} v3;
-
-typedef union v4 {
-    struct {
-        f32 x, y, z;
-        f32 w;
+        xi_f32 w, h, d;
     };
 
     struct {
-        f32 r, g, b;
-        f32 a;
+        xi_v2  xy;
+        xi_f32 _z;
+    };
+
+    xi_f32 e[3];
+} xi_v3;
+
+typedef union xi_v4 {
+    struct {
+        xi_f32 x, y, z;
+        xi_f32 w;
     };
 
     struct {
-        v3  xyz;
-        f32 _w;
+        xi_f32 r, g, b;
+        xi_f32 a;
     };
 
     struct {
-        v3  rgb;
-        f32 _a;
+        xi_v3  xyz;
+        xi_f32 _w;
     };
 
-    f32 e[4];
-} v4;
+    struct {
+        xi_v3  rgb;
+        xi_f32 _a;
+    };
 
-typedef struct rect2 {
-    v2 min;
-    v2 max;
-} rect2;
+    xi_f32 e[4];
+} xi_v4;
 
-typedef struct rect3 {
-    v3 min;
-    v3 max;
-} rect3;
+typedef struct xi_rect2 {
+    xi_v2 min;
+    xi_v2 max;
+} xi_rect2;
+
+typedef struct xi_rect3 {
+    xi_v3 min;
+    xi_v3 max;
+} xi_rect3;
 
 // :note all matrices are assumed to be in row-major order
 //
 
-typedef union m2x2 {
-    f32 m[2][2];
-    f32 e[4];
-    v2  r[2];
-} m2x2;
+typedef union xi_m2x2 {
+    xi_f32 m[2][2];
+    xi_f32 e[4];
+    xi_v2  r[2];
+} xi_m2x2;
 
-typedef union m4x4 {
-    f32 m[4][4];
-    f32 e[16];
-    v4  r[4];
-} m4x4;
+typedef union xi_m4x4 {
+    xi_f32 m[4][4];
+    xi_f32 e[16];
+    xi_v4  r[4];
+} xi_m4x4;
 
-typedef struct m4x4_inv {
-    m4x4 fwd;
-    m4x4 inv;
-} m4x4_inv;
+typedef struct xi_m4x4_inv {
+    xi_m4x4 fwd;
+    xi_m4x4 inv;
+} xi_m4x4_inv;
 
 // :note vertex type
 //
-typedef struct vert3 {
-    v3  p;
-    v2  uv; // @todo: does this need to be full precision?
+typedef struct xi_vert3 {
+    xi_v3 p;
+    xi_v2 uv; // @todo: does this need to be full precision?
             // this need an extra component for the texture index
-    u32 c;
-} vert3; // 24 bytes
+    xi_u32 c;
+} xi_vert3; // 24 bytes
 
 //
 // :note utility macros
@@ -257,15 +272,21 @@ typedef struct vert3 {
 #endif
 
 #if XI_COMPILER_CL
-    #define thread_var __declspec(thread)
+    #define XI_THREAD_VAR __declspec(thread)
 #elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #define thread_var __thread
+    #define XI_THREAD_VAR __thread
 #endif
+
+#define XI_INTERNAL static
+#define XI_GLOBAL   static
 
 #define XI_STRINGIFY(x) #x
 
+#define XI_FOURCC(a, b, c, d) \
+    (((xi_u32) (d) << 24) | ((xi_u32) (c) << 16) | ((xi_u32) (b) << 8) | ((xi_u32) (a) << 0))
+
 #define XI_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#define XI_OFFSET_OF(t, m) ((uptr) &(((t *) 0)->m))
+#define XI_OFFSET_OF(t, m) ((xi_uptr) &(((t *) 0)->m))
 
 #define XI_ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 #define XI_ALIGN_DOWN(x, a) ((x) & ~((a) - 1))
@@ -274,10 +295,10 @@ typedef struct vert3 {
 #define XI_ALIGN8(x) (((x) + 7) & ~7)
 #define XI_ALIGN16(x) (((x) + 15) & ~15)
 
-#define XI_KB(x) (((uptr) (x)) << 10ULL)
-#define XI_MB(x) (((uptr) (x)) << 20ULL)
-#define XI_GB(x) (((uptr) (x)) << 30ULL)
-#define XI_TB(x) (((uptr) (x)) << 40ULL)
+#define XI_KB(x) (((xi_uptr) (x)) << 10ULL)
+#define XI_MB(x) (((xi_uptr) (x)) << 20ULL)
+#define XI_GB(x) (((xi_uptr) (x)) << 30ULL)
+#define XI_TB(x) (((xi_uptr) (x)) << 40ULL)
 
 #define XI_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define XI_MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -285,43 +306,45 @@ typedef struct vert3 {
 #if !defined(XI_NO_ASSERT)
     #include <assert.h>
     #define XI_ASSERT(exp) assert(exp)
+    #define XI_STATIC_ASSERT(exp) static_assert(exp, #exp)
 #else
     #define XI_ASSERT(exp) (void) exp
+    #define XI_STATIC_ASSERT(exp)
 #endif
 
 //
 // :note type limits
 //
 
-#define XI_U8_MAX  ((u8)  0xFF)
-#define XI_U16_MAX ((u16) 0xFFFF)
-#define XI_U32_MAX ((u32) 0xFFFFFFFF)
-#define XI_U64_MAX ((u64) 0xFFFFFFFFFFFFFFFF)
+#define XI_U8_MAX  ((xi_u8)  0xFF)
+#define XI_U16_MAX ((xi_u16) 0xFFFF)
+#define XI_U32_MAX ((xi_u32) 0xFFFFFFFF)
+#define XI_U64_MAX ((xi_u64) 0xFFFFFFFFFFFFFFFF)
 
-#define XI_S8_MAX  ((s8)  0x7F)
-#define XI_S16_MAX ((s16) 0x7FFF)
-#define XI_S32_MAX ((s32) 0x7FFFFFFF)
-#define XI_S64_MAX ((s64) 0x7FFFFFFFFFFFFFFF)
+#define XI_S8_MAX  ((xi_s8)  0x7F)
+#define XI_S16_MAX ((xi_s16) 0x7FFF)
+#define XI_S32_MAX ((xi_s32) 0x7FFFFFFF)
+#define XI_S64_MAX ((xi_s64) 0x7FFFFFFFFFFFFFFF)
 
-#define XI_UPTR_MAX ((uptr) UINTPTR_MAX)
-#define XI_SPTR_MAX ((sptr) INTPTR_MAX)
+#define XI_UPTR_MAX ((xi_uptr) UINTPTR_MAX)
+#define XI_SPTR_MAX ((xi_sptr) INTPTR_MAX)
 
 // @todo: remove float.h dep
 //
 #include <float.h>
 
-#define XI_F32_MAX ((f32) FLT_MAX)
-#define XI_F64_MAX ((f64) DBL_MAX)
+#define XI_F32_MAX ((xi_f32) FLT_MAX)
+#define XI_F64_MAX ((xi_f64) DBL_MAX)
 
-#define XI_S8_MIN  ((s8)  0x80)
-#define XI_S16_MIN ((s16) 0x8000)
-#define XI_S32_MIN ((s32) 0x80000000)
-#define XI_S64_MIN ((s64) 0x8000000000000000)
+#define XI_S8_MIN  ((xi_s8)  0x80)
+#define XI_S16_MIN ((xi_s16) 0x8000)
+#define XI_S32_MIN ((xi_s32) 0x80000000)
+#define XI_S64_MIN ((xi_s64) 0x8000000000000000)
 
-#define XI_SPTR_MIN ((sptr) INTPTR_MIN)
+#define XI_SPTR_MIN ((xi_sptr) INTPTR_MIN)
 
-#define XI_F32_MIN ((f32) FLT_MIN)
-#define XI_F64_MIN ((f64) DBL_MIN)
+#define XI_F32_MIN ((xi_f32) FLT_MIN)
+#define XI_F64_MIN ((xi_f64) DBL_MIN)
 
 #if defined(__cplusplus)
 }

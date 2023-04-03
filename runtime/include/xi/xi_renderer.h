@@ -18,11 +18,11 @@ enum xiRenderCommandType {
 };
 
 typedef struct xiRenderCommandDraw {
-    u32 vertex_offset;
-    u32 vertex_count;
+    xi_u32 vertex_offset;
+    xi_u32 vertex_count;
 
-    u32 index_offset;
-    u32 index_count;
+    xi_u32 index_offset;
+    xi_u32 index_count;
 } xiRenderCommandDraw;
 
 typedef struct xiRenderer {
@@ -30,31 +30,31 @@ typedef struct xiRenderer {
     xiRendererSubmit *submit;
 
     struct {
-        b32 vsync;
-        v2u window_dim;
+        xi_b32 vsync;
+        xi_v2u window_dim;
     } setup;
 
     struct {
-        vert3 *base;
-        u32    count;
-        u32    limit;
+        xi_vert3 *base;
+        xi_u32    count;
+        xi_u32    limit;
     } vertices;
 
     struct {
-        u16 *base;
-        u32  count;
-        u32  limit;
+        xi_u16 *base;
+        xi_u32  count;
+        xi_u32  limit;
     } indices;
 
     xiArena uniforms;
-    buffer  commands;
+    xi_buffer commands;
 
     xiRenderCommandDraw *draw_call;
 } xiRenderer;
 
 // 2d textureless quads
 //
-extern XI_API void xi_quad_draw_xy(xiRenderer *renderer, v4 colour,
-        v2 center, v2 dimension, f32 angle);
+extern XI_API void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
+        xi_v2 center, xi_v2 dimension, xi_f32 angle);
 
 #endif  // XI_RENDERER_H_

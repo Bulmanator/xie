@@ -7,20 +7,20 @@ enum xiDirectoryEntryType {
 };
 
 typedef struct xiDirectoryEntry {
-    u32 type;
-    u64 size;
-    u64 time;
+    xi_u32 type;
+    xi_u64 size;
+    xi_u64 time;
 
-    string path;     // full path to entry
-    string basename; // name of the base path segment without file extension
+    xi_string path;     // full path to entry
+    xi_string basename; // name of the base path segment without file extension
 } xiDirectoryEntry;
 
 typedef struct xiDirectoryList {
-    u32 count;
+    xi_u32 count;
     xiDirectoryEntry *entries;
 } xiDirectoryList;
 
-extern XI_API void xi_directory_list_get(xiArena *arena, xiDirectoryList *list, string path, b32 recursive);
+extern XI_API void xi_directory_list_get(xiArena *arena, xiDirectoryList *list, xi_string path, xi_b32 recursive);
 
 // filter for only files in the supplied 'list', putting the resulting entries in 'out'
 //
@@ -36,24 +36,24 @@ extern XI_API void xi_directory_list_filter_for_directories(xiArena *arena,
 // the resulting entries in 'out'
 //
 extern XI_API void xi_directory_list_filter_for_prefix(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, string prefix);
+        xiDirectoryList *out, xiDirectoryList *list, xi_string prefix);
 
 // filter for files with a specific suffix in the basename in the supplied 'list', putting the
 // the resulting entries in 'out'
 //
 extern XI_API void xi_directory_list_filter_for_suffix(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, string suffix);
+        xiDirectoryList *out, xiDirectoryList *list, xi_string suffix);
 
 // filter for files with a specific extension in the path in the supplied 'list', putting the
 // the resulting entries in 'out'. this differs from suffix above as it is applied to the path not the
 // basename of the directory entry
 //
 extern XI_API void xi_directory_list_filter_for_extension(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, string extension);
+        xiDirectoryList *out, xiDirectoryList *list, xi_string extension);
 
 // the entry have the fully qualified path after which will be allocated in the arena provided
 //
-extern XI_API b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, string path);
+extern XI_API xi_b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, xi_string path);
 
 // create delete directories
 //
@@ -64,37 +64,38 @@ extern XI_API b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryE
 // directory
 //
 //
-extern XI_API b32  xi_os_directory_create(string path);
-extern XI_API void xi_os_directory_delete(string path);
+extern XI_API xi_b32 xi_os_directory_create(xi_string path);
+extern XI_API void xi_os_directory_delete(xi_string path);
 
 // open close file handles
 //
 enum xiFileAccessFlags {
-    XI_FILE_ACCESS_FLAG_READ  = (1 << 0),
-    XI_FILE_ACCESS_FLAG_WRITE = (1 << 1)
+    XI_FILE_ACCESS_FLAG_READ      = (1 << 0),
+    XI_FILE_ACCESS_FLAG_WRITE     = (1 << 1),
+    XI_FILE_ACCESS_FLAG_READWRITE = (XI_FILE_ACCESS_FLAG_READ | XI_FILE_ACCESS_FLAG_WRITE)
 };
 
 typedef struct xiFileHandle {
-    b32   valid;
+    xi_b32 valid; // @todo: this should be an error enum instead to provide more information
     void *os;
 } xiFileHandle;
 
 // opening a non-existent file as 'write' will create the file automatically, attempting to open a
 // non-existent file as 'read' will result in an error
 //
-extern XI_API b32  xi_os_file_open(xiFileHandle *handle, string path, u32 access);
+extern XI_API xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access);
 extern XI_API void xi_os_file_close(xiFileHandle *handle);
 
-extern XI_API void xi_os_file_delete(string path);
+extern XI_API void xi_os_file_delete(xi_string path);
 
-extern XI_API b32 xi_os_file_read(xiFileHandle *handle, void *dst, uptr offset, uptr size);
-extern XI_API b32 xi_os_file_write(xiFileHandle *handle, void *src, uptr offset, uptr size);
+extern XI_API xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr size);
+extern XI_API xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr size);
 
 // resulting string will be zero sized if the file fails to open the file
 //
 // if the buffer doesn't have enough space, the only the remaining size will be loaded
 //
-extern XI_API string xi_file_read_all(xiArena *arena, string path);
-extern XI_API string xi_file_read_all_buffer(buffer *b, string path);
+extern XI_API xi_string xi_file_read_all(xiArena *arena, xi_string path);
+extern XI_API xi_string xi_file_read_all_buffer(xi_buffer *b, xi_string path);
 
 #endif  // XI_FILEIO_H_

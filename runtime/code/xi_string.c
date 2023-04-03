@@ -1,24 +1,24 @@
-string xi_str_wrap_count(u8 *data, uptr count) {
-    string result;
+xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count) {
+    xi_string result;
     result.count = count;
     result.data  = data;
 
     return result;
 }
 
-string xi_str_wrap_range(u8 *start, u8 *end) {
-    string result;
+xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end) {
+    xi_string result;
 
     XI_ASSERT(start <= end);
 
-    result.count = (uptr) (end - start);
+    result.count = (xi_uptr) (end - start);
     result.data  = start;
 
     return result;
 }
 
-static uptr xi_cstr_count(u8 *data) {
-    uptr result = 0;
+XI_INTERNAL xi_uptr xi_cstr_count(xi_u8 *data) {
+    xi_uptr result = 0;
     while (data[result] != 0) {
         result += 1;
     }
@@ -26,34 +26,34 @@ static uptr xi_cstr_count(u8 *data) {
     return result;
 }
 
-string xi_str_wrap_cstr(u8 *data) {
-    string result;
+xi_string xi_str_wrap_cstr(xi_u8 *data) {
+    xi_string result;
     result.count = xi_cstr_count(data);
     result.data  = data;
 
     return result;
 }
 
-b32 xi_str_is_valid(string str) {
-    b32 result = (str.count > 0) && (str.data != 0);
+xi_b32 xi_str_is_valid(xi_string str) {
+    xi_b32 result = (str.count > 0) && (str.data != 0);
     return result;
 }
 
-string xi_str_copy(xiArena *arena, string str) {
-    string result;
+xi_string xi_str_copy(xiArena *arena, xi_string str) {
+    xi_string result;
     result.count = str.count;
     result.data  = xi_arena_push_copy(arena, str.data, result.count);
 
     return result;
 }
 
-b32 xi_str_equal_flags(string a, string b, u32 flags) {
-    b32 result = (a.data == b.data) && (a.count == b.count); // exactly the same don't do anything
+xi_b32 xi_str_equal_flags(xi_string a, xi_string b, xi_u32 flags) {
+    xi_b32 result = (a.data == b.data) && (a.count == b.count); // exactly the same don't do anything
     if (!result) {
-        b32 ignore_case = (flags & XI_STRING_COMPARE_IGNORE_CASE);
-        b32 inexact_rhs = (flags & XI_STRING_COMPARE_INEXACT_RHS);
+        xi_b32 ignore_case = (flags & XI_STRING_COMPARE_IGNORE_CASE);
+        xi_b32 inexact_rhs = (flags & XI_STRING_COMPARE_INEXACT_RHS);
 
-        uptr count = a.count;
+        xi_uptr count = a.count;
         if (inexact_rhs) {
             count = XI_MIN(a.count, b.count);
         }
@@ -62,11 +62,11 @@ b32 xi_str_equal_flags(string a, string b, u32 flags) {
         }
 
         if (result) {
-            for (uptr it = 0; it < count; ++it) {
+            for (xi_uptr it = 0; it < count; ++it) {
                 // @todo: correctly decode utf-8
                 //
-                u8 cpa = a.data[it];
-                u8 cpb = b.data[it];
+                xi_u8 cpa = a.data[it];
+                xi_u8 cpb = b.data[it];
 
                 if (ignore_case) {
                     cpa = xi_char_to_lowercase(cpa);
@@ -84,12 +84,12 @@ b32 xi_str_equal_flags(string a, string b, u32 flags) {
     return result;
 }
 
-b32 xi_str_equal(string a, string b) {
-    b32 result = (a.data == b.data) && (a.count == b.count); // exactly the same don't do anything
+xi_b32 xi_str_equal(xi_string a, xi_string b) {
+    xi_b32 result = (a.data == b.data) && (a.count == b.count); // exactly the same don't do anything
     if (!result) {
         result = (a.count == b.count); // make sure length matches
         if (result) {
-            for (uptr it = 0; it < a.count; ++it) {
+            for (xi_uptr it = 0; it < a.count; ++it) {
                 if (a.data[it] != b.data[it]) { // compare data
                     result = false;
                     break;
@@ -104,25 +104,25 @@ b32 xi_str_equal(string a, string b) {
 #include <stdio.h> // for vsnprintf
 
 // @todo: we will probably want to move away from vsnprintf at some point as it would allow us
-// to print our own types like vectors, matrices and have direct support for counted strings
+// to print our own types like vectors, matrices and have direct support for counted xi_strings
 //
 
-static uptr xi_format_print(string out, const char *format, va_list args) {
-    uptr result = vsnprintf((char *) out.data, out.count, format, args);
+XI_INTERNAL xi_uptr xi_format_print(xi_string out, const char *format, va_list args) {
+    xi_uptr result = vsnprintf((char *) out.data, out.count, format, args);
     return result;
 }
 
-string xi_str_format_args(xiArena *arena, const char *format, va_list args) {
-    string result;
+xi_string xi_str_format_args(xiArena *arena, const char *format, va_list args) {
+    xi_string result;
 
     va_list copy;
     va_copy(copy, args);
 
-    string test;
+    xi_string test;
     test.count = 1024;
     test.data  = xi_arena_push_size(arena, test.count);
 
-    uptr count = xi_format_print(test, format, args);
+    xi_uptr count = xi_format_print(test, format, args);
     if (count > test.count) {
         xi_arena_pop_size(arena, test.count);
 
@@ -141,8 +141,8 @@ string xi_str_format_args(xiArena *arena, const char *format, va_list args) {
     return result;
 }
 
-string xi_str_format_buffer_args(buffer *b, const char *format, va_list args) {
-    string result;
+xi_string xi_str_format_buffer_args(xi_buffer *b, const char *format, va_list args) {
+    xi_string result;
 
     result.data  = &b->data[b->used];
     result.count = (b->limit - b->used);
@@ -152,8 +152,8 @@ string xi_str_format_buffer_args(buffer *b, const char *format, va_list args) {
     return result;
 }
 
-string xi_str_format(xiArena *arena, const char *format, ...) {
-    string result;
+xi_string xi_str_format(xiArena *arena, const char *format, ...) {
+    xi_string result;
 
     va_list args;
     va_start(args, format);
@@ -165,8 +165,8 @@ string xi_str_format(xiArena *arena, const char *format, ...) {
     return result;
 }
 
-string xi_str_format_buffer(buffer *b, const char *format, ...) {
-    string result;
+xi_string xi_str_format_buffer(xi_buffer *b, const char *format, ...) {
+    xi_string result;
 
     va_list args;
     va_start(args, format);
@@ -178,8 +178,8 @@ string xi_str_format_buffer(buffer *b, const char *format, ...) {
     return result;
 }
 
-string xi_str_prefix(string str, uptr count) {
-    string result;
+xi_string xi_str_prefix(xi_string str, xi_uptr count) {
+    xi_string result;
 
     XI_ASSERT(str.count >= count);
 
@@ -189,8 +189,8 @@ string xi_str_prefix(string str, uptr count) {
     return result;
 }
 
-string xi_str_suffix(string str, uptr count) {
-    string result;
+xi_string xi_str_suffix(xi_string str, xi_uptr count) {
+    xi_string result;
 
     XI_ASSERT(str.count >= count);
 
@@ -200,8 +200,8 @@ string xi_str_suffix(string str, uptr count) {
     return result;
 }
 
-string xi_str_advance(string str, uptr count) {
-    string result;
+xi_string xi_str_advance(xi_string str, xi_uptr count) {
+    xi_string result;
 
     XI_ASSERT(str.count >= count);
 
@@ -211,8 +211,8 @@ string xi_str_advance(string str, uptr count) {
     return result;
 }
 
-string xi_str_remove(string str, uptr count) {
-    string result;
+xi_string xi_str_remove(xi_string str, xi_uptr count) {
+    xi_string result;
 
     XI_ASSERT(str.count >= count);
 
@@ -222,8 +222,8 @@ string xi_str_remove(string str, uptr count) {
     return result;
 }
 
-string xi_str_slice(string str, uptr start, uptr end) {
-    string result;
+xi_string xi_str_slice(xi_string str, xi_uptr start, xi_uptr end) {
+    xi_string result;
 
     XI_ASSERT(start <= end);
     XI_ASSERT((end - start) <= str.count);
@@ -234,16 +234,16 @@ string xi_str_slice(string str, uptr start, uptr end) {
     return result;
 }
 
-b32 xi_str_find_first(string str, uptr *offset, u32 codepoint) {
-    b32 result = false;
+xi_b32 xi_str_find_first(xi_string str, xi_uptr *offset, xi_u32 codepoint) {
+    xi_b32 result = false;
 
     // @incomplete: decode utf8 correctly, this only supports ascii
     //
     // :utf8
     //
-    u8 cp = (u8) codepoint;
+    xi_u8 cp = (xi_u8) codepoint;
 
-    uptr index = 0;
+    xi_uptr index = 0;
     while (str.count--) {
         if (str.data[index] == cp) {
             *offset = index;
@@ -257,14 +257,14 @@ b32 xi_str_find_first(string str, uptr *offset, u32 codepoint) {
     return result;
 }
 
-b32 xi_str_find_last(string str, uptr *offset, u32 codepoint) {
-    b32 result = false;
+xi_b32 xi_str_find_last(xi_string str, xi_uptr *offset, xi_u32 codepoint) {
+    xi_b32 result = false;
 
     // :utf8
     //
-    u8 cp = (u8) codepoint;
+    xi_u8 cp = (xi_u8) codepoint;
 
-    uptr index = str.count;
+    xi_uptr index = str.count;
     while (index--) {
         if (str.data[index] == cp) {
             *offset = index;

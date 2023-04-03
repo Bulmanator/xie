@@ -103,19 +103,18 @@ typedef int  xiOpenGL_wglGetSwapIntervalEXT(void);
 typedef struct xiWin32OpenGLContext {
     xiOpenGLContext gl;
 
-    b32 valid;
+    xi_b32 valid;
 
-    HWND  hwnd;
     HDC   hdc;
     HGLRC hglrc;
 
     // extension support
     //
-    b32 WGL_EXT_framebuffer_sRGB;
-    b32 WGL_ARB_pixel_format;
-    b32 WGL_ARB_create_context;
-    b32 WGL_ARB_multisample;
-    b32 WGL_EXT_swap_control;
+    xi_b32 WGL_EXT_framebuffer_sRGB;
+    xi_b32 WGL_ARB_pixel_format;
+    xi_b32 WGL_ARB_create_context;
+    xi_b32 WGL_ARB_multisample;
+    xi_b32 WGL_EXT_swap_control;
 
     WGL_FUNCTION_POINTER(GetExtensionsStringEXT);
 
@@ -180,12 +179,12 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
         WGL_LOAD_FUNCTION(wgl, GetExtensionsStringEXT);
 
         if (wgl->GetExtensionsStringEXT) {
-            const char *ext_str = wgl->GetExtensionsStringEXT();
-            string extensions   = xi_str_wrap_cstr((u8 *) ext_str);
+            const char *ext_str  = wgl->GetExtensionsStringEXT();
+            xi_string extensions = xi_str_wrap_cstr((xi_u8 *) ext_str);
 
-            uptr next_space = 0;
+            xi_uptr next_space = 0;
             if (xi_str_find_first(extensions, &next_space, ' ')) {
-                string extension = xi_str_prefix(extensions, next_space);
+                xi_string extension = xi_str_prefix(extensions, next_space);
 
 #define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
 
@@ -229,8 +228,8 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
         UnregisterClassA(wnd_class.lpszClassName, wnd_class.hInstance);
     }
 
-    wgl->hwnd = *(HWND *) platform;
-    wgl->hdc  = GetDC(wgl->hwnd);
+    HWND hwnd = *(HWND *) platform;
+    wgl->hdc  = GetDC(hwnd);
 
     if (wgl->WGL_ARB_pixel_format) {
         UINT num_attribs = 0;
@@ -345,7 +344,11 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
         }
     }
 
-    if (wgl->WGL_EXT_swap_control) { wgl->SwapIntervalEXT(1); }
+    if (wgl->WGL_EXT_swap_control) {
+        wgl->SwapIntervalEXT(1);
+
+        gl->renderer.setup.vsync = true; // enable by default this will be configurable later
+    }
 
     if (!wgl->valid) {
         xi_arena_deinit(&arena);
@@ -362,7 +365,8 @@ void gl_os_context_delete(xiOpenGLContext *gl) {
     wglMakeCurrent(0, 0);
     wglDeleteContext(wgl->hglrc);
 
-    ReleaseDC(wgl->hwnd, wgl->hdc);
+    HWND hwnd = WindowFromDC(wgl->hdc);
+    ReleaseDC(hwnd, wgl->hdc);
 
     xiArena arena = gl->arena;
     xi_arena_deinit(&arena);

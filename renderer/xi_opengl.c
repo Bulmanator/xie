@@ -27,8 +27,8 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 
         // @todo: allow configurable quad count :configure
         //
-        u32 num_vertices = 4 * 1024;
-        u32 num_indices  = 6 * 1024;
+        xi_u32 num_vertices = 4 * 1024;
+        xi_u32 num_indices  = 6 * 1024;
 
         // we just use persistently mapped buffers for the immeidate mode quad buffer
         // as it is easier to manage. i don't know if the opengl driver will copy
@@ -39,7 +39,7 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         //
         GLbitfield buffer_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT;
 
-        GLsizeiptr vbo_size = num_vertices * sizeof(vert3);
+        GLsizeiptr vbo_size = num_vertices * sizeof(xi_vert3);
 
         gl->BindBuffer(GL_ARRAY_BUFFER, gl->vbo);
         gl->BufferStorage(GL_ARRAY_BUFFER, vbo_size, 0, buffer_flags);
@@ -50,7 +50,7 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 
         gl->BindBuffer(GL_ARRAY_BUFFER, 0);
 
-        GLsizeiptr ebo_size = num_indices * sizeof(u16);
+        GLsizeiptr ebo_size = num_indices * sizeof(xi_u16);
 
         gl->BindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
         gl->BufferStorage(GL_ELEMENT_ARRAY_BUFFER, ebo_size, 0, buffer_flags);
@@ -66,7 +66,7 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         // :configure
         //
         void *ubo_base = 0;
-        uptr  ubo_size = XI_MB(8);
+        xi_uptr ubo_size = XI_MB(8);
 
         GLint alignment = 0;
         glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
@@ -108,10 +108,10 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
     return result;
 }
 
-static b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, string code) {
-    b32 result = false;
+static xi_b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, xi_string code) {
+    xi_b32 result = false;
 
-    const string shader_header =
+    const xi_string shader_header =
                   xi_str_wrap_const("#version 440 core\n"
                                     "#define f32 float\n"
                                     "#define f64 double\n"
@@ -135,7 +135,7 @@ static b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, 
                                    "    f32  unused1;"
                                    "};");
 
-    const string vertex_defines =
+    const xi_string vertex_defines =
                   xi_str_wrap_const("layout(location = 0) in v3 vertex_position;"
                                     "layout(location = 1) in v2 vertex_uv;"
                                     "layout(location = 2) in v4 vertex_colour;"
@@ -151,7 +151,7 @@ static b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, 
                                     "layout(location = 0) out v2 fragment_uv;"
                                     "layout(location = 1) out v4 fragment_colour;");
 
-    const string fragment_defines =
+    const xi_string fragment_defines =
                   xi_str_wrap_const("layout(location = 0) in v2 fragment_uv;"
                                     "layout(location = 1) in v4 fragment_colour;"
 
@@ -163,7 +163,7 @@ static b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, 
     GLuint shader = gl->CreateShader(stage);
     if (shader) {
         GLint lengths[3] = { (GLint) shader_header.count, 0, (GLint) code.count };
-        u8 *codes[3]     = { shader_header.data,  0, code.data  };
+        xi_u8 *codes[3]  = { shader_header.data,  0, code.data  };
 
         if (stage == GL_VERTEX_SHADER) {
             lengths[1] = (GLint) vertex_defines.count;
@@ -220,10 +220,10 @@ static b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, 
     return result;
 }
 
-b32 gl_base_shader_compile(xiOpenGLContext *gl) {
-    b32 result = false;
+xi_b32 gl_base_shader_compile(xiOpenGLContext *gl) {
+    xi_b32 result = false;
 
-    string vertex_code =
+    xi_string vertex_code =
         xi_str_wrap_const("void main() {"
                           "    gl_Position = v4(vertex_position, 1.0);"
 
@@ -232,7 +232,7 @@ b32 gl_base_shader_compile(xiOpenGLContext *gl) {
                           "}");
 
     if (gl_shader_compile(gl, &gl->base_vs, GL_VERTEX_SHADER, vertex_code)) {
-        string fragment_code =
+        xi_string fragment_code =
             xi_str_wrap_const("void main() {"
                               "    output_colour = fragment_colour;"
                               "}");
@@ -255,9 +255,9 @@ static void xi_opengl_submit(xiOpenGLContext *gl) {
     gl->BindBuffer(GL_ARRAY_BUFFER, gl->vbo);
     gl->BindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
 
-    gl->VertexAttribPointer(0, 3, GL_FLOAT,         GL_FALSE, sizeof(vert3), (void *) XI_OFFSET_OF(vert3, p));
-    gl->VertexAttribPointer(1, 2, GL_FLOAT,         GL_FALSE, sizeof(vert3), (void *) XI_OFFSET_OF(vert3, uv));
-    gl->VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(vert3), (void *) XI_OFFSET_OF(vert3, c));
+    gl->VertexAttribPointer(0, 3, GL_FLOAT,         GL_FALSE, sizeof(xi_vert3), (void *) XI_OFFSET_OF(xi_vert3, p));
+    gl->VertexAttribPointer(1, 2, GL_FLOAT,         GL_FALSE, sizeof(xi_vert3), (void *) XI_OFFSET_OF(xi_vert3, uv));
+    gl->VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(xi_vert3), (void *) XI_OFFSET_OF(xi_vert3, c));
 
     gl->EnableVertexAttribArray(0);
     gl->EnableVertexAttribArray(1);
@@ -270,18 +270,18 @@ static void xi_opengl_submit(xiOpenGLContext *gl) {
 
     gl->BindProgramPipeline(gl->pipeline);
 
-    buffer *commands = &renderer->commands;
-    for (uptr offset = 0; offset < commands->used;) {
-        u32 type = *(u32 *) (commands->data + offset);
-        offset += sizeof(u32);
+    xi_buffer *commands = &renderer->commands;
+    for (xi_uptr offset = 0; offset < commands->used;) {
+        xi_u32 type = *(xi_u32 *) (commands->data + offset);
+        offset += sizeof(xi_u32);
 
         switch (type) {
             case XI_RENDER_COMMAND_xiRenderCommandDraw: {
                 xiRenderCommandDraw *draw = (xiRenderCommandDraw *) (commands->data + offset);
                 offset += sizeof(xiRenderCommandDraw);
 
-                void *index_offset = (void *) (draw->index_offset * sizeof(u16));
-                u32   index_count  = draw->index_count;
+                void *index_offset = (void *) (draw->index_offset * sizeof(xi_u16));
+                xi_u32 index_count = draw->index_count;
 
                 gl->DrawElementsBaseVertex(GL_TRIANGLES, index_count,
                         GL_UNSIGNED_SHORT, index_offset, draw->vertex_offset);
