@@ -1320,6 +1320,7 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         }
 
         xi_thread_pool_init(&context->arena, &xi->thread_pool);
+        xi_asset_manager_init(&context->arena, &xi->assets, xi);
 
         xi_u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
         xiWin32DisplayInfo *display = &context->displays[display_index];

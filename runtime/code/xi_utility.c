@@ -38,11 +38,58 @@ xi_u8 xi_char_to_uppercase(xi_u8 c) {
     return result;
 }
 
-xi_uptr xi_buffer_append(xi_buffer *out, void *base, xi_uptr count) {
-    xi_uptr result = XI_MIN(count, out->limit - out->used);
-    xi_memory_copy(out->data + out->used, base, result);
+xi_u32 xi_str_djb2_hash(xi_string str) {
+    xi_u32 result = 5381;
 
-    out->used += result;
+    for (xi_uptr it = 0; it < str.count; ++it) {
+        result = ((result << 5) + result) + str.data[it]; // hash * 33 + str.data[it]
+    }
 
     return result;
 }
+
+xi_uptr xi_buffer_append(xi_buffer *buffer, void *base, xi_uptr count) {
+    xi_uptr result = XI_MIN(count, buffer->limit - buffer->used);
+
+    if (result > 0) {
+        xi_memory_copy(buffer->data + buffer->used, base, result);
+        buffer->used += result;
+    }
+
+    return result;
+}
+
+xi_b32 xi_buffer_put_u8(xi_buffer *buffer, xi_u8 value) {
+    xi_b32 result = (buffer->limit - buffer->used) >= 1;
+
+    if (result) { buffer->data[buffer->used++] = value; }
+    return result;
+}
+
+xi_b32 xi_buffer_put_u16(xi_buffer *buffer, xi_u16 value) {
+    xi_b32 result = (buffer->limit - buffer->used) >= 2;
+    if (result) {
+        xi_u8 *ptr = (xi_u8 *) &value;
+
+        buffer->data[buffer->used++] = ptr[0];
+        buffer->data[buffer->used++] = ptr[1];
+    }
+
+    return result;
+}
+
+xi_b32 xi_buffer_put_u32(xi_buffer *buffer, xi_u32 value) {
+    xi_b32 result = (buffer->limit - buffer->used) >= 4;
+
+    if (result) { xi_buffer_append(buffer, &value, 4); }
+    return result;
+}
+
+xi_b32 xi_buffer_put_u64(xi_buffer *buffer, xi_u64 value) {
+    xi_b32 result = (buffer->limit - buffer->used) >= 8;
+
+    if (result) { xi_buffer_append(buffer, &value, 8); }
+    return result;
+}
+
+

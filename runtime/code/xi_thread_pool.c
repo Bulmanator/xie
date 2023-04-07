@@ -9,11 +9,13 @@ XI_INTERNAL void xi_os_futex_broadcast(xiFutex *futex); // all threads
 // atomic intrinsics
 //
 #if XI_COMPILER_CL
-    #define XI_FUTEX_LOAD(x) (x)
     #define XI_FUTEX_INCREMENT(futex) _InterlockedIncrement64(futex)
     #define XI_FUTEX_DECREMENT(futex) _InterlockedDecrement64(futex)
 
-    #define XI_ATOMIC_LOAD_U64(x) (x)
+    // @todo: these should probably be part of the public facing api
+    //
+    #define XI_ATOMIC_ADD_U64(target, value) _InterlockedExchangeAdd64((__int64 volatile *) target, value)
+
     #define XI_ATOMIC_EXCHANGE_U64(target, value) _InterlockedExchange64(target, value)
     #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) \
                         (_InterlockedCompareExchange64(target, value, compare) == (__int64) compare)
@@ -68,8 +70,8 @@ XI_INTERNAL xi_b32 xi_thread_queue_dequeue(xiThreadQueue *queue, xiThreadTask *t
     xi_u64 tail;
     xi_u64 next;
     do {
-        tail = XI_ATOMIC_LOAD_U64(queue->tail);
-        if (tail == XI_ATOMIC_LOAD_U64(queue->head)) {
+        tail = queue->tail;
+        if (tail == queue->head) {
             // no work left so return false
             //
             result = false;
@@ -124,10 +126,10 @@ XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
             }
         }
 
-        if (XI_FUTEX_LOAD(pool->task_count) != 0) {
+        while (pool->task_count != 0) {
             xi_u32 index = __tls_thread_index;
             for (xi_u32 it = 0; it < pool->thread_count; ++it) {
-                if (XI_FUTEX_LOAD(pool->task_count) == 0) { break; }
+                if (pool->task_count == 0) { break; }
 
                 index = (index + 1) % pool->thread_count;
                 xiThreadQueue *other = &pool->queues[index];
@@ -142,16 +144,22 @@ XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
                         xi_os_futex_signal(&pool->task_count);
                         break;
                     }
-                    else {
-                        // we failed to dequeue from the selected queue so try another
-                        //
-                        continue;
-                    }
+                }
+                else {
+                    // we failed to dequeue from this thread's queue so continue on and try to
+                    // find another
+                    //
+                    continue;
                 }
             }
         }
 
-        xiFutex count = XI_FUTEX_LOAD(pool->tasks_available);
+        // if we managed to get here its likely we are going to sleep because there are no tasks
+        // left, so reset our temp arena for use next time we are woken up
+        //
+        xi_temp_reset();
+
+        xiFutex count = pool->tasks_available;
         xi_os_futex_wait(&pool->tasks_available, count);
     }
 }
@@ -196,7 +204,7 @@ void xi_thread_pool_await_complete(xiThreadPool *pool) {
     xiThreadQueue *queue = &pool->queues[__tls_thread_index];
 
     xiThreadTask task;
-    while (XI_FUTEX_LOAD(pool->task_count) != 0) {
+    while (pool->task_count != 0) {
         while (xi_thread_queue_dequeue(queue, &task)) {
             // there is work on our queue to execute
             //
@@ -204,7 +212,7 @@ void xi_thread_pool_await_complete(xiThreadPool *pool) {
             XI_FUTEX_DECREMENT(&pool->task_count);
         }
 
-        xiFutex count = XI_FUTEX_LOAD(pool->task_count);
+        xiFutex count = pool->task_count;
         if (count != 0) {
             xi_os_futex_wait(&pool->task_count, count);
         }

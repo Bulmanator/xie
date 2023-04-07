@@ -11,6 +11,7 @@
 #include "xi_renderer.c"
 
 #include "xi_fileio.c"
+#include "xi_assets.c"
 
 #if XI_OS_WIN32
     #include "os/win32.c"

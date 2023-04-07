@@ -60,6 +60,8 @@ extern "C" {
 #include "xi_renderer.h"
 
 #include "xi_fileio.h"
+#include "xi_xia.h"
+#include "xi_assets.h"
 
 #define XI_MAX_DISPLAYS 8
 
@@ -103,6 +105,7 @@ typedef struct xiContext {
         xi_string title;
     } window;
 
+    xiAssetManager assets;
     xiThreadPool thread_pool;
 
     // :note any members of the system struct can be considered valid _at all times_ this includes

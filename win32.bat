@@ -10,7 +10,7 @@ set linker_flags=-incremental:no
 
 rem build debug runtime .dll
 rem
-cl %compiler_flags% -Od -Zi -LD "..\runtime\code\xi.c" -Fe"xid.dll" -link %linker_flags%
+cl %compiler_flags% -I"..\thirdparty" -Od -Zi -LD "..\runtime\code\xi.c" -Fe"xid.dll" -link %linker_flags%
 
 rem build opengl renderer .dll
 rem

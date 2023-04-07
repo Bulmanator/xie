@@ -181,8 +181,6 @@ xi_string xi_str_format_buffer(xi_buffer *b, const char *format, ...) {
 xi_string xi_str_prefix(xi_string str, xi_uptr count) {
     xi_string result;
 
-    XI_ASSERT(str.count >= count);
-
     result.count = XI_MIN(count, str.count);
     result.data  = str.data;
 
@@ -191,8 +189,6 @@ xi_string xi_str_prefix(xi_string str, xi_uptr count) {
 
 xi_string xi_str_suffix(xi_string str, xi_uptr count) {
     xi_string result;
-
-    XI_ASSERT(str.count >= count);
 
     result.count = XI_MIN(count, str.count);
     result.data  = str.data + (str.count - result.count);
@@ -203,8 +199,6 @@ xi_string xi_str_suffix(xi_string str, xi_uptr count) {
 xi_string xi_str_advance(xi_string str, xi_uptr count) {
     xi_string result;
 
-    XI_ASSERT(str.count >= count);
-
     result.count = str.count - XI_MIN(count, str.count);
     result.data  = str.data  + XI_MIN(count, str.count);
 
@@ -213,8 +207,6 @@ xi_string xi_str_advance(xi_string str, xi_uptr count) {
 
 xi_string xi_str_remove(xi_string str, xi_uptr count) {
     xi_string result;
-
-    XI_ASSERT(str.count >= count);
 
     result.count = str.count - XI_MIN(count, str.count);
     result.data  = str.data;

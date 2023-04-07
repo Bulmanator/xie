@@ -44,17 +44,24 @@ XI_INTERNAL void xi_directory_list_builder_append(xiDirectoryListBuilder *builde
 XI_INTERNAL void xi_directory_list_builder_flatten(xiArena *arena,
         xiDirectoryList *list, xiDirectoryListBuilder *builder)
 {
-    list->count   = builder->total;
-    list->entries = xi_arena_push_array(arena, xiDirectoryEntry, list->count);
 
-    xi_u32 offset = 0;
+    if (builder->total > 0) {
+        list->count   = builder->total;
+        list->entries = xi_arena_push_array(arena, xiDirectoryEntry, list->count);
 
-    xiDirectoryEntryBucket *bucket = builder->head;
-    while (bucket != 0) {
-        xi_memory_copy(&list->entries[offset], bucket->entries, bucket->count * sizeof(xiDirectoryEntry));
+        xi_u32 offset = 0;
 
-        offset += bucket->count;
-        bucket  = bucket->next;
+        xiDirectoryEntryBucket *bucket = builder->head;
+        while (bucket != 0) {
+            xi_memory_copy(&list->entries[offset], bucket->entries, bucket->count * sizeof(xiDirectoryEntry));
+
+            offset += bucket->count;
+            bucket  = bucket->next;
+        }
+    }
+    else {
+        list->count   = 0;
+        list->entries = 0;
     }
 }
 
