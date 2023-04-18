@@ -1,9 +1,12 @@
 #if !defined(XI_ASSETS_H_)
 #define XI_ASSETS_H_
 
+typedef struct xiRendererTransferTask xiRendererTransferTask;
+typedef struct xiRendererTransferQueue xiRendererTransferQueue;
+
 enum xiAssetState {
     XI_ASSET_STATE_UNLOADED = 0,
-    XI_ASSET_STATE_LOADING,
+    XI_ASSET_STATE_PENDING,
     XI_ASSET_STATE_LOADED
 };
 
@@ -40,6 +43,10 @@ typedef struct xiAsset {
     xi_u32 type;
     xi_u32 index;
     xi_u32 file;
+
+    union {
+        xiRendererTexture texture;
+    } data;
 } xiAsset;
 
 typedef struct xiAssetHash {
@@ -49,23 +56,52 @@ typedef struct xiAssetHash {
     xi_string value;
 } xiAssetHash;
 
+typedef struct xiAssetLoadInfo {
+    xiAssetManager *assets;
+    xiAssetFile *file;
+    xiAsset *asset;
+
+    xi_uptr offset;
+    xi_uptr size;
+    void *data;
+
+    xiRendererTransferTask *transfer_task;
+} xiAssetLoadInfo;
+
 typedef struct xiAssetManager {
     xiArena *arena;
     xiThreadPool *thread_pool;
+    xiRendererTransferQueue *transfer_queue;
 
     xi_u32 file_count;
     xiAssetFile *files;
 
-    XI_ATOMIC_VAR xi_u32 asset_count;
+    volatile xi_u32 asset_count;
 
     xi_u32 max_assets;
     xiAsset *assets;
     xiaAssetInfo *xias;
 
+    // these have to be persistent as we don't wait for loading from file to be complete on each frame
+    // as that would kinda defeat the point of them being threaded, thus we can't create these from our
+    // temp arena as the temp arena may be cleared after a frame before these load structures have
+    // finished processing, there are 'max_asset' count of them in the array
+    //
+    xi_u32 next_load;
+    volatile xi_u32 total_loads;
+    xiAssetLoadInfo *asset_loads;
+
     // hash table for lookup
     //
     xi_u32 lookup_table_count;
     xiAssetHash *lookup_table;
+
+    // texture handles are acquired from this
+    // @todo: some sort of lru system
+    //
+    xi_u16 sprite_generation;
+    xi_u16 next_sprite_handle;
+    xi_u16 max_sprite_handles;
 
     // this value is controlled by the texture array dimension set for the renderer, it can be controlled
     // there. any value set here directly will be overwritten
@@ -81,5 +117,65 @@ typedef struct xiAssetManager {
         xi_buffer strings;
     } importer;
 } xiAssetManager;
+
+enum xiAnimationFlags {
+    XI_ANIMATION_FLAG_REVERSE   = (1 << 0), // play in reverse
+    XI_ANIMATION_FLAG_PING_PONG = (1 << 1), // play forward then backward etc.
+    XI_ANIMATION_FLAG_ONE_SHOT  = (1 << 2), // play once
+    XI_ANIMATION_FLAG_PAUSED    = (1 << 3), // don't update frame even when update is called
+};
+
+
+// :note by default animations will loop forever and will play forward, the flags above can be combined
+// to alter this behaviour.
+//
+
+typedef struct xiAnimation {
+    xiImageHandle base_frame;
+
+    xi_u32 flags;
+
+    xi_f32 frame_accum;
+    xi_f32 frame_dt;
+
+    xi_u32 current_frame;
+    xi_u32 frame_count;
+} xiAnimation;
+
+// image handling functions
+//
+extern XI_API xiImageHandle xi_image_get_by_name(xiAssetManager *assets, xi_string name);
+extern XI_API xiaImageInfo *xi_image_info_get(xiAssetManager *assets, xiImageHandle image);
+extern XI_API xiRendererTexture xi_image_data_get(xiAssetManager *assets, xiImageHandle image);
+
+// animation handling functions
+//
+extern XI_API xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets, xi_string name, xi_u32 flags);
+extern XI_API xiAnimation xi_animation_create_from_image_flags(xiAssetManager *assets,
+        xiImageHandle image, xi_u32 flags);
+
+extern XI_API xiAnimation xi_animation_get_by_name(xiAssetManager *assets, xi_string name);
+extern XI_API xiAnimation xi_animation_create_from_image(xiAssetManager *assets, xiImageHandle image);
+
+// this will return true if the animation reached the end, for looping animations this will happen every
+// time it loops. for ping-pong animations this will happen once for each full playback of the animation
+// in either direction, thus for a full "ping-pong" it will return 'true' twice otherwise for one-shot
+// animations this will happen a single time
+//
+// if the animation is paused, with the XI_ANIMATION_FLAG_PAUSED flag, this function will never return true
+//
+extern XI_API xi_b32 xi_animation_update(xiAnimation *animation, xi_f32 dt);
+
+// reset an animation, this can be used to restart one-shot animations that have finished or simply restart
+// animations in the middle of their playback
+//
+extern XI_API void xi_animation_reset(xiAnimation *animation);
+
+extern XI_API void xi_animation_pause(xiAnimation *animation);
+extern XI_API void xi_animation_unpause(xiAnimation *animation);
+
+// returns the image handle associated with the current frame of the animation
+//
+extern XI_API xiImageHandle xi_animation_current_frame_get(xiAnimation *animation);
 
 #endif  // XI_ASSETS_H_

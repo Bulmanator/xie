@@ -154,12 +154,23 @@ XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
             }
         }
 
-        // if we managed to get here its likely we are going to sleep because there are no tasks
-        // left, so reset our temp arena for use next time we are woken up
+        // we retrieve the number of tasks available _before_ resetting our temporary memory as it could
+        // take the os an arbitary amount of time to do that, thus there could be new work queued in the
+        // time we spent resetting, however, as we are down here and assuming there are no more tasks for
+        // us to execute, the thread would miss the new tasks and then sleep forever (or until something
+        // else was queued), potentially delaying important work for a long time
+        //
+        // we could simply reset the temporary arena _after_ we wake up, however, the threads may allocate
+        // large buffers (especially when importing assets) and we don't really want that unused memory
+        // lying about while we're sleeping
+        //
+        xiFutex count = pool->tasks_available;
+
+        // reset the temporary arena to release any memory we used as we are no longer executing
+        // any tasks so it isn't needed anymore
         //
         xi_temp_reset();
 
-        xiFutex count = pool->tasks_available;
         xi_os_futex_wait(&pool->tasks_available, count);
     }
 }

@@ -38,12 +38,44 @@ xi_u8 xi_char_to_uppercase(xi_u8 c) {
     return result;
 }
 
-xi_u32 xi_str_djb2_hash(xi_string str) {
+xi_u32 xi_str_djb2_hash_u32(xi_string str) {
     xi_u32 result = 5381;
 
     for (xi_uptr it = 0; it < str.count; ++it) {
         result = ((result << 5) + result) + str.data[it]; // hash * 33 + str.data[it]
     }
+
+    return result;
+}
+
+xi_u32 xi_str_fnv1a_hash_u32(xi_string str) {
+    xi_u32 result = 0x811c9dc5;
+    for (xi_uptr it = 0; it < str.count; ++it) {
+        result  = (result ^ (xi_u32) str.data[it]);
+        result *= 0x1000193;
+    }
+
+    return result;
+}
+
+xi_b32 xi_str_parse_u32(xi_string str, xi_u32 *number) {
+    xi_b32 result = true;
+
+    xi_u32 total = 0;
+    for (xi_uptr it = 0; it < str.count; ++it) {
+        if (str.data[it] >= '0' && str.data[it] <= '9') {
+            total *= 10;
+            total += (str.data[it] - '0');
+        }
+        else {
+            result = false;
+            total  = 0;
+
+            break;
+        }
+    }
+
+    *number = total;
 
     return result;
 }

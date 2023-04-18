@@ -1,8 +1,10 @@
-// @temp: this should be part of the public facing api!
+// @todo: this should be part of the public facing api!
 //
 #if XI_COMPILER_CL
     #define XI_ATOMIC_COMPARE_EXCHANGE_U32(target, value, compare) (_InterlockedCompareExchange((volatile long *) target, value, compare) == (long) compare)
+    #define XI_ATOMIC_EXCHANGE_U32(target, value) _InterlockedExchange((volatile long *) target, value)
     #define XI_ATOMIC_INCREMENT_U32(target) _InterlockedIncrement((volatile long *) target)
+    #define XI_ATOMIC_DECREMENT_U32(target) _InterlockedDecrement((volatile long *) target)
 #else
     #error "incomplete implementation"
 #endif
@@ -10,11 +12,16 @@
 // forward declaring stuff that might be needed
 //
 XI_INTERNAL void xi_asset_manager_import_to_xia(xiAssetManager *assets);
+XI_INTERNAL xi_uptr xi_image_mip_mapped_size(xi_u32 w, xi_u32 h);
 
 // these are some large 32-bit prime numbers which are xor'd with the string hash value allowing us to
 // produce a different hash values for the same 'name' of different asset types
 //
 // these haven't been chosen in any particular way
+//
+// @todo: should 'animation' have its own mix here, even though it is just a set of image assets. we
+// may want a static 'image' called one thing, but an animated variant of that to be called the same
+// thus we would have to have different asset types for animation and image
 //
 XI_GLOBAL const xi_u32 tbl_xia_type_hash_mix[XIA_ASSET_TYPE_COUNT - 1] = {
     0xcb03f267,
@@ -27,7 +34,7 @@ XI_INTERNAL void xi_asset_manager_asset_hash_insert(xiAssetManager *assets,
 {
     xi_u32 mask = assets->lookup_table_count - 1;
     xi_u32 mix  = tbl_xia_type_hash_mix[type];
-    xi_u32 hash = xi_str_djb2_hash(name) ^ mix;
+    xi_u32 hash = xi_str_fnv1a_hash_u32(name) ^ mix;
 
     xi_u32 i = 0;
 
@@ -59,15 +66,18 @@ XI_INTERNAL void xi_asset_manager_asset_hash_insert(xiAssetManager *assets,
 XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, xiContext *xi) {
     assets->arena = arena;
     assets->thread_pool = &xi->thread_pool;
+    assets->transfer_queue = &xi->renderer.transfer_queue;
 
     xiArena *temp  = xi_temp_get();
     xi_string path = xi_str_format(temp, "%.*s/data", xi_str_unpack(xi->system.executable_path));
 
     if (!xi_os_directory_create(path)) { return; }
 
-    // @hardcode: renderer not setup properly yet!
+    // this is guaranteed to be valid as the renderer is initialised before the asset manager is
+    // initialised, if the user doesn't specify a dimension for the sprite array the renderer
+    // will select a default
     //
-    assets->sprite_dimension = 256;
+    assets->sprite_dimension = xi->renderer.sprite_array.dimension;
 
     xiDirectoryList data_dir, xia_files;
     xi_directory_list_get(temp, &data_dir, path, false);
@@ -84,40 +94,50 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
     xi_u32 total_assets = assets->asset_count;
 
     if (xia_files.count != 0) {
+        xiAssetFile *files = xi_arena_push_array(temp, xiAssetFile, xia_files.count);
         assets->file_count = 0;
-        assets->files = xi_arena_push_array(arena, xiAssetFile, xia_files.count);
 
         // iterate over all of the files we have found, open them and check their header is valid
         // we then sum up the available assets and load their information
         //
         for (xi_u32 it = 0; it < xia_files.count; ++it) {
             xiDirectoryEntry *entry = &xia_files.entries[it];
-            xiAssetFile *file = &assets->files[assets->file_count];
+            xiAssetFile *file = &files[assets->file_count];
 
-            // @todo: logging...
+            xi_b32 valid = false;
+
+            if (xi_os_file_open(&file->handle, entry->path, file_access)) {
+                if (xi_os_file_read(&file->handle, &file->header, 0, sizeof(xiaHeader))) {
+                    if (file->header.signature == XIA_HEADER_SIGNATURE &&
+                        file->header.version   == XIA_HEADER_VERSION)
+                    {
+                        file->base_asset = total_assets;
+                        total_assets += file->header.asset_count;
+
+                        // we know the asset information comes directly after the asset data so we can append
+                        // new assets at the info offset and then write the new asset info after the fact
+                        //
+                        // we also copy across the current asset count for updating
+                        //
+                        file->next_write_offset = file->header.info_offset;
+                        file->asset_count       = file->header.asset_count;
+
+                        // valid file found, increment
+                        //
+                        assets->file_count += 1;
+
+                        valid = true;
+                    }
+                }
+            }
+
+            // @todo: logging.. if any of this falis!
             //
 
-            if (!xi_os_file_open(&file->handle, entry->path, file_access)) { continue; }
-            if (!xi_os_file_read(&file->handle, &file->header, 0, sizeof(xiaHeader))) { continue; }
-
-            if (file->header.signature != XIA_HEADER_SIGNATURE) { continue; }
-            if (file->header.version   != XIA_HEADER_VERSION)   { continue; }
-
-            file->base_asset = total_assets;
-            total_assets += file->header.asset_count;
-
-            // we know the asset information comes directly after the asset data so we can append
-            // new assets at the info offset and then write the new asset info after the fact
-            //
-            // we also copy across the current asset count for updating
-            //
-            file->next_write_offset = file->header.info_offset;
-            file->asset_count       = file->header.asset_count;
-
-            // valid file found, increment
-            //
-            assets->file_count += 1;
+            if (!valid) { xi_os_file_close(&file->handle); }
         }
+
+        assets->files = xi_arena_push_copy_array(arena, files, xiAssetFile, assets->file_count);
 
         if (assets->importer.enabled) {
             if (assets->max_assets == 0) {
@@ -192,12 +212,18 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
     assets->lookup_table_count = xi_pow2_nearest_u32(assets->max_assets) << 1;
     assets->lookup_table = xi_arena_push_array(arena, xiAssetHash, assets->lookup_table_count);
 
-    // if there are no files available this loop won't do anything
-    //
-    // this loads the asset information
+    assets->max_sprite_handles = (xi_u16) xi->renderer.sprite_array.limit;
+    assets->next_sprite_handle = 2; // @incomplete: upload the correct information to these!
+    assets->sprite_generation  = 0;
+
+    assets->total_loads = 0;
+    assets->next_load   = 0;
+    assets->asset_loads = xi_arena_push_array(arena, xiAssetLoadInfo, assets->max_assets);
+
+    // load the asset information
     //
     if (!new_file) {
-        xi_u32 running_total = 0;
+        xi_u32 running_total = assets->asset_count; // some assets are reserved up front
         for (xi_u32 it = 0; it < assets->file_count; ++it) {
             xiAssetFile *file = &assets->files[it];
 
@@ -232,25 +258,144 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
 
             for (xi_u32 ai = 0; ai < count; ++ai) {
                 xiAsset *asset = &assets->assets[running_total + ai];
+                xiaAssetInfo *xia = &xias[ai];
 
                 asset->state = XI_ASSET_STATE_UNLOADED;
                 asset->index = ai;
-                asset->type  = xias[ai].type;
+                asset->type  = xia->type;
                 asset->file  = it;
 
                 // :asset_lookup insert into hash table
                 //
                 xi_string name;
-                name.count =  strings[0];
-                name.data  = &strings[1];
+                name.count =  strings[xia->name_offset];
+                name.data  = &strings[xia->name_offset + 1];
 
                 xi_asset_manager_asset_hash_insert(assets, asset->type, running_total + ai, name);
-
-                strings += name.count + 1;
             }
 
             assets->asset_count += count;
         }
+    }
+
+    // upload the error texture
+    //
+    {
+        // @incomplete: we really need samplers per texture so we don't have to upload this much
+        // data for it. not really wasting anything though as its stored in the texture array which
+        // already has pre-allocated space, but does cost in bandwidth at init time
+        //
+        // :default_texture_bandwidth
+        //
+        xi_u32 w = 256;
+        xi_u32 h = 256;
+
+        xiAsset *error = &assets->assets[0];
+
+        error->state = XI_ASSET_STATE_LOADED;
+        error->type  = XIA_ASSET_TYPE_IMAGE;
+        error->index = 0;
+        error->file  = (xi_u32) -1; // invalid, as its not part of a file. setting this to -1 will catch bugs
+
+        error->data.texture.index  = 0;
+        error->data.texture.width  = (xi_u16) w;
+        error->data.texture.height = (xi_u16) h;
+
+        xiaAssetInfo *error_xia = &assets->xias[0];
+
+        error_xia->offset       = 0;
+        error_xia->size         = 0;
+        error_xia->name_offset  = 0;
+        error_xia->type         = XIA_ASSET_TYPE_IMAGE;
+
+        error_xia->image.width       = w;
+        error_xia->image.height      = h;
+        error_xia->image.frame_count = 0;
+        error_xia->image.mip_levels  = 0;
+
+        error_xia->write_time = 0;
+
+        XI_ASSERT(w == h);
+
+        void *data   = 0;
+        xi_uptr size = xi_image_mip_mapped_size(w, h);
+
+        xiRendererTransferTask *task;
+        task = xi_renderer_transfer_queue_enqueue_size(assets->transfer_queue, &data, size);
+
+        XI_ASSERT(data != 0);
+
+        xi_u32 colour = 0xFF000000;
+
+        xi_u32 *base = data;
+        while (w > 1 || h > 1) {
+            xi_u32 pps = 1;
+            if (w > 4 || h > 4) { pps = w / 4; }
+
+            for (xi_u32 y = 0; y < h; ++y) {
+                if ((y % pps) == 0) { colour ^= 0x00FF00FF; } // force rows to start with different colours
+
+                for (xi_u32 x = 0; x < w; ++x) {
+                    if ((x % pps) == 0) { colour ^= 0x00FF00FF; }
+
+                    xi_u32 px = (y * w) + x;
+                    base[px] = colour;
+                }
+            }
+
+            base += (w * h); // already a xi_u32 so no need for 4x
+
+            w >>= 1;
+            h >>= 1;
+        }
+
+        task->texture = error->data.texture;
+        task->state   = XI_RENDERER_TRANSFER_TASK_STATE_LOADED;
+    }
+
+    // upload the solid white texture
+    //
+    {
+        // :default_texture_bandwidth
+        //
+        xi_u32 w = 256;
+        xi_u32 h = 256;
+
+        xiAsset *white = &assets->assets[1];
+
+        white->state = XI_ASSET_STATE_LOADED;
+        white->type  = XIA_ASSET_TYPE_IMAGE;
+        white->index = 1;
+        white->file  = (xi_u32) -1; // invalid, as its not part of a file. setting this to -1 will catch bugs
+
+        white->data.texture.index  = 1;
+        white->data.texture.width  = (xi_u16) w;
+        white->data.texture.height = (xi_u16) h;
+
+        xiaAssetInfo *white_xia = &assets->xias[1];
+
+        white_xia->offset      = 0;
+        white_xia->size        = 0;
+        white_xia->name_offset = 0;
+        white_xia->type        = XIA_ASSET_TYPE_IMAGE;
+
+        white_xia->image.width       = w;
+        white_xia->image.height      = h;
+        white_xia->image.frame_count = 0;
+        white_xia->image.mip_levels  = 0;
+
+        white_xia->write_time = 0;
+
+        void *data   = 0;
+        xi_uptr size = xi_image_mip_mapped_size(w, h);
+
+        xiRendererTransferTask *task;
+        task = xi_renderer_transfer_queue_enqueue_size(assets->transfer_queue, &data, size);
+
+        xi_memory_set(data, 0xFF, size);
+
+        task->texture = white->data.texture;
+        task->state   = XI_RENDERER_TRANSFER_TASK_STATE_LOADED;
     }
 
     if (assets->importer.enabled) {
@@ -263,6 +408,276 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
     }
 }
 
+//
+// :note loading assets
+//
+XI_INTERNAL XI_THREAD_TASK_PROC(xi_asset_data_load) {
+    (void) pool;
+
+    xiAssetLoadInfo *load = (xiAssetLoadInfo *) arg;
+
+    xiAssetManager *assets = load->assets;
+    xiAsset *asset    = load->asset;
+    xiAssetFile *file = load->file;
+
+    if (xi_os_file_read(&file->handle, load->data, load->offset, load->size)) {
+        if (load->transfer_task) {
+            // mark the task as loaded so it can be uploaded to the gpu later on
+            //
+            XI_ATOMIC_EXCHANGE_U32(&load->transfer_task->state, XI_RENDERER_TRANSFER_TASK_STATE_LOADED);
+        }
+
+        XI_ATOMIC_EXCHANGE_U32(&asset->state, XI_ASSET_STATE_LOADED);
+    }
+    else {
+        XI_ATOMIC_EXCHANGE_U32(&asset->state, XI_ASSET_STATE_UNLOADED);
+        if (load->transfer_task) {
+            // mark the transfer task as unused to signify we shouldn't copy from this as it failed to
+            // load
+            //
+            XI_ATOMIC_EXCHANGE_U32(&load->transfer_task->state, XI_RENDERER_TRANSFER_TASK_STATE_UNUSED);
+        }
+    }
+
+    XI_ATOMIC_DECREMENT_U32(&assets->total_loads);
+}
+
+XI_INTERNAL xiRendererTexture xi_renderer_texture_acquire(xiAssetManager *assets, xi_u32 width, xi_u32 height) {
+    xiRendererTexture result;
+    // @todo: this is only dealing with sprites at the moment
+    // @todo: error checking if width or height > U16_MAX
+    //
+    result.index      = assets->next_sprite_handle;
+    result.generation = assets->sprite_generation;
+    result.width      = (xi_u16) width;
+    result.height     = (xi_u16) height;
+
+    assets->next_sprite_handle += 1;
+    if (assets->next_sprite_handle >= assets->max_sprite_handles) {
+        // :lru system
+        //
+        assets->next_sprite_handle = 0;
+        assets->sprite_generation += 1;
+    }
+
+    return result;
+}
+
+void xi_image_load(xiAssetManager *assets, xiImageHandle image) {
+    if (assets->total_loads < assets->max_assets) {
+        if (image.value < assets->max_assets) {
+            xiAsset *asset = &assets->assets[image.value];
+            if (asset->state != XI_ASSET_STATE_LOADED) {
+                xiaAssetInfo *xia = &assets->xias[image.value];
+
+                // it is a bug if an image handle is passed to this function and the asset type is not
+                // an image so we should assert this to catch bugs
+                //
+                XI_ASSERT(xia->type == XIA_ASSET_TYPE_IMAGE);
+
+                asset->data.texture = xi_renderer_texture_acquire(assets, xia->image.width, xia->image.height);
+
+                xiAssetLoadInfo *asset_load = &assets->asset_loads[assets->next_load++];
+                assets->next_load %= assets->max_assets;
+
+                xiRendererTransferQueue *transfer_queue = assets->transfer_queue;
+
+                asset->state = XI_ASSET_STATE_PENDING;
+
+                asset_load->assets = assets;
+                asset_load->file   = &assets->files[asset->file];
+                asset_load->asset  = asset;
+                asset_load->offset = xia->offset;
+                asset_load->size   = xia->size;
+
+                xiRendererTransferTask *transfer_task;
+                transfer_task = xi_renderer_transfer_queue_enqueue_size(transfer_queue,
+                            &asset_load->data, asset_load->size);
+
+                asset_load->transfer_task = transfer_task;
+                if (transfer_task != 0) {
+                    transfer_task->texture = asset->data.texture;
+                    assets->total_loads += 1;
+                    xi_thread_pool_enqueue(assets->thread_pool, xi_asset_data_load, (void *) asset_load);
+                }
+            }
+        }
+    }
+}
+
+XI_INTERNAL xi_u32 xi_asset_index_get_by_name(xiAssetManager *assets, xi_string name, xi_u32 type) {
+    xi_u32 result;
+
+    xi_u32 mask = assets->lookup_table_count - 1;
+    xi_u32 mix  = tbl_xia_type_hash_mix[type];
+    xi_u32 hash = xi_str_fnv1a_hash_u32(name) ^ mix;
+
+    xi_u32 i = 0;
+
+    xi_b32 found = false;
+
+    while (!found) {
+        if (i > assets->lookup_table_count) {
+            // we have tried every slot and didn't find anything so bail
+            //
+            result = 0;
+            break;
+        }
+
+        // quadratic probing
+        //
+        xi_u32 table_index = (hash + (i * i)) & mask;
+        xiAssetHash *slot  = &assets->lookup_table[table_index];
+
+        result = slot->index;
+        found  = (slot->hash == hash) && xi_str_equal(slot->value, name);
+
+        i += 1;
+    }
+
+    return result;
+}
+
+xiImageHandle xi_image_get_by_name(xiAssetManager *assets, xi_string name) {
+    xiImageHandle result;
+
+    result.value = xi_asset_index_get_by_name(assets, name, XIA_ASSET_TYPE_IMAGE);
+    return result;
+}
+
+xiaImageInfo *xi_image_info_get(xiAssetManager *assets, xiImageHandle image) {
+    xiaImageInfo *result = &assets->xias[image.value].image;
+    return result;
+}
+
+xiRendererTexture xi_image_data_get(xiAssetManager *assets, xiImageHandle image) {
+    xiRendererTexture result = { 0 };
+
+    xiAsset *asset = &assets->assets[image.value];
+    if (asset->type == XIA_ASSET_TYPE_IMAGE) {
+        if (asset->state == XI_ASSET_STATE_UNLOADED) {
+            // happens here to a) make sure the texture handle is valid, and b) we can't rely on
+            // get_by_name to load the asset due to certain paths such as animations etc.
+            //
+            xi_image_load(assets, image);
+        }
+
+        // load above will always acquire a texture handle, so this will be valid even if the actual
+        // texture data has yet to be loaded
+        //
+        result = asset->data.texture;
+    }
+
+    return result;
+}
+
+xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets, xi_string name, xi_u32 flags) {
+    xiImageHandle image = xi_image_get_by_name(assets, name);
+    xiAnimation result  = xi_animation_create_from_image_flags(assets, image, flags);
+    return result;
+}
+
+xiAnimation xi_animation_create_from_image_flags(xiAssetManager *assets, xiImageHandle image, xi_u32 flags) {
+    xiAnimation result = { 0 };
+
+    result.base_frame = image;
+    result.flags      = flags;
+    result.frame_dt   = assets->animation_dt;
+
+    xiaImageInfo *info = xi_image_info_get(assets, image);
+    if (info) {
+        XI_ASSERT(info->frame_count > 0);
+
+        result.frame_count = info->frame_count;
+        if (flags & XI_ANIMATION_FLAG_REVERSE) {
+            result.current_frame = info->frame_count - 1; // -1 as zero based!
+        }
+    }
+
+    for (xi_u32 it = 0; it < result.frame_count; ++it) {
+        xiImageHandle handle = { image.value + it };
+        xi_image_load(assets, handle); // we prefetch the frames
+    }
+
+    return result;
+}
+
+xiAnimation xi_animation_get_by_name(xiAssetManager *assets, xi_string name) {
+    xiAnimation result = xi_animation_get_by_name_flags(assets, name, 0);
+    return result;
+}
+
+xiAnimation xi_animation_create_from_image(xiAssetManager *assets, xiImageHandle image) {
+    xiAnimation result = xi_animation_create_from_image_flags(assets, image, 0);
+    return result;
+}
+
+xi_b32 xi_animation_update(xiAnimation *animation, xi_f32 dt) {
+    xi_b32 result = false;
+
+    xi_b32 reverse     = (animation->flags & XI_ANIMATION_FLAG_REVERSE);
+    xi_u32 last_frame  = reverse ? 0 : animation->frame_count - 1;
+
+    if (animation->flags & XI_ANIMATION_FLAG_ONE_SHOT) {
+        // we ony return 'true' for one-shot animations once, this is handled below when the animation
+        // actually transitions to this last frame
+        //
+        if (animation->current_frame == last_frame) { return result; }
+    }
+    else if (animation->flags & XI_ANIMATION_FLAG_PAUSED) {
+        return result;
+    }
+
+    animation->frame_accum += dt;
+    if (animation->frame_accum >= animation->frame_dt) {
+        animation->frame_accum -= animation->frame_dt;
+
+        // check if we are at the end of the animation
+        //
+        if (animation->current_frame == last_frame) {
+            if (animation->flags & XI_ANIMATION_FLAG_PING_PONG) {
+                animation->flags ^= XI_ANIMATION_FLAG_REVERSE;
+                reverse = !reverse;
+            }
+            else {
+                // loop back to the beginning, one-shot is handled above
+                //
+                animation->current_frame = reverse ? animation->frame_count - 1 : 0;
+            }
+        }
+
+        // update the animation frame
+        //
+        if (reverse) { animation->current_frame -= 1; }
+                else { animation->current_frame += 1; }
+
+        result = (animation->current_frame == last_frame);
+    }
+
+    return result;
+}
+
+void xi_animation_reset(xiAnimation *animation) {
+    xi_u32 first_frame = (animation->flags & XI_ANIMATION_FLAG_REVERSE) ? animation->frame_count - 1 : 0;
+    animation->current_frame = first_frame;
+}
+
+void xi_animation_pause(xiAnimation *animation) {
+    animation->flags |= XI_ANIMATION_FLAG_PAUSED;
+}
+
+void xi_animation_unpause(xiAnimation *animation) {
+    animation->flags &= ~XI_ANIMATION_FLAG_PAUSED;
+}
+
+xiImageHandle xi_animation_current_frame_get(xiAnimation *animation) {
+    xiImageHandle result;
+
+    result.value = animation->base_frame.value + animation->current_frame;
+    return result;
+}
+
+//
 // :note importer code is below!
 //
 #define STBI_ONLY_PNG 1
@@ -309,7 +724,7 @@ XI_INTERNAL xi_uptr xi_asset_manager_size_reserve(xiAssetManager *assets, xi_upt
     return result;
 }
 
-XI_INTERNAL xi_string xi_asset_name_append(xiAssetFile *file, xi_string name) {
+XI_INTERNAL xi_string xi_asset_name_append(xiAssetFile *file, xiaAssetInfo *info, xi_string name) {
     xi_string result = { 0 };
 
     XI_ASSERT(name.count <= XI_U8_MAX);
@@ -320,9 +735,6 @@ XI_INTERNAL xi_string xi_asset_name_append(xiAssetFile *file, xi_string name) {
     xi_uptr offset = XI_ATOMIC_ADD_U64(&file->strings.used, name.count + 1);
     xi_u8  *data   = &file->strings.data[offset];
 
-    // this is probably real bad for false sharing because the string names are short and packed
-    // closely one after another, maybe there is a better way to do this.
-    //
     // @todo: maybe a secondary pass to insert the string names single-threaded would be a good
     // idea, we could do a validation to see if packed assets were actually written to the file
     // etc. as well!
@@ -330,11 +742,13 @@ XI_INTERNAL xi_string xi_asset_name_append(xiAssetFile *file, xi_string name) {
     data[0] = (xi_u8) name.count;
     xi_memory_copy(&data[1], name.data, name.count);
 
+    info->name_offset = (xi_u32) offset;
+
     result = xi_str_wrap_count(&data[1], name.count);
     return result;
 }
 
-XI_INTERNAL xi_uptr xi_image_mip_mapped_size(xi_u32 w, xi_u32 h) {
+xi_uptr xi_image_mip_mapped_size(xi_u32 w, xi_u32 h) {
     xi_uptr result = (w * h);
 
     while (w > 1 || h > 1) {
@@ -352,6 +766,9 @@ XI_INTERNAL xi_uptr xi_image_mip_mapped_size(xi_u32 w, xi_u32 h) {
 }
 
 typedef struct xiAssetImportInfo {
+    xi_u32 handle;      // if this is != 0, we have pre-allocated a handle for the asset
+    xi_s32 frame_index; // valid if >= 0, signifies its an animation frame
+
     xiAssetManager *assets;
     xiDirectoryEntry *entry;
 } xiAssetImportInfo;
@@ -373,7 +790,13 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 (int) file_data.count, &w, &h, &c, 4);
 
         if (image_data) {
-            xi_u32 handle = xi_asset_handles_reserve(assets, 1);
+            xi_u32 handle = import->handle;
+            if (handle == 0) {
+                // reserve a single asset
+                //
+                handle = xi_asset_handles_reserve(assets, 1);
+            }
+
             if (handle != 0) {
                 xiAssetFile *file = &assets->files[assets->file_count - 1];
 
@@ -381,21 +804,29 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 xi_u8 level_count  = 0;
                 xi_uptr total_size = 4 * w * h;
 
-                // this is just a raw load and write, no modification done yet, do things
-                // incrementally!
-                //
-                // also isn't multi-threaded, this will give me a better idea of what parts
-                // can be part of the thread task and what parts have to be done here
-                //
                 xi_string basename = entry->basename;
 
-                xi_string prefix = xi_str_prefix(basename, assets->importer.sprite_prefix.count);
-                xi_b32 is_sprite = xi_str_equal(prefix, assets->importer.sprite_prefix);
+                xi_b32 is_animated = (import->frame_index >= 0);
+                xi_string prefix   = xi_str_prefix(basename, assets->importer.sprite_prefix.count);
+                xi_b32 is_sprite   = xi_str_equal(prefix, assets->importer.sprite_prefix);
+
                 if (is_sprite) {
                     // we advance past the prefix so the actual lookup name doesn't
                     // require it
                     //
                     basename = xi_str_advance(basename, prefix.count);
+                }
+                else if (is_animated && (import->frame_index == 0)) {
+                    // we only do this for the first animation frame as subsequent animation frames cannot
+                    // be looked up directly so we don't need to insert them into the asset lookup table
+                    //
+                    xi_uptr offset = 0;
+                    if (xi_str_find_last(basename, &offset, '_')) {
+                        // animation frames have _XXXX at the end to mark what their frame number is
+                        // so we slice off the end
+                        //
+                        basename = xi_str_remove(basename, basename.count - offset);
+                    }
                 }
 
                 // :note if an image asset is designated as as "sprite" it will be
@@ -429,7 +860,7 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 // now we have our image as 'pre-multiplied srgb' we can downsize if as
                 // needed to fit in the texture array if it is a sprite
                 //
-                if (is_sprite) {
+                if (is_sprite || is_animated) {
                     if (w > (xi_s32) assets->sprite_dimension ||
                         h > (xi_s32) assets->sprite_dimension)
                     {
@@ -456,6 +887,10 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                         //
                         total_size = xi_image_mip_mapped_size(w, h);
                         pixels     = xi_arena_push_size(temp, total_size);
+
+                        // copy the base image data into the new buffer
+                        //
+                        xi_memory_copy(pixels, image_data, 4 * w * h);
                     }
 
                     // generate mip maps
@@ -501,19 +936,27 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 //
                 XI_ASSERT(total_size <= XI_U32_MAX);
 
-                xia->type   = asset->type;
-                xia->size   = (xi_u32) total_size;
-                xia->offset = xi_asset_manager_size_reserve(assets, xia->size);
-
-                xia->write_time = entry->time;
+                xia->type        = asset->type;
+                xia->size        = (xi_u32) total_size;
+                xia->offset      = xi_asset_manager_size_reserve(assets, xia->size);
+                xia->name_offset = 0;
+                xia->write_time  = entry->time;
 
                 xia->image.width      = w;
                 xia->image.height     = h;
                 xia->image.flags      = 0;
                 xia->image.mip_levels = level_count;
 
-                xi_string name = xi_asset_name_append(file, basename);
-                xi_asset_manager_asset_hash_insert(assets, asset->type, handle, name);
+                // xia->image.frame_count is set elsewhere so it doesn't need to be touched here
+                //
+
+                // this puts the name in the asset lookup table if it is either not part of
+                // an animation or if it is the first frame of an animation
+                //
+                if (import->frame_index <= 0) {
+                    xi_string name = xi_asset_name_append(file, xia, basename);
+                    xi_asset_manager_asset_hash_insert(assets, asset->type, handle, name);
+                }
 
                 // @todo: this assumes we successfully wrote to the file
                 //
@@ -532,6 +975,8 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
     }
 }
 
+#include <windows.h>
+
 void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
     if (assets->file_count == 0) {
         // something went wrong during init causing no files to be allocated, just disable the importer
@@ -546,7 +991,10 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
     xiDirectoryList list;
     xi_directory_list_get(temp, &list, assets->importer.search_dir, false); // we search sub-dirs separately
 
-    xiAssetImportInfo *imports = xi_arena_push_array(temp, xiAssetImportInfo, list.count);
+    xi_u32 next_import = 0;
+    xiAssetImportInfo *imports = xi_arena_push_array(temp, xiAssetImportInfo, assets->max_assets);
+
+    xi_u32 assets_packed = 0;
 
     for (xi_u32 it = 0; it < list.count; ++it) {
         xiDirectoryEntry *entry = &list.entries[it];
@@ -554,31 +1002,184 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
         if (entry->type == XI_DIRECTORY_ENTRY_TYPE_DIRECTORY) {
             // assume its an animation because it has its own sub-directory
             //
-            // @todo: import animations!
+            // @test: see if its okay to clobber the input list by supplying the input and output as the
+            // same list, could be useful when you're only filtering once and don't care about the overall list
             //
+            // @todo: this should be its own threaded task which then in turn enqueues its own image import
+            // task for each frame of the animation
+            //
+            xiDirectoryList all, frames;
+            xi_directory_list_get(temp, &all, entry->path, false);
+            xi_directory_list_filter_for_extension(temp, &frames, &all, xi_str_wrap_const(".png"));
+
+            if (frames.count > 0) {
+                xi_b32 needs_packing = true;
+                {
+                    // check if the animation has already been packed into the asset file, if it has
+                    // then we don't need to import it again...
+                    //
+                    // @todo: this doesn't check if any of the frames have been modified (newer write time)
+                    // but it should check incase there have been file modifications
+                    //
+                    xiDirectoryEntry *first = &frames.entries[0];
+                    xi_uptr offset = 0;
+                    if (xi_str_find_last(first->basename, &offset, '_')) {
+                        xi_string name = xi_str_remove(first->basename, first->basename.count - offset);
+
+                        xiImageHandle image = xi_image_get_by_name(assets, name);
+                        if (image.value != 0) {
+                            needs_packing = false;
+                        }
+                    }
+                    else {
+                        // incorrect naming format
+                        //
+                        // @robustness: the first entry may fail, however, if this is the case the
+                        // animation won't be packed anyway because the number of found frames won't
+                        // match the number of entries in the frames directory list
+                        //
+                        needs_packing = false;
+                    }
+                }
+
+                if (needs_packing) {
+                    // assume there are count many frames
+                    //
+                    xi_u32 *map = xi_arena_push_array(temp, xi_u32, frames.count);
+
+                    xi_u32 frame_count = 0;
+                    for (xi_u32 f = 0; f < frames.count; ++f) {
+                        xiDirectoryEntry *frame = &frames.entries[f];
+
+                        xi_uptr offset;
+                        if (xi_str_find_last(frame->basename, &offset, '_')) {
+
+                            xi_string number = xi_str_advance(frame->basename, offset + 1);
+                            xi_u32 frame_index;
+                            if (xi_str_parse_u32(number, &frame_index)) {
+                                XI_ASSERT(frame_index < frames.count);
+
+                                // this makes sure the frames are in order
+                                //
+                                map[frame_index] = f;
+                                frame_count += 1;
+                            }
+                            else {
+                                // @todo: logging...
+                                //
+                            }
+                        }
+                    }
+
+                    if (frame_count == frames.count) {
+                        // we have a valid animation and all frames are present
+                        //
+                        xi_u32 base_handle = xi_asset_handles_reserve(assets, frame_count);
+                        if (base_handle != 0) {
+                            // @hack: this entire animation import needs to be pulled out into its
+                            // own routine ideally, so we can leverage a different thread to do this
+                            // stuff for us, really all this loop should be is pushing 'asset_import' onto
+                            // the thread queue
+                            //
+                            xiaAssetInfo *base = &assets->xias[base_handle];
+                            base->image.frame_count = (xi_u8) frame_count;
+
+                            for (xi_u32 f = 0; f < frame_count; ++f) {
+                                XI_ASSERT(next_import < assets->max_assets);
+
+                                xiAssetImportInfo *import = &imports[next_import];
+                                next_import += 1;
+
+                                import->frame_index = (xi_s32) f;
+
+                                import->assets = assets;
+                                import->entry  = &frames.entries[map[f]];
+
+                                import->handle = base_handle + f;
+
+                                xi_thread_pool_enqueue(assets->thread_pool,
+                                        xi_image_asset_import, (void *) import);
+
+                                assets_packed += 1;
+                            }
+                        }
+                    }
+                    else {
+                        // @todo: logging...
+                        //
+                    }
+                }
+                else {
+                    char buffer[512];
+                    snprintf(buffer, sizeof(buffer), "animation '%.*s' already packed!\n",
+                            xi_str_unpack(entry->basename));
+
+                    OutputDebugString(buffer);
+                }
+            }
+            else {
+                // @todo: logging....
+                //
+            }
         }
         else {
             xi_uptr dot;
-            if (!xi_str_find_last(entry->path, &dot, '.')) { continue; }
+            if (xi_str_find_last(entry->path, &dot, '.')) {
+                xi_string ext = xi_str_suffix(entry->path, entry->path.count - dot);
+                if (xi_str_equal(ext, xi_str_wrap_const(".png"))) {
+                    // we have an image asset!
+                    //
+                    // @incomplete: this will break if there are more assets to import than max assets were
+                    // allocated! come up with some sort of ring buffer design to use the imports
+                    //
+                    XI_ASSERT(next_import < assets->max_assets);
 
-            xi_string ext = xi_str_suffix(entry->path, entry->path.count - dot);
-            if (xi_str_equal(ext, xi_str_wrap_const(".png"))) {
-                // we have an image asset!
-                //
-                xiAssetImportInfo *import = &imports[it];
+                    // check if it is a sprite
+                    //
+                    // @duplicate: from above in the actual image import code, maybe this can happen
+                    // there?
+                    //
+                    xi_string basename = entry->basename;
+                    xi_string prefix   = xi_str_prefix(basename, assets->importer.sprite_prefix.count);
+                    if (xi_str_equal(prefix, assets->importer.sprite_prefix)) {
+                        basename = xi_str_advance(basename, prefix.count);
+                    }
 
-                import->assets = assets;
-                import->entry  = entry;
+                    xiImageHandle image = xi_image_get_by_name(assets, basename);
+                    if (image.value == 0) {
+                        xiAssetImportInfo *import = &imports[next_import];
+                        next_import += 1;
 
-                xi_thread_pool_enqueue(assets->thread_pool, xi_image_asset_import, (void *) import);
-            }
-            else {
-                int x = 0;
-                x += 1;
+                        import->assets      =  assets;
+                        import->entry       =  entry;
+                        import->handle      =  0; // allocated automatically
+                        import->frame_index = -1;
 
-                // unsupported asset type!
+                        xi_thread_pool_enqueue(assets->thread_pool, xi_image_asset_import, (void *) import);
+                        assets_packed += 1;
+                    }
+                    else {
+                        char buffer[256];
+                        snprintf(buffer, sizeof(buffer),
+                                "image '%.*s' already packed\n", xi_str_unpack(basename));
+
+                        OutputDebugString(buffer);
+                    }
+                }
+                else {
+                    int x = 0;
+                    x += 1;
+
+                    // unsupported asset type!
+                }
             }
         }
+    }
+
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "assets packed = %d\n", assets_packed);
+        OutputDebugString(buf);
     }
 
     xi_thread_pool_await_complete(assets->thread_pool);

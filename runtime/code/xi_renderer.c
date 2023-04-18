@@ -4,16 +4,16 @@
 XI_INTERNAL void *xi_render_command_push_size(xiRenderer *renderer, xi_u32 type, xi_uptr size) {
     void *result = 0;
 
-    xi_buffer *commands = &renderer->commands;
+    xi_buffer *command_buffer = &renderer->command_buffer;
 
     xi_uptr total = size + sizeof(xi_u32);
-    if ((commands->used + total) <= commands->limit) {
-        xi_u32 *header = (xi_u32 *) (commands->data + commands->used);
+    if ((command_buffer->used + total) <= command_buffer->limit) {
+        xi_u32 *header = (xi_u32 *) (command_buffer->data + command_buffer->used);
 
         header[0] = type;
         result    = (void *) (header + 1);
 
-        commands->used += total;
+        command_buffer->used += total;
     }
 
     return result;
@@ -37,100 +37,88 @@ XI_INTERNAL xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *rendere
     return result;
 }
 
-XI_INTERNAL void xi_quad_draw_vertices(xiRenderer *renderer,
-        xi_vert3 vt0, xi_vert3 vt1, xi_vert3 vt2, xi_vert3 vt3)
-{
-    xiRenderCommandDraw *cmd = xi_renderer_draw_call_issue(renderer);
+xi_b32 xi_renderer_texture_is_sprite(xiRenderer *renderer, xiRendererTexture texture) {
+    xi_b32 result = (texture.width  <= renderer->sprite_array.dimension) &&
+                    (texture.height <= renderer->sprite_array.dimension);
 
-    XI_ASSERT(cmd);
-
-    if (cmd) {
-        xi_vert3 *vertices = renderer->vertices.base + cmd->vertex_offset + cmd->vertex_count;
-        xi_u16   *indices  = renderer->indices.base  + cmd->index_offset  + cmd->index_count;
-
-        // set vertices for this quad
-        //
-        vertices[0] = vt0;
-        vertices[1] = vt1;
-        vertices[2] = vt2;
-        vertices[3] = vt3;
-
-        XI_ASSERT((cmd->vertex_count + 6) <= XI_U16_MAX);
-
-        // set the indices for this quad
-        //
-        xi_u16 offset = (xi_u16) cmd->vertex_count;
-
-        indices[0] = 0 + offset;
-        indices[1] = 1 + offset;
-        indices[2] = 2 + offset;
-
-        indices[3] = 1 + offset;
-        indices[4] = 2 + offset;
-        indices[5] = 3 + offset;
-
-        renderer->vertices.count += 4;
-        renderer->indices.count  += 6;
-
-        cmd->vertex_count += 4;
-        cmd->index_count  += 6;
-    }
+    return result;
 }
 
-void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
-        xi_v2 center, xi_v2 dimension, xi_f32 angle)
+xiRendererTransferTask *xi_renderer_transfer_queue_enqueue_size(xiRendererTransferQueue *transfer_queue,
+        void **data, xi_uptr size) // data will contain a pointer to write data to transfer to
 {
-    // @todo: rotate the quad
-    //
-    (void) angle;
+    xiRendererTransferTask *result = 0;
 
-    // convert colour to pre-multiplied alpha and then pack into xi_u32
-    //
-    // @todo: i need to implement math functions
-    //
-    colour.r *= colour.a;
-    colour.g *= colour.a;
-    colour.b *= colour.a;
+    XI_ASSERT(size <= transfer_queue->limit);
 
-    xi_u32 ucolour =
-        ((xi_u32) (colour.a * 255) << 24) |
-        ((xi_u32) (colour.r * 255) << 16) |
-        ((xi_u32) (colour.g * 255) <<  8) |
-        ((xi_u32) (colour.b * 255) <<  0);
+    if (transfer_queue->task_count < transfer_queue->max_tasks) {
+        xi_u32 mask  = (transfer_queue->max_tasks - 1);
+        xi_u32 index = (transfer_queue->first_task + transfer_queue->task_count) & mask;
 
-    xi_v2 half_dim;
-    half_dim.x = (0.5f * dimension.x);
-    half_dim.y = (0.5f * dimension.y);
+        result = &transfer_queue->tasks[index];
 
-    xi_vert3 vt[4];
+        // acquire the memory
+        //
+        if (transfer_queue->write_offset == transfer_queue->read_offset) {
+            // rowo[-----------------------]
+            //
+            // in this case there is nothing on the queue so the entire buffer is available to us
+            //
+            if (transfer_queue->task_count == 0) {
+                // the transfer ring is empty so we can just enqueue from the start
+                //
+                transfer_queue->write_offset = 0;
+                transfer_queue->read_offset  = 0;
+            }
+        }
+        else if (transfer_queue->write_offset < transfer_queue->read_offset) {
+            // [xxxx]wo[------]ro[xxxxx]
+            //
+            // this case there is a chunk of unused memory between the two offset pointers so
+            // we check if it is big enough to hold our size and use that
+            //
+            xi_uptr size_middle = transfer_queue->read_offset - transfer_queue->write_offset;
+            if (size_middle < size) {
+                result = 0;
+            }
 
-    vt[0].p.x  = center.x - half_dim.x;
-    vt[0].p.y  = center.y + half_dim.y;
-    vt[0].p.z  = 0; // @todo: add z componenet
-    vt[0].uv.x = 0;
-    vt[0].uv.y = 0;
-    vt[0].c    = ucolour;
+        }
+        else /*if (transfer_queue->read_offset < transfer_queue->write_offset)*/ {
+            // [----]ro[xxxxxx]wo[-----]
+            //
+            // in this case there are two chunks of unused memory at the beginning and end of
+            // the ring so we check if the chunk at the end is big enough, if it isn't, we move
+            // the write offset forward and use the one at the beginning if it is big enough.
+            //
+            // its a bit wasteful if the one at the end isn't big enough, however, this only happens
+            // if the one at the beginning is big enough, if neither can fit the size we need the
+            // ring isn't modified and the size isn't enqueued
+            //
+            xi_uptr size_end = transfer_queue->limit - transfer_queue->write_offset;
+            if (size_end < size) {
+                xi_uptr size_begin = transfer_queue->read_offset;
+                if (size_begin < size) {
+                    result = 0;
+                }
+                else {
+                    // we have to go from the beginning in this case
+                    //
+                    transfer_queue->write_offset = 0;
+                }
+            }
+        }
 
-    vt[1].p.x  = center.x - half_dim.x;
-    vt[1].p.y  = center.y - half_dim.y;
-    vt[1].p.z  = 0; // @todo: add z componenet
-    vt[1].uv.x = 0;
-    vt[1].uv.y = 1;
-    vt[1].c    = ucolour;
+        if (result) {
+            result->state  = XI_RENDERER_TRANSFER_TASK_STATE_PENDING;
+            result->offset = transfer_queue->write_offset;
+            result->size   = size;
 
-    vt[2].p.x  = center.x + half_dim.x;
-    vt[2].p.y  = center.y + half_dim.y;
-    vt[2].p.z  = 0; // @todo: add z componenet
-    vt[2].uv.x = 1;
-    vt[2].uv.y = 1;
-    vt[2].c    = ucolour;
+            transfer_queue->write_offset += size;
+            transfer_queue->task_count += 1;
 
-    vt[3].p.x  = center.x + half_dim.x;
-    vt[3].p.y  = center.y - half_dim.y;
-    vt[3].p.z  = 0; // @todo: add z componenet
-    vt[3].uv.x = 1;
-    vt[3].uv.y = 0;
-    vt[3].c    = ucolour;
+            *data = (void *) (transfer_queue->base + result->offset);
+        }
+    }
 
-    xi_quad_draw_vertices(renderer, vt[0], vt[1], vt[2], vt[3]);
+    return result;
 }

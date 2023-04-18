@@ -68,43 +68,49 @@ void xi_arena_deinit(xiArena *arena) {
 void *xi_arena_push_aligned(xiArena *arena, xi_uptr size, xi_uptr alignment) {
     void *result = 0;
 
-    if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
-        alignment = arena->default_alignment;
-    }
-
-    xi_uptr align_offset   = XI_ALIGN_UP(arena->offset, alignment) - arena->offset;
-    xi_uptr allocation_end = arena->offset + align_offset + size;
-
-    if (allocation_end <= arena->size) {
-        // we have enough space to push the allocation
-        //
-        if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
-            if (allocation_end > arena->committed) {
-                // we haven't committed enough virtual memory so commit more
-                //
-                xi_uptr page_size = xi_os_page_size_get();
-
-                void *commit_base   = (xi_u8 *) arena->base + arena->committed;
-                xi_uptr commit_size = XI_ALIGN_UP(allocation_end - arena->committed, page_size);
-
-                xi_os_virtual_memory_commit(commit_base, commit_size);
-
-                arena->committed += commit_size;
-            }
+    // we only actually do anything if size > 0, this guarantees we get a null-pointer and nothing is
+    // modified in the case the user tries to allocate zero sized buffers for consistend results
+    // and making it easier to catch bugs via crash
+    //
+    if (size != 0) {
+        if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
+            alignment = arena->default_alignment;
         }
 
-        // :note for now we don't need to zero the memory as we are explicitly decommitting pages when
-        // the arena is reset or an allocation is popped. on modern operating systems when decommitting
-        // pages it guarantees us zero pages when re-committing/accessing them again
-        //
-        result = (xi_u8 *) arena->base + arena->offset + align_offset;
+        xi_uptr align_offset   = XI_ALIGN_UP(arena->offset, alignment) - arena->offset;
+        xi_uptr allocation_end = arena->offset + align_offset + size;
 
-        arena->last_offset = arena->offset;
-        arena->offset      = allocation_end;
+        if (allocation_end <= arena->size) {
+            // we have enough space to push the allocation
+            //
+            if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
+                if (allocation_end > arena->committed) {
+                    // we haven't committed enough virtual memory so commit more
+                    //
+                    xi_uptr page_size = xi_os_page_size_get();
+
+                    void *commit_base   = (xi_u8 *) arena->base + arena->committed;
+                    xi_uptr commit_size = XI_ALIGN_UP(allocation_end - arena->committed, page_size);
+
+                    xi_os_virtual_memory_commit(commit_base, commit_size);
+
+                    arena->committed += commit_size;
+                }
+            }
+
+            // :note for now we don't need to zero the memory as we are explicitly decommitting pages when
+            // the arena is reset or an allocation is popped. on modern operating systems when decommitting
+            // pages it guarantees us zero pages when re-committing/accessing them again
+            //
+            result = (xi_u8 *) arena->base + arena->offset + align_offset;
+
+            arena->last_offset = arena->offset;
+            arena->offset      = allocation_end;
+        }
+
+        XI_ASSERT(result != 0);
+        XI_ASSERT(((xi_u64) result & (alignment - 1)) == 0);
     }
-
-    XI_ASSERT(result != 0);
-    XI_ASSERT(((xi_u64) result & (alignment - 1)) == 0);
 
     return result;
 }
@@ -117,14 +123,14 @@ void *xi_arena_push(xiArena *arena, xi_uptr size) {
 void *xi_arena_push_copy_aligned(xiArena *arena, void *src, xi_uptr size, xi_uptr alignment) {
     void *result = xi_arena_push_aligned(arena, size, alignment);
 
-    xi_memory_copy(result, src, size);
+    if (result != 0) { xi_memory_copy(result, src, size); }
     return result;
 }
 
 void *xi_arena_push_copy(xiArena *arena, void *src, xi_uptr size) {
     void *result = xi_arena_push_aligned(arena, size, arena->default_alignment);
 
-    xi_memory_copy(result, src, size);
+    if (result != 0) { xi_memory_copy(result, src, size); }
     return result;
 }
 

@@ -23,6 +23,15 @@ extern "C" {
 //     - file open/close
 //     - file read/write
 //     - file create/delete
+//   - thread work queue
+//   - graphics rendering
+//     - basic sprite rendering
+//     - 2d animation rendering
+//   - asset management
+//     - images
+//     - animations
+//     - packing to .xia files
+//     - streaming/threaded loading
 
 // xi runtime will supply
 //     - keyboard input
@@ -32,14 +41,10 @@ extern "C" {
 //     - audio output
 //       - mixer
 //   - graphics rendering
-//     - basic sprite rendering
-//     - 2d animation rendering
 //     - custom shaders
 //     - custom render targets
 //   - math utilities
-//   - thread work queue
 //   - asset management
-//     - images
 //     - shaders
 //     - audio
 //     - fonts
@@ -62,6 +67,8 @@ extern "C" {
 #include "xi_fileio.h"
 #include "xi_xia.h"
 #include "xi_assets.h"
+
+#include "xi_draw.h"
 
 #define XI_MAX_DISPLAYS 8
 
@@ -108,6 +115,8 @@ typedef struct xiContext {
     xiAssetManager assets;
     xiThreadPool thread_pool;
 
+    xiRenderer renderer;
+
     // :note any members of the system struct can be considered valid _at all times_ this includes
     // in the XI_GAME_PRE_INIT call even though other engine services have not yet been initialised
     //
@@ -131,22 +140,21 @@ typedef struct xiContext {
 // these function prototypes below are the functions your game dll should export
 //
 enum xiGameInitType {
-    // the first call to init will be provided with this as 'init_type', occurs before any engine services
-    // have been initialised and thus can be used to configure any of the user-configurable engine services,
-    // such as window, asset system, renderer etc.
+    // the first call to the game code 'init' function will be provided with this value. this occurs
+    // before any of the engine systems have been initialised and thus can be used to configure them
+    // to the games preferences.
     //
-    // this means engine services _should not be used_ during pre-init, only setup for configuration
+    // engine systems are not valid to use on this call
     //
-    // will happen exactly once on first startup
-    //
-    XI_GAME_PRE_INIT = 0,
+    XI_ENGINE_CONFIGURE = 0,
 
-    // the second call to init will be provided with this as 'init_type', occurs after engine services have
-    // been successfully initialised and any services can be assumed to be valid and can now be used
+    // the second call to the game code 'init' function will be provided with this value. this occurs
+    // after engine systems have been initialise and thus they are valid to use.
     //
-    // will happen exactly once on first startup, guaranteed to come after XI_GAME_PRE_INIT
+    // this can be used to initialise any game state that may require interaction with engine systems,
+    // such as asset system etc.
     //
-    XI_GAME_POST_INIT,
+    XI_GAME_INIT,
 
     // any time the game code is dynamically reloaded at runtime, the init function will be called again,
     // in such a case the 'init_type' paramter will contain this enumeration value

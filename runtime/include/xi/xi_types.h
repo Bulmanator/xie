@@ -247,8 +247,7 @@ typedef struct xi_m4x4_inv {
 //
 typedef struct xi_vert3 {
     xi_v3 p;
-    xi_v2 uv; // @todo: does this need to be full precision?
-            // this need an extra component for the texture index
+    xi_v3 uv; // @todo: does this need to be full precision?
     xi_u32 c;
 } xi_vert3; // 24 bytes
 
@@ -308,7 +307,7 @@ typedef struct xi_vert3 {
     #define XI_ASSERT(exp) assert(exp)
     #define XI_STATIC_ASSERT(exp) static_assert(exp, #exp)
 #else
-    #define XI_ASSERT(exp) (void) exp
+    #define XI_ASSERT(exp) (void) (exp)
     #define XI_STATIC_ASSERT(exp)
 #endif
 

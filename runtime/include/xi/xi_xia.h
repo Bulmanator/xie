@@ -47,19 +47,20 @@ XI_STATIC_ASSERT(sizeof(xiaHeader) == 128);
 typedef struct xiaImageInfo {
     xi_u32 width;
     xi_u32 height;
-    xi_u16 flags;
+    xi_u16 flags;       // reserved, maybe this should become a xi_u8 and the frame_count can be xi_u16
     xi_u8  frame_count; // > 0 if animation
-    xi_u8  mip_levels;  // > 0 if sprite
+    xi_u8  mip_levels;  // > 0 if sprite @unused: remove, not needed
 } xiaImageInfo;
 
 typedef struct xiaAssetInfo {
     xi_u64 offset;
     xi_u32 size;
+    xi_u32 name_offset; // from the beginning of the string table, if 0 there is no name associated
 
     xi_u32 type;
     union {
         xiaImageInfo image;
-        xi_u8 pad[40];
+        xi_u8 pad[36];
     };
 
     xi_u64 write_time; // last write time of imported file

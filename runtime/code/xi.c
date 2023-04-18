@@ -13,6 +13,8 @@
 #include "xi_fileio.c"
 #include "xi_assets.c"
 
+#include "xi_draw.c"
+
 #if XI_OS_WIN32
     #include "os/win32.c"
 #endif

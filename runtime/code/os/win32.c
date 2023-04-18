@@ -36,6 +36,11 @@ typedef struct xiWin32WindowInfo {
     HINSTANCE hInstance;
 } xiWin32WindowInfo;
 
+typedef struct xiWin32WindowData {
+    HINSTANCE hInstance;
+    HWND hwnd;
+} xiWin32WindowData;
+
 typedef struct xiWin32DisplayInfo {
     HMONITOR handle;
 
@@ -962,12 +967,11 @@ XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
 
             HMODULE lib = LoadLibraryW(wpath);
             if (lib) {
-                // @incomplete: simulate is missing
-                //
-                xiGameInit   *init   = (xiGameInit *) GetProcAddress(lib, context->game.init_name);
-                xiGameRender *render = (xiGameRender *) GetProcAddress(lib, context->game.render_name);
+                xiGameInit     *init     = (xiGameInit *)     GetProcAddress(lib, context->game.init_name);
+                xiGameSimulate *simulate = (xiGameSimulate *) GetProcAddress(lib, context->game.simulate_name);
+                xiGameRender   *render   = (xiGameRender *)   GetProcAddress(lib, context->game.render_name);
 
-                if (init != 0 && render != 0) {
+                if (init != 0 && simulate != 0 && render != 0) {
                     // we found a valid .dll that exports the functions specified so we can
                     // close the loaded library and save the path to it
                     //
@@ -1039,9 +1043,10 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
             if (context->game.dll) {
                 FreeLibrary(context->game.dll);
 
-                context->game.dll    = 0;
-                context->game.init   = 0;
-                context->game.render = 0;
+                context->game.dll      = 0;
+                context->game.init     = 0;
+                context->game.simulate = 0;
+                context->game.render   = 0;
             }
 
             if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
@@ -1309,7 +1314,7 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
             // @todo: this could, and probably should, just be replaced with a configuration file in
             // the future. or could just have both a pre-init call and a configuration file
             //
-            context->game.init(xi, XI_GAME_PRE_INIT);
+            context->game.init(xi, XI_ENGINE_CONFIGURE);
         }
 
         if (xi->thread_pool.thread_count == 0) {
@@ -1320,7 +1325,6 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         }
 
         xi_thread_pool_init(&context->arena, &xi->thread_pool);
-        xi_asset_manager_init(&context->arena, &xi->assets, xi);
 
         xi_u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
         xiWin32DisplayInfo *display = &context->displays[display_index];
@@ -1441,17 +1445,31 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
             HMODULE renderer_lib = LoadLibraryA("xi_opengld.dll");
             xiRendererInit *init = (xiRendererInit *) GetProcAddress(renderer_lib, "xi_opengl_init");
 
-            xiRenderer *renderer = 0;
+
             if (init) {
-                renderer = init(&hwnd);
+                xiWin32WindowData window_data;
+                window_data.hInstance = wnd_class.hInstance;
+                window_data.hwnd      = hwnd;
+
+                if (!init(&xi->renderer, &window_data)) {
+                    // we failed to initialise the renderer :(
+                    //
+                    XI_ASSERT(false && "renderer init failed");
+                }
             }
+
+            xiRenderer *renderer = &xi->renderer;
+            xi_asset_manager_init(&context->arena, &xi->assets, xi);
+
+            renderer->assets = &xi->assets;
 
             if (context->game.init != 0) {
                 // once all of the engine systems have been setup, send the game code a post init
                 // call which allows them to call any init they require using the engine systems
                 //
-                context->game.init(xi, XI_GAME_POST_INIT);
+                context->game.init(xi, XI_GAME_INIT);
             }
+
 
             context->running = true;
             while (context->running) {
@@ -1462,11 +1480,22 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
                     context->game.simulate(xi);
                 }
 
-                if (renderer) {
-                    if (context->game.render) {
-                        context->game.render(xi, renderer);
-                    }
+                if (context->game.render) { context->game.render(xi, renderer); }
 
+                // :note we have to do this in-case the user has set the thread queue to have a single thread
+                // if this is the case the only thread that can execute work is the main thread, however,
+                // as the main thread is busy running the game anything that is pushed on to the work
+                // queue will never be executed as no thread are looking at it.
+                //
+                // so we check if the thread count is 1 and then wait on it here. this will be very slow
+                // as everything is now single-threaded, however for debugging will be very useful and
+                // keeps the game working when no worker threads are enabled
+                //
+                if (xi->thread_pool.thread_count == 1) {
+                    xi_thread_pool_await_complete(&xi->thread_pool);
+                }
+
+                if (renderer->submit) {
                     renderer->setup.window_dim.w = xi->window.width;
                     renderer->setup.window_dim.h = xi->window.height;
 

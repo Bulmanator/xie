@@ -2,7 +2,7 @@
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "opengl32.lib")
 
-#define WGL_LOAD_FUNCTION(prefix, x) (prefix)->x = (xiOpenGL_##prefix##x *) wglGetProcAddress(XI_STRINGIFY(prefix##x))
+#define WGL_LOAD_FUNCTION(prefix, x) (prefix)->x = (xiOpenGL_##prefix##x *) wglGetProcAddress(XI_STRINGIFY(prefix##x)); XI_ASSERT((prefix)->x)
 
 // from WGL_ARB_pixel_format
 //
@@ -96,6 +96,13 @@ typedef HGLRC xiOpenGL_wglCreateContextAttribsARB(HDC, HGLRC, const int *);
 typedef BOOL xiOpenGL_wglSwapIntervalEXT(int);
 typedef int  xiOpenGL_wglGetSwapIntervalEXT(void);
 
+// platform data required by wgl
+//
+typedef struct xiWin32WindowData {
+    HINSTANCE hInstance;
+    HWND hwnd;
+} xiWin32WindowData;
+
 #define WGL_FUNCTION_POINTER(name) xiOpenGL_wgl##name *name
 
 // main wgl context, this houses the win32 specific stuff
@@ -111,6 +118,7 @@ typedef struct xiWin32OpenGLContext {
     // extension support
     //
     xi_b32 WGL_EXT_framebuffer_sRGB;
+    xi_b32 WGL_ARB_framebuffer_sRGB;
     xi_b32 WGL_ARB_pixel_format;
     xi_b32 WGL_ARB_create_context;
     xi_b32 WGL_ARB_multisample;
@@ -129,12 +137,14 @@ typedef struct xiWin32OpenGLContext {
 
 static XI_RENDERER_SUBMIT(wgl_renderer_submit);
 
-xiOpenGLContext *gl_os_context_create(void *platform) {
+xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
     // @todo: configure renderer
     // @todo: error checking!
     //
     xiArena arena = { 0 };
-    xi_arena_init_virtual(&arena, XI_MB(64));
+    xi_arena_init_virtual(&arena, XI_GB(8));
+
+    xiWin32WindowData *window = (xiWin32WindowData *) platform;
 
     xiWin32OpenGLContext *wgl = xi_arena_push_type(&arena, xiWin32OpenGLContext);
     xiOpenGLContext *gl = &wgl->gl;
@@ -148,7 +158,7 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
     {
         WNDCLASSA wnd_class = { 0 };
         wnd_class.lpfnWndProc   = DefWindowProcA;
-        wnd_class.hInstance     = GetModuleHandle(0);
+        wnd_class.hInstance     = window->hInstance;
         wnd_class.lpszClassName = "xie_dummy_opengl";
 
         RegisterClassA(&wnd_class);
@@ -190,6 +200,7 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
 
                 while (xi_str_is_valid(extension)) {
                     WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
+                    else WGL_CHECK_EXTENSION(WGL_ARB_framebuffer_sRGB)
                     else WGL_CHECK_EXTENSION(WGL_ARB_multisample)
                     else WGL_CHECK_EXTENSION(WGL_ARB_pixel_format)
                     else WGL_CHECK_EXTENSION(WGL_ARB_create_context)
@@ -228,7 +239,7 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
         UnregisterClassA(wnd_class.lpszClassName, wnd_class.hInstance);
     }
 
-    HWND hwnd = *(HWND *) platform;
+    HWND hwnd = window->hwnd;
     wgl->hdc  = GetDC(hwnd);
 
     if (wgl->WGL_ARB_pixel_format) {
@@ -262,7 +273,7 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
         attribs[num_attribs++] = WGL_ACCELERATION_ARB;
         attribs[num_attribs++] = WGL_FULL_ACCELERATION_ARB;
 
-        if (wgl->WGL_EXT_framebuffer_sRGB) {
+        if (wgl->WGL_EXT_framebuffer_sRGB || wgl->WGL_ARB_framebuffer_sRGB) {
             attribs[num_attribs++] = WGL_FRAMEBUFFER_SRGB_CAPABLE_EXT;
             attribs[num_attribs++] = GL_TRUE;
         }
@@ -304,10 +315,10 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
 
         if (wgl->hglrc) {
             if (wglMakeCurrent(wgl->hdc, wgl->hglrc)) {
-                gl->info.srgb        = wgl->WGL_EXT_framebuffer_sRGB;
+                gl->info.srgb        = wgl->WGL_EXT_framebuffer_sRGB || wgl->WGL_ARB_framebuffer_sRGB;
                 gl->info.multisample = wgl->WGL_ARB_multisample && false; // this will check if it was enabled
 
-                // @todo: load opengl extension functions here
+                // load opengl extension functions
                 //
                 WGL_LOAD_FUNCTION(gl, GenVertexArrays);
                 WGL_LOAD_FUNCTION(gl, GenBuffers);
@@ -334,20 +345,27 @@ xiOpenGLContext *gl_os_context_create(void *platform) {
                 WGL_LOAD_FUNCTION(gl, EnableVertexAttribArray);
                 WGL_LOAD_FUNCTION(gl, UseProgramStages);
                 WGL_LOAD_FUNCTION(gl, BindProgramPipeline);
+                WGL_LOAD_FUNCTION(gl, FlushMappedBufferRange);
                 WGL_LOAD_FUNCTION(gl, DrawElementsBaseVertex);
+                WGL_LOAD_FUNCTION(gl, TexStorage3D);
+                WGL_LOAD_FUNCTION(gl, TexSubImage3D);
+                WGL_LOAD_FUNCTION(gl, DebugMessageCallback);
+                WGL_LOAD_FUNCTION(gl, BufferSubData);
+                WGL_LOAD_FUNCTION(gl, BufferData);
+                WGL_LOAD_FUNCTION(gl, ActiveTexture);
 
-                gl->renderer.init   = xi_opengl_init;
-                gl->renderer.submit = wgl_renderer_submit;
+                renderer->init   = xi_opengl_init;
+                renderer->submit = wgl_renderer_submit;
 
                 wgl->valid = true;
             }
         }
     }
 
-    if (wgl->WGL_EXT_swap_control) {
+    if (renderer->setup.vsync && wgl->WGL_EXT_swap_control) {
+        // enable vsync if it was requested
+        //
         wgl->SwapIntervalEXT(1);
-
-        gl->renderer.setup.vsync = true; // enable by default this will be configurable later
     }
 
     if (!wgl->valid) {
@@ -373,18 +391,18 @@ void gl_os_context_delete(xiOpenGLContext *gl) {
 }
 
 XI_RENDERER_SUBMIT(wgl_renderer_submit) {
-    xiWin32OpenGLContext *wgl = (xiWin32OpenGLContext *) renderer;
+    xiWin32OpenGLContext *wgl = (xiWin32OpenGLContext *) renderer->backend;
 
     XI_ASSERT((wgl != 0) && wgl->valid);
 
     if (wgl->WGL_EXT_swap_control) {
-        wgl->SwapIntervalEXT(renderer->setup.vsync ? 1 : 0);
+        wgl->SwapIntervalEXT(1); //renderer->setup.vsync ? 1 : 0);
     }
 
     glClearColor(1, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    xi_opengl_submit((xiOpenGLContext *) renderer);
+    xi_opengl_submit(renderer);
 
     SwapBuffers(wgl->hdc);
 }

@@ -12,7 +12,12 @@ extern XI_API void xi_memory_copy(void *dst, void *src, xi_uptr size);
 extern XI_API xi_u8 xi_char_to_lowercase(xi_u8 c);
 extern XI_API xi_u8 xi_char_to_uppercase(xi_u8 c);
 
-extern XI_API xi_u32 xi_djb2_str_hash(xi_string str);
+extern XI_API xi_u32 xi_djb2_str_hash_u32(xi_string str);
+extern XI_API xi_u32 xi_fnv1a_str_hash_u32(xi_string str);
+
+// returns true if the entire string was parsed successfully into 'number', otherwise false
+//
+extern XI_API xi_b32 xi_str_parse_u32(xi_string str, xi_u32 *number);
 
 // returns the actual number of bytes copied, equal to count if sufficient space is available in the buffer,
 // otherwise will be the size of the remainding space before copy
