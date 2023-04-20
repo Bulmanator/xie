@@ -76,6 +76,22 @@ xi_v4 xi_lerp_v4(xi_v4 a, xi_v4 b, xi_f32 t) {
 
 // create functions
 //
+xi_v2u xi_v2u_create(xi_u32 x, xi_u32 y) {
+    xi_v2u result;
+    result.x = x;
+    result.y = y;
+
+    return result;
+}
+
+xi_v2s xi_v2s_create(xi_s32 x, xi_s32 y) {
+    xi_v2s result;
+    result.x = x;
+    result.y = y;
+
+    return result;
+}
+
 xi_v2 xi_v2_create(xi_f32 x, xi_f32 y) {
     xi_v2 result;
     result.x = x;

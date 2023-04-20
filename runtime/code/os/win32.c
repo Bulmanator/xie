@@ -1119,6 +1119,60 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
     }
 }
 
+// :note input handling functions
+//
+XI_GLOBAL xi_u8 tbl_win32_virtual_key_to_input_key[] = {
+    // @todo: switch to raw input for usb hid scancodes instead of using this virtual keycode
+    // lookup table
+    //
+    [VK_RETURN]     = XI_KEYBOARD_KEY_RETURN,    [VK_ESCAPE]    = XI_KEYBOARD_KEY_ESCAPE,
+    [VK_BACK]       = XI_KEYBOARD_KEY_BACKSPACE, [VK_TAB]       = XI_KEYBOARD_KEY_TAB,
+    [VK_HOME]       = XI_KEYBOARD_KEY_HOME,      [VK_PRIOR]     = XI_KEYBOARD_KEY_PAGEUP,
+    [VK_DELETE]     = XI_KEYBOARD_KEY_DELETE,    [VK_END]       = XI_KEYBOARD_KEY_END,
+    [VK_NEXT]       = XI_KEYBOARD_KEY_PAGEDOWN,  [VK_RIGHT]     = XI_KEYBOARD_KEY_RIGHT,
+    [VK_LEFT]       = XI_KEYBOARD_KEY_LEFT,      [VK_DOWN]      = XI_KEYBOARD_KEY_DOWN,
+    [VK_UP]         = XI_KEYBOARD_KEY_UP,        [VK_F1]        = XI_KEYBOARD_KEY_F1,
+    [VK_F2]         = XI_KEYBOARD_KEY_F2,        [VK_F3]        = XI_KEYBOARD_KEY_F3,
+    [VK_F4]         = XI_KEYBOARD_KEY_F4,        [VK_F5]        = XI_KEYBOARD_KEY_F5,
+    [VK_F6]         = XI_KEYBOARD_KEY_F6,        [VK_F7]        = XI_KEYBOARD_KEY_F7,
+    [VK_F8]         = XI_KEYBOARD_KEY_F8,        [VK_F9]        = XI_KEYBOARD_KEY_F9,
+    [VK_F10]        = XI_KEYBOARD_KEY_F10,       [VK_F11]       = XI_KEYBOARD_KEY_F11,
+    [VK_F12]        = XI_KEYBOARD_KEY_F12,       [VK_INSERT]    = XI_KEYBOARD_KEY_INSERT,
+    [VK_SPACE]      = XI_KEYBOARD_KEY_SPACE,     [VK_OEM_3]     = XI_KEYBOARD_KEY_QUOTE,
+    [VK_OEM_COMMA]  = XI_KEYBOARD_KEY_COMMA,     [VK_OEM_MINUS] = XI_KEYBOARD_KEY_MINUS,
+    [VK_OEM_PERIOD] = XI_KEYBOARD_KEY_PERIOD,    [VK_OEM_2]     = XI_KEYBOARD_KEY_SLASH,
+
+    // these are just direct mappings
+    //
+    ['0'] = XI_KEYBOARD_KEY_0, ['1'] = XI_KEYBOARD_KEY_1, ['2'] = XI_KEYBOARD_KEY_2,
+    ['3'] = XI_KEYBOARD_KEY_3, ['4'] = XI_KEYBOARD_KEY_4, ['5'] = XI_KEYBOARD_KEY_5,
+    ['6'] = XI_KEYBOARD_KEY_6, ['7'] = XI_KEYBOARD_KEY_7, ['8'] = XI_KEYBOARD_KEY_8,
+    ['9'] = XI_KEYBOARD_KEY_9,
+
+    [VK_OEM_1] = XI_KEYBOARD_KEY_SEMICOLON, [VK_OEM_PLUS] = XI_KEYBOARD_KEY_EQUALS,
+
+    [VK_LSHIFT] = XI_KEYBOARD_KEY_LSHIFT, [VK_LCONTROL] = XI_KEYBOARD_KEY_LCTRL,
+    [VK_LMENU]  = XI_KEYBOARD_KEY_LALT,
+
+    [VK_RSHIFT] = XI_KEYBOARD_KEY_RSHIFT, [VK_RCONTROL] = XI_KEYBOARD_KEY_RCTRL,
+    [VK_RMENU]  = XI_KEYBOARD_KEY_RALT,
+
+    [VK_OEM_4] = XI_KEYBOARD_KEY_LBRACKET, [VK_OEM_7] = XI_KEYBOARD_KEY_BACKSLASH,
+    [VK_OEM_6] = XI_KEYBOARD_KEY_RBRACKET, [VK_OEM_8] = XI_KEYBOARD_KEY_GRAVE,
+
+    // remap uppercase to lowercase
+    //
+    ['A'] = XI_KEYBOARD_KEY_A, ['B'] = XI_KEYBOARD_KEY_B, ['C'] = XI_KEYBOARD_KEY_C,
+    ['D'] = XI_KEYBOARD_KEY_D, ['E'] = XI_KEYBOARD_KEY_E, ['F'] = XI_KEYBOARD_KEY_F,
+    ['G'] = XI_KEYBOARD_KEY_G, ['H'] = XI_KEYBOARD_KEY_H, ['I'] = XI_KEYBOARD_KEY_I,
+    ['J'] = XI_KEYBOARD_KEY_J, ['K'] = XI_KEYBOARD_KEY_K, ['L'] = XI_KEYBOARD_KEY_L,
+    ['M'] = XI_KEYBOARD_KEY_M, ['N'] = XI_KEYBOARD_KEY_N, ['O'] = XI_KEYBOARD_KEY_O,
+    ['P'] = XI_KEYBOARD_KEY_P, ['Q'] = XI_KEYBOARD_KEY_Q, ['R'] = XI_KEYBOARD_KEY_R,
+    ['S'] = XI_KEYBOARD_KEY_S, ['T'] = XI_KEYBOARD_KEY_T, ['U'] = XI_KEYBOARD_KEY_U,
+    ['V'] = XI_KEYBOARD_KEY_V, ['W'] = XI_KEYBOARD_KEY_W, ['X'] = XI_KEYBOARD_KEY_X,
+    ['Y'] = XI_KEYBOARD_KEY_Y, ['Z'] = XI_KEYBOARD_KEY_Z,
+};
+
 //
 // :note update pass
 //
@@ -1271,6 +1325,33 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
 
     // process windows messages that our application received
     //
+    xiInputMouse *mouse = &xi->mouse;
+    xiInputKeyboard *kb = &xi->keyboard;
+
+    // reset mouse params for this frame
+    //
+    mouse->connected    = true;
+    mouse->active       = false;
+    mouse->delta.screen = xi_v2s_create(0, 0);
+    mouse->delta.clip   =  xi_v2_create(0, 0);
+    mouse->delta.wheel  =  xi_v2_create(0, 0);
+
+    mouse->left.pressed   = mouse->left.released   = false;
+    mouse->middle.pressed = mouse->middle.released = false;
+    mouse->right.pressed  = mouse->right.released  = false;
+    mouse->x0.pressed     = mouse->x0.released     = false;
+    mouse->x1.pressed     = mouse->x1.released     = false;
+
+    // reset keyboard params for this frame
+    //
+    kb->connected = true;
+    kb->active    = false;
+
+    for (xi_u32 it = 0; it < XI_KEYBOARD_KEY_COUNT; ++it) {
+        kb->keys[it].pressed  = false;
+        kb->keys[it].released = false;
+    }
+
     MSG msg;
     while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE)) {
         switch (msg.message) {
@@ -1280,8 +1361,149 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
             }
             break;
 
-            // @todo: process other messages
+            // keyboard input
             //
+            case WM_KEYUP:
+            case WM_SYSKEYUP:
+            case WM_KEYDOWN:
+            case WM_SYSKEYDOWN: {
+                xi_b32 down = (msg.lParam & (1 << 31)) == 0;
+
+                // we have to do some pre-processing to split up the left and right variants of
+                // control keys
+                //
+                // @todo: figure out a good way to filter Alt-Gr being posted as Ctrl+Alt
+                //
+                switch (msg.wParam) {
+                    case VK_MENU: {
+                        xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LALT];
+                        xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RALT];
+
+                        xi_input_button_handle(left,  GetKeyState(VK_LMENU) & 0x8000);
+                        xi_input_button_handle(right, GetKeyState(VK_RMENU) & 0x8000);
+                    }
+                    break;
+                    case VK_CONTROL: {
+                        xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LCTRL];
+                        xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RCTRL];
+
+                        xi_input_button_handle(left,  GetKeyState(VK_LCONTROL) & 0x8000);
+                        xi_input_button_handle(right, GetKeyState(VK_RCONTROL) & 0x8000);
+                    }
+                    break;
+                    case VK_SHIFT: {
+                        xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LSHIFT];
+                        xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RSHIFT];
+
+                        xi_input_button_handle(left,  GetKeyState(VK_LSHIFT) & 0x8000);
+                        xi_input_button_handle(right, GetKeyState(VK_RSHIFT) & 0x8000);
+                    }
+                    break;
+                    default: {
+                        xi_u32 key_index   = tbl_win32_virtual_key_to_input_key[msg.wParam];
+                        xiInputButton *key = &kb->keys[key_index];
+
+                        xi_input_button_handle(key, down);
+                    }
+                    break;
+                }
+
+                kb->active = true;
+            }
+            break;
+
+
+            // left mouse button
+            //
+            case WM_LBUTTONDOWN:
+            case WM_LBUTTONUP: {
+                xi_b32 down = (msg.message == WM_LBUTTONDOWN);
+                xi_input_button_handle(&mouse->left, down);
+
+                mouse->active = true;
+            }
+            break;
+
+            // middle mouse button
+            //
+            case WM_MBUTTONUP:
+            case WM_MBUTTONDOWN: {
+                xi_b32 down = (msg.message == WM_MBUTTONDOWN);
+                xi_input_button_handle(&mouse->middle, down);
+
+                mouse->active = true;
+            }
+            break;
+
+            // right mouse button
+            //
+            case WM_RBUTTONUP:
+            case WM_RBUTTONDOWN: {
+                xi_b32 down = (msg.message == WM_RBUTTONDOWN);
+                xi_input_button_handle(&mouse->right, down);
+
+                mouse->active = true;
+            }
+            break;
+
+            // extra mouse buttons, windows doesn't differentiate x0 and x1 at the event level
+            //
+            case WM_XBUTTONUP:
+            case WM_XBUTTONDOWN: {
+                xi_b32 down = (msg.message == WM_XBUTTONDOWN);
+
+                if (msg.wParam & MK_XBUTTON1) { xi_input_button_handle(&mouse->x0, down); }
+                if (msg.wParam & MK_XBUTTON2) { xi_input_button_handle(&mouse->x1, down); }
+
+                mouse->active = true;
+            }
+            break;
+
+            case WM_MOUSEMOVE: {
+                POINTS pt = MAKEPOINTS(msg.lParam);
+
+                xi_v2s old_screen = mouse->position.screen;
+                xi_v2  old_clip   = mouse->position.clip;
+
+                // update the screen space position
+                //
+                mouse->position.screen = xi_v2s_create(pt.x, pt.y);
+
+                // update the clip space position
+                //
+                mouse->position.clip.x = 1.0f - (2.0f * (pt.x / (xi_f32) xi->window.width));
+                mouse->position.clip.y = 1.0f - (2.0f * (pt.y / (xi_f32) xi->window.height));
+
+                // calculate the deltas, a summation in case we get more than one mouse move
+                // event within a single frame
+                //
+                xi_v2s delta_screen = xi_v2s_sub(mouse->position.screen, old_screen);
+                xi_v2  delta_clip   =  xi_v2_sub(mouse->position.clip,   old_clip);
+
+                mouse->delta.screen = xi_v2s_add(mouse->delta.screen, delta_screen);
+                mouse->delta.clip   =  xi_v2_add(mouse->delta.clip,   delta_clip);
+
+                mouse->active = true;
+            }
+            break;
+
+            case WM_MOUSEWHEEL:
+            case WM_MOUSEHWHEEL: {
+                xi_b32 vertical = (msg.message == WM_MOUSEWHEEL);
+                xi_f32 delta    = GET_WHEEL_DELTA_WPARAM(msg.wParam) / (xi_f32) WHEEL_DELTA;
+
+                if (vertical) {
+                    mouse->position.wheel.y += delta;
+                    mouse->delta.wheel.y    += delta;
+                }
+                else {
+                    mouse->position.wheel.x += delta;
+                    mouse->delta.wheel.x    += delta;
+                }
+
+                mouse->active = true;
+            }
+            break;
         }
     }
 
@@ -1496,7 +1718,7 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
             //
             xiRenderer *renderer = &xi->renderer;
             {
-                HMODULE lib = LoadLibraryA("xi_opengl.dll");
+                HMODULE lib = LoadLibraryA("xi_opengld.dll");
                 if (lib) {
                     context->renderer.lib  = lib;
                     context->renderer.init = (xiRendererInit *) GetProcAddress(lib, "xi_opengl_init");
@@ -1625,13 +1847,28 @@ int xie_run(xiGameCode *code) {
                 GetMessageW(&msg, 0, 0, 0);
                 TranslateMessage(&msg);
 
-                // @todo: we need to filter out messages that we want to process here
-                //
-                if (msg.message == WM_KEYUP || msg.message == WM_SYSKEYUP) {
-                    PostThreadMessage(context->main_thread, msg.message, msg.wParam, msg.lParam);
-                }
-                else {
-                    DispatchMessage(&msg);
+                switch (msg.message) {
+                    case WM_KEYUP:
+                    case WM_SYSKEYUP:
+                    case WM_LBUTTONUP:
+                    case WM_MBUTTONUP:
+                    case WM_RBUTTONUP:
+                    case WM_XBUTTONUP:
+                    case WM_KEYDOWN:
+                    case WM_SYSKEYDOWN:
+                    case WM_LBUTTONDOWN:
+                    case WM_MBUTTONDOWN:
+                    case WM_RBUTTONDOWN:
+                    case WM_XBUTTONDOWN:
+                    case WM_MOUSEMOVE:
+                    case WM_MOUSEWHEEL:
+                    case WM_MOUSEHWHEEL: {
+                        PostThreadMessageW(context->main_thread, msg.message, msg.wParam, msg.lParam);
+                    }
+                    break;
+                    default: {
+                        DispatchMessage(&msg);
+                    }
                 }
             }
         }

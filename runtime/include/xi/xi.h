@@ -70,6 +70,8 @@ extern "C" {
 
 #include "xi_draw.h"
 
+#include "xi_input.h"
+
 #define XI_MAX_DISPLAYS 8
 
 typedef struct xiDisplay {
@@ -117,6 +119,9 @@ typedef struct xiContext {
 
     xiRenderer renderer;
 
+    xiInputKeyboard keyboard;
+    xiInputMouse mouse;
+
     // :note any members of the system struct can be considered valid _at all times_ this includes
     // in the XI_GAME_PRE_INIT call even though other engine services have not yet been initialised
     //
@@ -162,12 +167,21 @@ enum xiGameInitType {
     XI_GAME_RELOADED
 };
 
+// the game initialisation function that is used to setup the engine and game. called once for engine and
+// once for game, with the exception of dynamically loaded gmae code that is hot-reloaded
+//
 #define XI_GAME_INIT(name) void name(xiContext *xi, xi_u32 init_type)
 typedef XI_GAME_INIT(xiGameInit);
 
+// the game simulate function that is used to perform a single update step, will be called once
+// per update step
+//
 #define XI_GAME_SIMULATE(name) void name(xiContext *xi)
 typedef XI_GAME_SIMULATE(xiGameSimulate);
 
+// the game render function used to produce draw commands for the backend renderer,
+// will be called once per frame
+//
 #define XI_GAME_RENDER(name) void name(xiContext *xi, xiRenderer *renderer)
 typedef XI_GAME_RENDER(xiGameRender);
 
