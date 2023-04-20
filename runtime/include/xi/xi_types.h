@@ -64,7 +64,7 @@ extern "C" {
 //
 // :note intrinsic includes
 //
-#if XI_COMPILE_CL
+#if XI_COMPILER_CL
     // architecture specific includes are dealt with internally
     //
     #include <intrin.h>

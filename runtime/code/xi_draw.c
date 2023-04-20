@@ -1,4 +1,3 @@
-
 XI_INTERNAL void xi_quad_draw_vertices(xiRenderer *renderer,
         xi_vert3 vt0, xi_vert3 vt1, xi_vert3 vt2, xi_vert3 vt3)
 {
@@ -42,23 +41,8 @@ XI_INTERNAL void xi_quad_draw_vertices(xiRenderer *renderer,
 void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
         xi_v2 center, xi_v2 dimension, xi_f32 angle)
 {
-    // @todo: rotate the quad
-    //
-    (void) angle;
-
-    // convert colour to pre-multiplied alpha and then pack into xi_u32
-    //
-    // @todo: i need to implement math functions
-    //
-    colour.r *= colour.a;
-    colour.g *= colour.a;
-    colour.b *= colour.a;
-
-    xi_u32 ucolour =
-        ((xi_u32) (colour.a * 255) << 24) |
-        ((xi_u32) (colour.b * 255) << 16) |
-        ((xi_u32) (colour.g * 255) <<  8) |
-        ((xi_u32) (colour.r * 255) <<  0);
+    colour.xyz = xi_v3_mul_f32(colour.xyz, colour.a); // premultiply alpha
+    xi_u32 ucolour = xi_v4_colour_abgr_pack_norm(colour); // pack to u32
 
     xi_v2 half_dim;
     half_dim.x = (0.5f * dimension.x);
@@ -66,98 +50,96 @@ void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
 
     xi_vert3 vt[4];
 
-    vt[0].p.x  = center.x - half_dim.x;
-    vt[0].p.y  = center.y + half_dim.y;
-    vt[0].p.z  = 0; // @todo: add z componenet
-    vt[0].uv.x = 0;
-    vt[0].uv.y = 0;
-    vt[0].uv.z = 1;
+    xi_f32 texture_index = 1;
+    xi_f32 z = 0; // @todo: add z component
+    xi_m2x2 rot = xi_m2x2_from_radians(angle);
+
+    vt[0].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, xi_v2_create(-half_dim.x, half_dim.y)));
+    vt[0].p.z  = z;
+    vt[0].uv   = xi_v3_create(0, 0, texture_index);
     vt[0].c    = ucolour;
 
-    vt[1].p.x  = center.x - half_dim.x;
-    vt[1].p.y  = center.y - half_dim.y;
-    vt[1].p.z  = 0; // @todo: add z componenet
-    vt[1].uv.x = 0;
-    vt[1].uv.y = 1;
-    vt[1].uv.z = 1;
+    vt[1].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, xi_v2_neg(half_dim)));
+    vt[1].p.z  = z;
+    vt[1].uv   = xi_v3_create(0, 1, texture_index);
     vt[1].c    = ucolour;
 
-    vt[2].p.x  = center.x + half_dim.x;
-    vt[2].p.y  = center.y + half_dim.y;
-    vt[2].p.z  = 0; // @todo: add z componenet
-    vt[2].uv.x = 1;
-    vt[2].uv.y = 1;
-    vt[2].uv.z = 1;
+    vt[2].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, half_dim));
+    vt[2].p.z  = z;
+    vt[2].uv   = xi_v3_create(1, 1, texture_index);
     vt[2].c    = ucolour;
 
-    vt[3].p.x  = center.x + half_dim.x;
-    vt[3].p.y  = center.y - half_dim.y;
-    vt[3].p.z  = 0; // @todo: add z componenet
-    vt[3].uv.x = 1;
-    vt[3].uv.y = 0;
-    vt[3].uv.z = 1;
+    vt[3].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, xi_v2_create(half_dim.x, -half_dim.y)));
+    vt[3].p.z  = z;
+    vt[3].uv   = xi_v3_create(1, 0, texture_index);
     vt[3].c    = ucolour;
 
     xi_quad_draw_vertices(renderer, vt[0], vt[1], vt[2], vt[3]);
 }
 
+inline xi_v2 xi_uv_for_sprite(xi_v2 dim, xi_u32 sprite_dimension) {
+    xi_v2 result = xi_v2_create(1, 1);
+    if (dim.w <= sprite_dimension && dim.h <= sprite_dimension) {
+        result = xi_v2_mul_f32(dim, 1.0f / (xi_f32) sprite_dimension);
+    }
+
+    return result;
+}
+
 void xi_sprite_draw_xy_scaled(xiRenderer *renderer, xiImageHandle image,
         xi_v2 center, xi_f32 scale, xi_f32 angle)
 {
-    // @todo: rotate the quad
-    //
-    (void) angle;
+    xi_sprite_draw_xy(renderer, image, center, xi_v2_create(scale, scale), angle);
+}
 
+void xi_sprite_draw_xy(xiRenderer *renderer, xiImageHandle image,
+        xi_v2 center, xi_v2 dimension, xi_f32 angle)
+{
     xiRendererTexture texture = xi_image_data_get(renderer->assets, image);
 
+    xi_m2x2 rot = xi_m2x2_from_radians(angle);
     xi_u32 ucolour = 0xFFFFFFFF;
 
     xiaImageInfo *image_info = xi_image_info_get(renderer->assets, image);
+    xi_v2 image_dim = xi_v2_create((xi_f32) image_info->width, (xi_f32) image_info->height);
 
     xi_v2 half_dim;
     if (image_info->width > image_info->height) {
-        half_dim.w = 0.5f * scale;
-        half_dim.h = 0.5f * scale * ((xi_f32) image_info->height / (xi_f32) image_info->width);
+        half_dim.w = 0.5f * dimension.x;
+        half_dim.h = 0.5f * dimension.y * (image_dim.h / image_dim.w);
     }
     else {
-        half_dim.w = 0.5f * scale * ((xi_f32) image_info->width / (xi_f32) image_info->height);
-        half_dim.h = 0.5f * scale;
+        half_dim.w = 0.5f * dimension.x * (image_dim.w / image_dim.h);
+        half_dim.h = 0.5f * dimension.y;
     }
+
+    xi_v3 uv;
+    uv.xy = xi_uv_for_sprite(image_dim, renderer->sprite_array.dimension);
+    uv.z  = texture.index;
+
+    xi_f32 z = 0; // @todo: add z component
 
     xi_vert3 vt[4];
 
-    vt[0].p.x  = center.x - half_dim.x;
-    vt[0].p.y  = center.y + half_dim.y;
-    vt[0].p.z  = 0; // @todo: add z componenet
-    vt[0].uv.x = 0;
-    vt[0].uv.y = 0;
-    vt[0].uv.z = texture.index;
+    vt[0].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, xi_v2_create(-half_dim.x, half_dim.y)));
+    vt[0].p.z  = z;
+    vt[0].uv   = xi_v3_create(0, 0, uv.z);
     vt[0].c    = ucolour;
 
-    vt[1].p.x  = center.x - half_dim.x;
-    vt[1].p.y  = center.y - half_dim.y;
-    vt[1].p.z  = 0; // @todo: add z componenet
-    vt[1].uv.x = 0;
-    vt[1].uv.y = (image_info->height / (xi_f32) renderer->sprite_array.dimension);
-    vt[1].uv.z = texture.index;
+    vt[1].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, xi_v2_neg(half_dim)));
+    vt[1].p.z  = z;
+    vt[1].uv   = xi_v3_create(0, uv.y, uv.z);
     vt[1].c    = ucolour;
 
-    vt[2].p.x  = center.x + half_dim.x;
-    vt[2].p.y  = center.y + half_dim.y;
-    vt[2].p.z  = 0; // @todo: add z componenet
-    vt[2].uv.x = (image_info->width  / (xi_f32) renderer->sprite_array.dimension);
-    vt[2].uv.y = 0;
-    vt[2].uv.z = texture.index;
+    vt[2].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, half_dim));
+    vt[2].p.z  = z;
+    vt[2].uv   = xi_v3_create(uv.x, 0, uv.z);
     vt[2].c    = ucolour;
 
-    vt[3].p.x  = center.x + half_dim.x;
-    vt[3].p.y  = center.y - half_dim.y;
-    vt[3].p.z  = 0; // @todo: add z componenet
-    vt[3].uv.x = (image_info->width / (xi_f32) renderer->sprite_array.dimension);
-    vt[3].uv.y = (image_info->height / (xi_f32) renderer->sprite_array.dimension);
-    vt[3].uv.z = texture.index;
+    vt[3].p.xy = xi_v2_add(center, xi_m2x2_mul_v2(rot, xi_v2_create(half_dim.x, -half_dim.y)));
+    vt[3].p.z  = z;
+    vt[3].uv   = uv;
     vt[3].c    = ucolour;
 
     xi_quad_draw_vertices(renderer, vt[0], vt[1], vt[2], vt[3]);
-
 }

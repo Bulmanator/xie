@@ -34,6 +34,9 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+
         // we were able to create an os specific opengl context, so continue with the os non-specific
         // initialisation
         //
@@ -321,7 +324,7 @@ xi_b32 gl_base_shader_compile(xiOpenGLContext *gl) {
 
     xi_string vertex_code =
         xi_str_wrap_const("void main() {"
-                          "    gl_Position = v4(vertex_position, 1.0);"
+                          "    gl_Position = transform * v4(vertex_position, 1.0);"
 
                           "    fragment_uv     = vertex_uv;"
                           "    fragment_colour = vertex_colour;"
@@ -415,6 +418,9 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
 
     glViewport(0, 0, renderer->setup.window_dim.w, renderer->setup.window_dim.h);
 
+    glClearDepth(1.0f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
     // setup buffers
     //
     gl->BindVertexArray(gl->vao);
@@ -447,6 +453,8 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
     gl->ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, gl->sprite_array);
 
+    xi_uptr globals_size = XI_ALIGN_UP(sizeof(xiShaderGlobals), renderer->uniforms.default_alignment);
+
     xi_buffer *command_buffer = &renderer->command_buffer;
     for (xi_uptr offset = 0; offset < command_buffer->used;) {
         xi_u32 type = *(xi_u32 *) (command_buffer->data + offset);
@@ -456,6 +464,8 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
             case XI_RENDER_COMMAND_xiRenderCommandDraw: {
                 xiRenderCommandDraw *draw = (xiRenderCommandDraw *) (command_buffer->data + offset);
                 offset += sizeof(xiRenderCommandDraw);
+
+                gl->BindBufferRange(GL_UNIFORM_BUFFER, 0, gl->ubo, draw->ubo_offset, globals_size);
 
                 void *index_offset = (void *) (draw->index_offset * sizeof(xi_u16));
                 xi_u32 index_count = draw->index_count;

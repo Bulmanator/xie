@@ -37,6 +37,9 @@ typedef struct xiWin32WindowInfo {
 } xiWin32WindowInfo;
 
 typedef struct xiWin32WindowData {
+    // this is required to be the same as the renderer-side structures, not to be modified
+    // :renderer_core
+    //
     HINSTANCE hInstance;
     HWND hwnd;
 } xiWin32WindowData;
@@ -86,12 +89,19 @@ typedef struct xiWin32Context {
     } window;
 
     struct {
+        xi_b32 valid;
+        HMODULE lib;
+
+        xiRendererInit *init;
+    } renderer;
+
+    struct {
         xi_b32 dynamic;
         xi_u64 last_time;
 
         HMODULE dll;
-        LPWSTR dll_src_path; // where the game dll is compiled to
-        LPWSTR dll_dst_path; // where the game dll is copied to prevent file locking
+        LPWSTR  dll_src_path; // where the game dll is compiled to
+        LPWSTR  dll_dst_path; // where the game dll is copied to prevent file locking
 
         LPSTR init_name;
         LPSTR simulate_name;
@@ -609,7 +619,7 @@ XI_INTERNAL void win32_path_convert_from_api_buffer(WCHAR *out, xi_uptr cch_limi
         }
 
         xi_b32 requires_volume = (path.count >= 1) && (path.data[0] == '/');
-        xi_b32 is_absolute     = (path.count == 3) &&
+        xi_b32 is_absolute     = (path.count >= 3) &&
                                  ((path.data[0] >= 'A' && path.data[0]  <= 'Z') ||
                                  (path.data[0] >= 'a'  && path.data[0]  >= 'z')) &&
                                  (path.data[1] == ':') && (path.data[2] == '/');
@@ -674,7 +684,6 @@ void win32_directory_list_builder_get_recursive(xiArena *arena,
             //
             if ((data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0)  { continue; }
             if (data.cFileName[0] == L'.') { continue; }
-            if (data.cFileName[0] == L'.' && data.cFileName[1] == L'.' && data.cFileName[2] == 0) { continue; }
 
             FILETIME time = data.ftLastWriteTime;
             xi_b32 is_dir = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -831,16 +840,16 @@ xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
         creation      = OPEN_ALWAYS;
     }
 
-    HANDLE oshandle = CreateFileW(wpath, access_flags, FILE_SHARE_READ, 0, creation, 0, 0);
-    *(HANDLE *) &handle->os = oshandle;
+    HANDLE hFile = CreateFileW(wpath, access_flags, FILE_SHARE_READ, 0, creation, 0, 0);
+    *(HANDLE *) &handle->os = hFile;
 
-    result = handle->valid = (oshandle != INVALID_HANDLE_VALUE);
+    result = handle->valid = (hFile != INVALID_HANDLE_VALUE);
     return result;
 }
 
 void xi_os_file_close(xiFileHandle *handle) {
-    HANDLE oshandle = *(HANDLE *) &handle->os;
-    CloseHandle(oshandle);
+    HANDLE hFile = *(HANDLE *) &handle->os;
+    CloseHandle(hFile);
 
     handle->valid = false;
 }
@@ -858,17 +867,18 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
     if (handle->valid) {
         result = true;
 
-        HANDLE oshandle = *(HANDLE *) &handle->os;
+        HANDLE hFile = *(HANDLE *) &handle->os;
 
         OVERLAPPED overlapped = { 0 };
         overlapped.Offset     = (DWORD) offset;
         overlapped.OffsetHigh = (DWORD) (offset >> 32);
 
-        xi_u8 *data = (xi_u8 *) dst;
+        xi_u8 *data     = (xi_u8 *) dst;
         xi_uptr to_read = size;
+
         do {
             DWORD nread = 0;
-            if (ReadFile(oshandle, data, (DWORD) to_read, &nread, &overlapped)) {
+            if (ReadFile(hFile, data, (DWORD) to_read, &nread, &overlapped)) {
                 to_read -= nread;
 
                 data   += nread;
@@ -879,9 +889,8 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
             }
             else {
                 result = handle->valid = false;
-                break;
             }
-        } while (to_read > 0);
+        } while (handle->valid && to_read > 0);
     }
 
     return result;
@@ -893,17 +902,18 @@ xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr
     if (handle->valid) {
         result = true;
 
-        HANDLE oshandle = *(HANDLE *) &handle->os;
+        HANDLE hFile = *(HANDLE *) &handle->os;
 
         OVERLAPPED overlapped = { 0 };
         overlapped.Offset     = (DWORD) offset;
         overlapped.OffsetHigh = (DWORD) (offset >> 32);
 
-        xi_u8 *data = (xi_u8 *) src;
+        xi_u8 *data      = (xi_u8 *) src;
         xi_uptr to_write = size;
+
         do {
             DWORD nwritten = 0;
-            if (WriteFile(oshandle, data, (DWORD) to_write, &nwritten, &overlapped)) {
+            if (WriteFile(hFile, data, (DWORD) to_write, &nwritten, &overlapped)) {
                 to_write -= nwritten;
 
                 data   += nwritten;
@@ -914,9 +924,8 @@ xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr
             }
             else {
                 result = handle->valid = false;
-                break;
             }
-        } while (to_write > 0);
+        } while (handle->valid && to_write > 0);
     }
 
     return result;
@@ -932,6 +941,8 @@ XI_INTERNAL xi_b32 win32_game_code_is_valid(xiWin32Context *context) {
 
 XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
     xiGameCode *code = context->game.code;
+
+    xiArena *temp = xi_temp_get();
 
     if (code->type == XI_GAME_CODE_TYPE_STATIC) {
         context->game.init     = code->functions.init;
@@ -951,15 +962,32 @@ XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
         xi_memory_copy(context->game.simulate_name, code->names.simulate.data, code->names.simulate.count);
         xi_memory_copy(context->game.render_name,   code->names.render.data,   code->names.render.count);
 
-        xiArena *temp = xi_temp_get();
-
         xiDirectoryList full_list = { 0 };
         xi_directory_list_get(temp, &full_list, context->xi.system.executable_path, false);
 
         xiDirectoryList dll_list = { 0 };
         xi_directory_list_filter_for_extension(temp, &dll_list, &full_list, xi_str_wrap_const(".dll"));
 
-        for (xi_u32 it = 0; it < dll_list.count; ++it) {
+        // @todo: there was some weird behaviour happening here when searching for a valid .dll
+        // using LoadLibrary would work fine, the reference count for the lib would be one but calling
+        // FreeLibrary would never decrement the libs reference count thus never actually closing it.
+        //
+        // FreeLibrary would return TRUE and GetLastError() would be zero, so the system _thinks_ it
+        // is removing the library, but then actually doesn't. i have no idea what caused this
+        // this causes the main .dll file to be locked preventing the compiler from writing to it breaking
+        // the whole dynamic code reloading system.
+        //
+        // as this is a possibility, maybe what we should do is copy to a random location for each search
+        // .dll and load it there to see if it is valid. if it is we select the source path as our .dll to
+        // reload and keep the one we copied to loaded.
+        // then on realoding we close the lib, but always copy the new .dll to a different random path,
+        // this way it doesn't matter if the lib failed to close or not because we are at a different path
+        //
+        // :weird_dll
+        //
+
+        xi_b32 found = false;
+        for (xi_u32 it = 0; !found && (it < dll_list.count); ++it) {
             xiDirectoryEntry *entry = &dll_list.entries[it];
 
             WCHAR wpath[PATHCCH_MAX_CCH];
@@ -978,44 +1006,54 @@ XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
                     // @todo: maybe we should select the one with the latest time if there are
                     // multiple .dlls available?
                     //
-                    FreeLibrary(lib);
-
                     DWORD count = win32_wstr_count(wpath) + 1;
                     context->game.dll_src_path =
                         xi_arena_push_copy_array(&context->arena, wpath, WCHAR, count);
 
-                    break;
+                    found = true;
                 }
+
+                FreeLibrary(lib);
             }
         }
 
-        // get temporary path to copy dll file to
-        //
-        LPWSTR temp_path = win32_system_path_get(WIN32_PATH_TYPE_TEMP);
+        if (found) {
+            // get temporary path to copy dll file to
+            //
+            LPWSTR temp_path = win32_system_path_get(WIN32_PATH_TYPE_TEMP);
 
-        WCHAR dst_path[MAX_PATH + 1];
-        if (GetTempFileNameW(temp_path, L"xie", 0x1234, dst_path)) {
-            DWORD count = win32_wstr_count(dst_path) + 1;
-            context->game.dll_dst_path = xi_arena_push_copy_array(&context->arena, dst_path, WCHAR, count);
-        }
+            WCHAR dst_path[MAX_PATH + 1];
+            if (GetTempFileNameW(temp_path, L"xie", 0x1234, dst_path)) {
+                DWORD count = win32_wstr_count(dst_path) + 1;
+                context->game.dll_dst_path = xi_arena_push_copy_array(&context->arena, dst_path, WCHAR, count);
+            }
 
-        if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
-            context->game.dll = LoadLibraryW(context->game.dll_dst_path);
-            if (context->game.dll) {
-                context->game.init =
-                    (xiGameInit *) GetProcAddress(context->game.dll, context->game.init_name);
-                context->game.simulate =
-                    (xiGameSimulate *) GetProcAddress(context->game.dll, context->game.simulate_name);
-                context->game.render =
-                    (xiGameRender *) GetProcAddress(context->game.dll, context->game.render_name);
+            if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
+                context->game.dll = LoadLibraryW(context->game.dll_dst_path);
 
-                if (win32_game_code_is_valid(context)) {
-                    WIN32_FILE_ATTRIBUTE_DATA attributes;
-                    if (GetFileAttributesExW(context->game.dll_src_path, GetFileExInfoStandard, &attributes)) {
-                        context->game.last_time =
-                            ((xi_u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
-                            ((xi_u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
+                xiGameInit *init     = 0;
+                xiGameSimulate *sim  = 0;
+                xiGameRender *render = 0;
 
+                if (context->game.dll) {
+                    init   =     (xiGameInit *) GetProcAddress(context->game.dll, context->game.init_name);
+                    sim    = (xiGameSimulate *) GetProcAddress(context->game.dll, context->game.simulate_name);
+                    render =   (xiGameRender *) GetProcAddress(context->game.dll, context->game.render_name);
+
+                    context->game.init     = init;
+                    context->game.simulate = sim;
+                    context->game.render   = render;
+
+                    if (win32_game_code_is_valid(context)) {
+                        WIN32_FILE_ATTRIBUTE_DATA attributes;
+                        if (GetFileAttributesExW(context->game.dll_src_path,
+                                    GetFileExInfoStandard, &attributes))
+                        {
+                            context->game.last_time =
+                                ((xi_u64) attributes.ftLastWriteTime.dwLowDateTime  << 32) |
+                                ((xi_u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
+
+                        }
                     }
                 }
             }
@@ -1032,7 +1070,9 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
     // there are several ways around this, loading the .dll patching the .pdb path to something unique
     // is the "proper" way, you can also specify the /pdb linker flag with msvc.
     //
-    // this doesn't affect because remedybg doesn't lock the .pdb file
+    // :weird_dll this has the same issue as above, but kinda in reverse. if the system doesn't
+    // respect our request to close our temporary dll it will fail to copy, thus we shoul really be
+    // using something with a unique number
     //
     WIN32_FILE_ATTRIBUTE_DATA attributes;
     if (GetFileAttributesExW(context->game.dll_src_path, GetFileExInfoStandard, &attributes)) {
@@ -1051,11 +1091,19 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
 
             if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
                 context->game.dll = LoadLibraryW(context->game.dll_dst_path);
+
+                xiGameInit *init     = 0;
+                xiGameSimulate *sim  = 0;
+                xiGameRender *render = 0;
+
                 if (context->game.dll) {
-                    // @hardcode: should be able to change this to whatever, just need to push zstr
-                    //
-                    context->game.init   = (xiGameInit *)   GetProcAddress(context->game.dll, "game_init");
-                    context->game.render = (xiGameRender *) GetProcAddress(context->game.dll, "game_render");
+                    init   =     (xiGameInit *) GetProcAddress(context->game.dll, context->game.init_name);
+                    sim    = (xiGameSimulate *) GetProcAddress(context->game.dll, context->game.simulate_name);
+                    render =   (xiGameRender *) GetProcAddress(context->game.dll, context->game.render_name);
+
+                    context->game.init     = init;
+                    context->game.simulate = sim;
+                    context->game.render   = render;
 
                     if (win32_game_code_is_valid(context)) {
                         context->game.last_time = time;
@@ -1096,7 +1144,8 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
         HWND hwnd = context->window.handle;
 
         if (xi->window.state != XI_WINDOW_STATE_FULLSCREEN) {
-            // ignore resizes while in fullscreen as they don't make sense
+            // :note change the window resoluation if the application has modified
+            // it directly, this is ignored when the window is in fullscreen mode
             //
             RECT client_rect;
             GetClientRect(hwnd, &client_rect);
@@ -1131,6 +1180,9 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
         }
 
         if (xi->window.state != context->window.last_state) {
+            // :note change the window style if the application has requested
+            // it to be modified
+            //
             LONG old_style = GetWindowLongW(hwnd, GWL_STYLE);
             LONG new_style = win32_window_style_get_for_state(old_style, xi->window.state);
 
@@ -1208,6 +1260,8 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     }
 
     if (!xi_str_equal(xi->window.title, context->window.title.str)) {
+        // :note update window title if it has changed
+        //
         context->window.title.used = XI_MIN(xi->window.title.count, context->window.title.limit);
         xi_memory_copy(context->window.title.data, xi->window.title.data, context->window.title.used);
 
@@ -1308,7 +1362,12 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         xi->system.processor_count = system_info.dwNumberOfProcessors;
 
         win32_game_code_init(context);
+
         if (context->game.init != 0) {
+            // :dyn_dll we should have a default 'init', 'simulate' and 'render' function that
+            // are used in place of any functions we don't successfully retrieve from the dynamic dll
+            // so we don't have to do all of these 'if (context->game.<function>)' checks
+            //
             // call pre-init for engine system configurations
             //
             // @todo: this could, and probably should, just be replaced with a configuration file in
@@ -1316,6 +1375,7 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
             //
             context->game.init(xi, XI_ENGINE_CONFIGURE);
         }
+
 
         if (xi->thread_pool.thread_count == 0) {
             // we just choose the number of cpus reported to us by the operating system if the
@@ -1333,11 +1393,6 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         xi_f32 scale = display->xi.scale;
 
         XI_ASSERT(scale >= 1.0f);
-
-        xiWin32WindowInfo window_info = { 0 };
-        window_info.lpClassName = wnd_class.lpszClassName;
-        window_info.dwStyle     = win32_window_style_get_for_state(0, xi->window.state);
-        window_info.hInstance   = wnd_class.hInstance;
 
         if (xi->window.width == 0 || xi->window.height == 0) {
             // just default to 1280x720 if the user doesn't specify a window size
@@ -1359,24 +1414,27 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         xi->window.width  = rect.right;
         xi->window.height = rect.bottom;
 
+        xiWin32WindowInfo window_info = { 0 };
+        window_info.lpClassName  = wnd_class.lpszClassName;
+        window_info.dwStyle      = win32_window_style_get_for_state(0, xi->window.state) | WS_VISIBLE;
+        window_info.hInstance    = wnd_class.hInstance;
+        window_info.nWidth       = xi->window.width;
+        window_info.nHeight      = xi->window.height;
+        window_info.lpWindowName = L"xie";
+
         if (AdjustWindowRectExForDpi(&rect, window_info.dwStyle, FALSE, 0, dpi)) {
             window_info.nWidth  = (rect.right - rect.left);
             window_info.nHeight = (rect.bottom - rect.top);
         }
-        else {
-            window_info.nWidth  = xi->window.width;
-            window_info.nHeight = xi->window.height;
-        }
 
+        // center the window on the selected display
+        //
         window_info.X = display->bounds.left + ((xi_s32) (display->xi.width  - window_info.nWidth)  >> 1);
         window_info.Y = display->bounds.top  + ((xi_s32) (display->xi.height - window_info.nHeight) >> 1);
 
         if (xi_str_is_valid(xi->window.title)) {
             xi->window.title.count   = XI_MIN(xi->window.title.count, context->window.title.limit);
             window_info.lpWindowName = win32_utf8_to_utf16(xi->window.title);
-        }
-        else {
-            window_info.lpWindowName = L"xie";
         }
 
         HWND hwnd = (HWND) SendMessageW(context->create_window, XI_CREATE_WINDOW, (WPARAM) &window_info, 0);
@@ -1408,9 +1466,7 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
             //
             {
                 xi_string title = xi->window.title;
-                if (!xi_str_is_valid(title)) {
-                    title = xi_str_wrap_const("xie");
-                }
+                if (!xi_str_is_valid(title)) { title = xi_str_wrap_const("xie"); }
 
                 XI_ASSERT(title.count <= XI_MAX_TITLE_COUNT);
 
@@ -1436,71 +1492,90 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
                 }
             }
 
-            ShowWindow(hwnd, SW_SHOW);
-
-            // load and initialise renderer
+            // load and initialise the renderer
             //
-            // @todo: make this more substantial, it is very hacky at the moment while i test stuff
-            //
-            HMODULE renderer_lib = LoadLibraryA("xi_opengld.dll");
-            xiRendererInit *init = (xiRendererInit *) GetProcAddress(renderer_lib, "xi_opengl_init");
-
-
-            if (init) {
-                xiWin32WindowData window_data;
-                window_data.hInstance = wnd_class.hInstance;
-                window_data.hwnd      = hwnd;
-
-                if (!init(&xi->renderer, &window_data)) {
-                    // we failed to initialise the renderer :(
-                    //
-                    XI_ASSERT(false && "renderer init failed");
-                }
-            }
-
             xiRenderer *renderer = &xi->renderer;
-            xi_asset_manager_init(&context->arena, &xi->assets, xi);
+            {
+                HMODULE lib = LoadLibraryA("xi_opengl.dll");
+                if (lib) {
+                    context->renderer.lib  = lib;
+                    context->renderer.init = (xiRendererInit *) GetProcAddress(lib, "xi_opengl_init");
 
-            renderer->assets = &xi->assets;
+                    if (context->renderer.init) {
+                        xiWin32WindowData data = { 0 }; // :renderer_core
+                        data.hInstance = wnd_class.hInstance;
+                        data.hwnd      = hwnd;
 
-            if (context->game.init != 0) {
-                // once all of the engine systems have been setup, send the game code a post init
-                // call which allows them to call any init they require using the engine systems
-                //
-                context->game.init(xi, XI_GAME_INIT);
+                        context->renderer.valid = context->renderer.init(renderer, &data);
+                    }
+                }
             }
 
+            if (context->renderer.valid) {
+                xi_asset_manager_init(&context->arena, &xi->assets, xi);
 
-            context->running = true;
-            while (context->running) {
-                win32_xi_context_update(context);
-                xi_temp_reset();
+                renderer->assets = &xi->assets;
 
-                if (context->game.simulate) {
-                    context->game.simulate(xi);
+                if (context->game.init != 0) {
+                    // :dyn_dll check!
+                    //
+                    // once all of the engine systems have been setup, send the game code a post init
+                    // call which allows them to call any init they require using the engine systems
+                    //
+                    context->game.init(xi, XI_GAME_INIT);
                 }
 
-                if (context->game.render) { context->game.render(xi, renderer); }
 
-                // :note we have to do this in-case the user has set the thread queue to have a single thread
-                // if this is the case the only thread that can execute work is the main thread, however,
-                // as the main thread is busy running the game anything that is pushed on to the work
-                // queue will never be executed as no thread are looking at it.
-                //
-                // so we check if the thread count is 1 and then wait on it here. this will be very slow
-                // as everything is now single-threaded, however for debugging will be very useful and
-                // keeps the game working when no worker threads are enabled
-                //
-                if (xi->thread_pool.thread_count == 1) {
-                    xi_thread_pool_await_complete(&xi->thread_pool);
-                }
+                context->running = true;
+                while (context->running) {
+                    win32_xi_context_update(context);
 
-                if (renderer->submit) {
+                    // :temp_usage temporary memory is reset
+                    xi_temp_reset();
+
+                    if (context->game.simulate) {
+                        // :dyn_dll check!
+                        //
+                        context->game.simulate(xi);
+                    }
+
+                    // @todo: this should just happen in update
+                    //
                     renderer->setup.window_dim.w = xi->window.width;
                     renderer->setup.window_dim.h = xi->window.height;
 
+                    if (context->game.render) {
+                        // :dyn_dll check!
+                        //
+                        context->game.render(xi, renderer);
+                    }
+
+                    // :note we have to do this in-case the user has set the thread queue to have a single
+                    // thread if this is the case the only thread that can execute work is the main thread,
+                    // however, as the main thread is busy running the game anything that is pushed on to the
+                    // work queue will never be executed as no thread are looking at it.
+                    //
+                    // happens after the game code 'simulate' and 'render' functions have been called
+                    // so we know we aren't going to get anymore tasks from user-side
+                    //
+                    // so we check if the thread count is 1 and then wait on it here. this will be very slow
+                    // as everything is now single-threaded, however for debugging will be very useful and
+                    // keeps the game working when no worker threads are enabled
+                    //
+                    if (xi->thread_pool.thread_count == 1) { xi_thread_pool_await_complete(&xi->thread_pool); }
+
+                    // we check if the renderer is valid and do not run in the case it is not
+                    // this allows us to assume the submit function is always there
+                    //
                     renderer->submit(renderer);
                 }
+
+                SendMessageW(context->create_window, XI_DESTROY_WINDOW, (WPARAM) context->window.handle, 0);
+            }
+            else {
+                // @todo: logging...
+                //
+                result = 1;
             }
         }
         else {
@@ -1515,9 +1590,6 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         result = 1;
     }
 
-    // destroy our window
-    //
-    SendMessageW(context->create_window, XI_DESTROY_WINDOW, (WPARAM) context->window.handle, 0);
     ExitProcess(result);
 }
 
@@ -1555,7 +1627,7 @@ int xie_run(xiGameCode *code) {
 
                 // @todo: we need to filter out messages that we want to process here
                 //
-                if (msg.message == WM_KEYUP) {
+                if (msg.message == WM_KEYUP || msg.message == WM_SYSKEYUP) {
                     PostThreadMessage(context->main_thread, msg.message, msg.wParam, msg.lParam);
                 }
                 else {

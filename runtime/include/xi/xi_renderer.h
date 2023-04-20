@@ -59,12 +59,40 @@ enum xiRenderCommandType {
 };
 
 typedef struct xiRenderCommandDraw {
+    xi_uptr ubo_offset; // offset into ubo for globals
+
     xi_u32 vertex_offset;
     xi_u32 vertex_count;
 
     xi_u32 index_offset;
     xi_u32 index_count;
 } xiRenderCommandDraw;
+
+enum xiCameraTransformFlags {
+    XI_CAMERA_TRANSFORM_FLAG_ORTHOGRAPHIC = (1 << 0), // default is perspecitve
+};
+
+typedef struct xiCameraTransform {
+    xi_v3 x_axis;
+    xi_v3 y_axis;
+    xi_v3 z_axis;
+
+    xi_v3 position;
+
+    xi_uptr ubo_offset;
+    xi_m4x4_inv transform;
+} xiCameraTransform;
+
+// @todo: this might need to be aligned internally
+//
+typedef struct xiShaderGlobals {
+    xi_m4x4 transform;
+    xi_v4   camera_position;
+    xi_f32  time;
+    xi_f32  dt;
+    xi_f32  unused0;
+    xi_f32  unused1;
+} xiShaderGlobals;
 
 typedef struct xiRenderer {
     xiRendererBackend *backend;
@@ -96,6 +124,7 @@ typedef struct xiRenderer {
     } indices;
 
     xiArena uniforms;
+    xiCameraTransform camera;
 
     xiRendererTransferQueue transfer_queue;
 
@@ -111,5 +140,17 @@ extern XI_API xi_b32 xi_renderer_texture_is_sprite(xiRenderer *renderer, xiRende
 //
 extern XI_API xiRendererTransferTask *xi_renderer_transfer_queue_enqueue_size(xiRendererTransferQueue *queue,
         void **data, xi_uptr size);
+
+// camera transform
+//
+extern XI_API void xi_camera_transform_set(xiRenderer *renderer,
+        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position,
+        xi_u32 flags, xi_f32 near_plane, xi_f32 far_plane, xi_f32 focal_length);
+
+// like above but will use a default near plane of 0.001f, a default far plane of 10000.0f and a focal
+// length matching roughly 65 degree fov
+//
+extern XI_API void xi_camera_transform_set_axes(xiRenderer *renderer,
+        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags);
 
 #endif  // XI_RENDERER_H_

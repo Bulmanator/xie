@@ -112,6 +112,7 @@ typedef void xiOpenGL_glDebugMessageCallback(GLDEBUGPROC, const void *);
 typedef void xiOpenGL_glBufferSubData(GLenum, GLintptr, GLsizeiptr, const void *);
 typedef void xiOpenGL_glBufferData(GLenum, GLsizeiptr, GLvoid *, GLenum);
 typedef void xiOpenGL_glActiveTexture(GLenum);
+typedef void xiOpenGL_glBindBufferRange(GLenum, GLuint, GLuint, GLintptr, GLsizeiptr);
 
 typedef void *xiOpenGL_glMapBufferRange(GLenum, GLintptr, GLsizeiptr, GLbitfield);
 
@@ -186,6 +187,7 @@ typedef struct xiOpenGLContext {
     GL_FUNCTION_POINTER(BufferSubData);
     GL_FUNCTION_POINTER(BufferData);
     GL_FUNCTION_POINTER(ActiveTexture);
+    GL_FUNCTION_POINTER(BindBufferRange);
 } xiOpenGLContext;
 
 #undef GL_FUNCTION_POINTER

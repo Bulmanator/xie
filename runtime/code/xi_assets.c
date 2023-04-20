@@ -447,6 +447,9 @@ XI_INTERNAL xiRendererTexture xi_renderer_texture_acquire(xiAssetManager *assets
     // @todo: this is only dealing with sprites at the moment
     // @todo: error checking if width or height > U16_MAX
     //
+    // @todo: how 'generation' is selected needs to be thought about, assets should have a generation number
+    // in the even they are reloaded or evicted so maybe that should be used?
+    //
     result.index      = assets->next_sprite_handle;
     result.generation = assets->sprite_generation;
     result.width      = (xi_u16) width;
@@ -551,22 +554,19 @@ xiaImageInfo *xi_image_info_get(xiAssetManager *assets, xiImageHandle image) {
 }
 
 xiRendererTexture xi_image_data_get(xiAssetManager *assets, xiImageHandle image) {
-    xiRendererTexture result = { 0 };
+    xiRendererTexture result = assets->assets[0].data.texture; // always valid
 
     xiAsset *asset = &assets->assets[image.value];
-    if (asset->type == XIA_ASSET_TYPE_IMAGE) {
-        if (asset->state == XI_ASSET_STATE_UNLOADED) {
-            // happens here to a) make sure the texture handle is valid, and b) we can't rely on
-            // get_by_name to load the asset due to certain paths such as animations etc.
-            //
-            xi_image_load(assets, image);
-        }
+    XI_ASSERT(asset->type == XIA_ASSET_TYPE_IMAGE); // is a bug to pass image handle that isn't an image
 
-        // load above will always acquire a texture handle, so this will be valid even if the actual
-        // texture data has yet to be loaded
+    if (asset->state == XI_ASSET_STATE_UNLOADED) {
+        // happens here to a) make sure the texture handle is valid, and b) we can't rely on
+        // get_by_name to load the asset due to certain paths such as animations etc.
         //
-        result = asset->data.texture;
+        xi_image_load(assets, image);
     }
+
+    result = asset->data.texture;
 
     return result;
 }
@@ -843,15 +843,15 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 for (xi_s32 y = 0; y < h; ++y) {
                     for (xi_s32 x = 0; x < w; ++x) {
                         xi_f32 na = (c == 3) ? 1.0f : (base[3] / 255.0f);
-                        xi_f32 lr = xi_srgb_u8_to_linear_f32(base[0]);
-                        xi_f32 lg = xi_srgb_u8_to_linear_f32(base[1]);
-                        xi_f32 lb = xi_srgb_u8_to_linear_f32(base[2]);
+                        xi_f32 lr = xi_srgb_unorm_to_linear_norm(base[0]);
+                        xi_f32 lg = xi_srgb_unorm_to_linear_norm(base[1]);
+                        xi_f32 lb = xi_srgb_unorm_to_linear_norm(base[2]);
 
                         // pre-multiply the alpha and pack back into srgb
                         //
-                        base[0] = xi_linear_f32_to_srgb_u8(na * lr);
-                        base[1] = xi_linear_f32_to_srgb_u8(na * lg);
-                        base[2] = xi_linear_f32_to_srgb_u8(na * lb);
+                        base[0] = xi_linear_norm_to_srgb_unorm(na * lr);
+                        base[1] = xi_linear_norm_to_srgb_unorm(na * lg);
+                        base[2] = xi_linear_norm_to_srgb_unorm(na * lb);
 
                         base += 4;
                     }
@@ -1027,9 +1027,7 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                         xi_string name = xi_str_remove(first->basename, first->basename.count - offset);
 
                         xiImageHandle image = xi_image_get_by_name(assets, name);
-                        if (image.value != 0) {
-                            needs_packing = false;
-                        }
+                        needs_packing = (image.value == 0);
                     }
                     else {
                         // incorrect naming format
@@ -1109,13 +1107,6 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                         //
                     }
                 }
-                else {
-                    char buffer[512];
-                    snprintf(buffer, sizeof(buffer), "animation '%.*s' already packed!\n",
-                            xi_str_unpack(entry->basename));
-
-                    OutputDebugString(buffer);
-                }
             }
             else {
                 // @todo: logging....
@@ -1145,6 +1136,9 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                         basename = xi_str_advance(basename, prefix.count);
                     }
 
+                    // @todo: this needs to import assets that have changed!
+                    //
+
                     xiImageHandle image = xi_image_get_by_name(assets, basename);
                     if (image.value == 0) {
                         xiAssetImportInfo *import = &imports[next_import];
@@ -1158,13 +1152,6 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                         xi_thread_pool_enqueue(assets->thread_pool, xi_image_asset_import, (void *) import);
                         assets_packed += 1;
                     }
-                    else {
-                        char buffer[256];
-                        snprintf(buffer, sizeof(buffer),
-                                "image '%.*s' already packed\n", xi_str_unpack(basename));
-
-                        OutputDebugString(buffer);
-                    }
                 }
                 else {
                     int x = 0;
@@ -1174,12 +1161,6 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                 }
             }
         }
-    }
-
-    {
-        char buf[256];
-        snprintf(buf, sizeof(buf), "assets packed = %d\n", assets_packed);
-        OutputDebugString(buf);
     }
 
     xi_thread_pool_await_complete(assets->thread_pool);

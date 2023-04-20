@@ -26,16 +26,18 @@ void xi_arena_init_virtual(xiArena *arena, xi_uptr size) {
 
     xi_uptr full_size = XI_ALIGN_UP(size, granularity);
 
-    arena->base   = xi_os_virtual_memory_reserve(full_size);
-    arena->size   = full_size;
-    arena->offset = 0;
+    if (full_size > 0) {
+        arena->base   = xi_os_virtual_memory_reserve(full_size);
+        arena->size   = full_size;
+        arena->offset = 0;
 
-    arena->last_offset       = 0;
-    arena->default_alignment = XI_ARENA_DEFAULT_ALIGNMENT;
+        arena->last_offset       = 0;
+        arena->default_alignment = XI_ARENA_DEFAULT_ALIGNMENT;
 
-    arena->committed = 0;
-    arena->flags     = XI_ARENA_FLAG_VIRTUAL_BASE;
-    arena->pad       = 0;
+        arena->committed = 0;
+        arena->flags     = XI_ARENA_FLAG_VIRTUAL_BASE;
+        arena->pad       = 0;
+    }
 }
 
 void xi_arena_deinit(xiArena *arena) {
@@ -56,7 +58,7 @@ void xi_arena_deinit(xiArena *arena) {
     arena->committed = 0;
     arena->flags     = 0;
 
-    if (virtual) {
+    if (virtual && size > 0) {
         xi_os_virtual_memory_release(base, size);
 
         // we don't want to touch the arena after calling this in-case the user has passed us a pointer
@@ -155,7 +157,10 @@ void xi_arena_pop_to(xiArena *arena, xi_uptr offset) {
 
         arena->committed -= to_decommit;
 
-        xi_os_virtual_memory_decommit((xi_u8 *) arena->base + arena->committed, to_decommit);
+        if (to_decommit > 0) {
+            xi_os_virtual_memory_decommit((xi_u8 *) arena->base + arena->committed, to_decommit);
+        }
+
         xi_memory_zero((xi_u8 *) arena->base + (arena->committed - left_over), left_over);
     }
 

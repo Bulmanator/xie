@@ -87,6 +87,8 @@ typedef struct xiAssetManager {
     // temp arena as the temp arena may be cleared after a frame before these load structures have
     // finished processing, there are 'max_asset' count of them in the array
     //
+    // @todo: this should just be a circular buffer
+    //
     xi_u32 next_load;
     volatile xi_u32 total_loads;
     xiAssetLoadInfo *asset_loads;

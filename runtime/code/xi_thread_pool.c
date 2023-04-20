@@ -16,9 +16,8 @@ XI_INTERNAL void xi_os_futex_broadcast(xiFutex *futex); // all threads
     //
     #define XI_ATOMIC_ADD_U64(target, value) _InterlockedExchangeAdd64((__int64 volatile *) target, value)
 
-    #define XI_ATOMIC_EXCHANGE_U64(target, value) _InterlockedExchange64(target, value)
-    #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) \
-                        (_InterlockedCompareExchange64(target, value, compare) == (__int64) compare)
+    #define XI_ATOMIC_EXCHANGE_U64(target, value) _InterlockedExchange64((__int64 volatile *) target, value)
+    #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) (_InterlockedCompareExchange64((__int64 volatile *) target, value, compare) == (__int64) compare)
 
 #elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
     #error "incomplete implementation"

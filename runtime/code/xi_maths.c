@@ -80,7 +80,7 @@ XI_GLOBAL const xi_f32 tbl_srgb_u8_to_linear_f32[] = {
 
 XI_STATIC_ASSERT(sizeof(tbl_srgb_u8_to_linear_f32) == 256 * sizeof(xi_f32));
 
-xi_f32 xi_srgb_u8_to_linear_f32(xi_u8 component) {
+xi_f32 xi_srgb_unorm_to_linear_norm(xi_u8 component) {
     // just a lookup table
     //
     xi_f32 result = tbl_srgb_u8_to_linear_f32[component];
@@ -105,7 +105,7 @@ XI_GLOBAL const xi_u32 tbl_linear_f32_to_srgb_u8[104] = {
     0x5e0c0a23, 0x631c0980, 0x67db08f6, 0x6c55087f, 0x70940818, 0x74a007bd, 0x787d076c, 0x7c330723,
 };
 
-xi_u8 xi_linear_f32_to_srgb_u8(xi_f32 component) {
+xi_u8 xi_linear_norm_to_srgb_unorm(xi_f32 component) {
     xi_u8 result;
 
     union f32_u32 {
@@ -131,3 +131,82 @@ xi_u8 xi_linear_f32_to_srgb_u8(xi_f32 component) {
     result = (xi_u8) ((bias + (scale * t)) >> 16);
     return result;
 }
+
+xi_m4x4_inv xi_m4x4_from_camera_transform(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position) {
+    xi_m4x4_inv result;
+
+    result.fwd = xi_m4x4_from_rows_v3(x_axis, y_axis, z_axis);
+
+    xi_v3 txp  = xi_v3_neg(xi_m4x4_mul_v3(result.fwd, position));
+    result.fwd = xi_m4x4_translate_v3(result.fwd, txp);
+
+    xi_v3 ix = xi_v3_mul_f32(x_axis, 1.0f / xi_v3_dot(x_axis, x_axis));
+    xi_v3 iy = xi_v3_mul_f32(y_axis, 1.0f / xi_v3_dot(y_axis, y_axis));
+    xi_v3 iz = xi_v3_mul_f32(z_axis, 1.0f / xi_v3_dot(z_axis, z_axis));
+
+    xi_v3 ip;
+    ip.x = (txp.x * ix.x) + (txp.y * iy.x) + (txp.z * iz.x);
+    ip.y = (txp.x * ix.y) + (txp.y * iy.y) + (txp.z * iz.y);
+    ip.z = (txp.x * ix.z) + (txp.y * iy.z) + (txp.z * iz.z);
+
+    result.inv = xi_m4x4_from_columns_v3(ix, iy, iz);
+    result.inv = xi_m4x4_translate_v3(result.inv, xi_v3_neg(ip));
+
+    return result;
+}
+
+xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane) {
+    xi_f32 a = -aspect_ratio;
+    xi_f32 b = 2.0f / (near_plane - far_plane);
+    xi_f32 c = (near_plane + far_plane) / (near_plane - far_plane);
+
+    xi_m4x4_inv result = {
+        // fwd
+        {
+            1, 0, 0, 0,
+            0, a, 0, 0,
+            0, 0, b, c,
+            0, 0, 0, 1
+        },
+        // inv
+        {
+            1,  0,       0,        0,
+            0, (1 / a),  0,        0,
+            0,  0,      (1 / b), -(c / b),
+            0,  0,       0,        1
+        }
+    };
+
+    return result;
+}
+
+xi_m4x4_inv xi_m4x4_perspective_projection(xi_f32 focal_length,
+        xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane)
+{
+    xi_f32 a = -focal_length / aspect_ratio;
+    xi_f32 b =  focal_length;
+
+    xi_f32 c = -(near_plane + far_plane) / (far_plane - near_plane);
+    xi_f32 d = -(2.0f * near_plane * far_plane) / (far_plane - near_plane);
+
+    xi_m4x4_inv result = {
+        // fwd
+        {
+            a, 0,  0, 0,
+            0, b,  0, 0,
+            0, 0,  c, d,
+            0, 0, -1, 0
+        },
+        // inv
+        {
+            (1 / a),  0,       0,      0,
+            0,       (1 / b),  0,      0,
+            0,        0,       0,     -1,
+            0,        0,      (1/ d), (c / d)
+        }
+    };
+
+    return result;
+}
+
+

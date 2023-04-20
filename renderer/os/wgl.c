@@ -99,6 +99,9 @@ typedef int  xiOpenGL_wglGetSwapIntervalEXT(void);
 // platform data required by wgl
 //
 typedef struct xiWin32WindowData {
+    // this needs to be the same as the win32-side structure
+    // :renderer_core
+    //
     HINSTANCE hInstance;
     HWND hwnd;
 } xiWin32WindowData;
@@ -353,6 +356,7 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
                 WGL_LOAD_FUNCTION(gl, BufferSubData);
                 WGL_LOAD_FUNCTION(gl, BufferData);
                 WGL_LOAD_FUNCTION(gl, ActiveTexture);
+                WGL_LOAD_FUNCTION(gl, BindBufferRange);
 
                 renderer->init   = xi_opengl_init;
                 renderer->submit = wgl_renderer_submit;
@@ -396,7 +400,7 @@ XI_RENDERER_SUBMIT(wgl_renderer_submit) {
     XI_ASSERT((wgl != 0) && wgl->valid);
 
     if (wgl->WGL_EXT_swap_control) {
-        wgl->SwapIntervalEXT(1); //renderer->setup.vsync ? 1 : 0);
+        wgl->SwapIntervalEXT(renderer->setup.vsync ? 1 : 0);
     }
 
     glClearColor(1, 0, 0, 1);

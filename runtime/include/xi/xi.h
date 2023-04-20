@@ -198,6 +198,8 @@ typedef struct xiGameCode {
 //
 extern XI_API int xie_run(xiGameCode *code);
 
+#include "xi.inl"
+
 #if defined(__cplusplus)
 }
 #endif

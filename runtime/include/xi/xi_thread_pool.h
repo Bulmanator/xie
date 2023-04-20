@@ -14,7 +14,7 @@
     // 64-bit variables are atomic on 64-bit windows or if _both_ 32-bit and 64-bit variables are atomic
     // on 64-bit windows, to play it safe i am defining a futex to be 64-bit
     //
-    typedef volatile xi_u64 xiFutex;
+    typedef volatile xi_s64 xiFutex;
 #elif XI_OS_LINUX
     // we are required that a futex for 'syscall(SYS_futex, ...)' be a u32
     //
