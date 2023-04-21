@@ -418,8 +418,9 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
 
     glViewport(0, 0, renderer->setup.window_dim.w, renderer->setup.window_dim.h);
 
+    glClearColor(0, 0, 0, 1);
     glClearDepth(1.0f);
-    glClear(GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // setup buffers
     //

@@ -4,6 +4,29 @@
 //
 
 //
+// :note implementation of xi_string.h inline functions
+//
+
+xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count) {
+    xi_string result;
+    result.count = count;
+    result.data  = data;
+
+    return result;
+}
+
+xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end) {
+    xi_string result;
+
+    XI_ASSERT(start <= end);
+
+    result.count = (xi_uptr) (end - start);
+    result.data  = start;
+
+    return result;
+}
+
+//
 // :note implementation of xi_maths.h inline functions
 //
 #include <math.h>

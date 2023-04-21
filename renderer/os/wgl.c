@@ -403,9 +403,6 @@ XI_RENDERER_SUBMIT(wgl_renderer_submit) {
         wgl->SwapIntervalEXT(renderer->setup.vsync ? 1 : 0);
     }
 
-    glClearColor(1, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
-
     xi_opengl_submit(renderer);
 
     SwapBuffers(wgl->hdc);

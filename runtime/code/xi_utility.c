@@ -124,4 +124,77 @@ xi_b32 xi_buffer_put_u64(xi_buffer *buffer, xi_u64 value) {
     return result;
 }
 
+void xi_logger_create(xiArena *arena, xiLogger *logger, xiFileHandle file, xi_u32 level, xi_uptr size) {
+    if (file.status == XI_FILE_HANDLE_STATUS_VALID) {
+        logger->file  = file;
+        logger->level = level;
 
+        logger->output.used  = 0;
+        logger->output.limit = size;
+        logger->output.data  = xi_arena_push_size(arena, logger->output.limit);
+    }
+}
+
+xi_b32 xi_logger_create_from_path(xiArena *arena, xiLogger *logger, xi_string path, xi_u32 level, xi_uptr size) {
+    xi_b32 result = false;
+    if (xi_os_file_open(&logger->file, path, XI_FILE_ACCESS_FLAG_WRITE)) {
+        logger->level = level;
+
+        logger->output.used  = 0;
+        logger->output.limit = size;
+        logger->output.data  = xi_arena_push_size(arena, logger->output.limit);
+
+        result = true;
+    }
+
+    return result;
+}
+
+void xi_log_print_args(xiLogger *logger, xi_u32 level, const char *format, va_list args) {
+    if (logger->level <= level) {
+        switch (level) {
+            case XI_LOG_LEVEL_DEBUG:   { xi_str_format_buffer(&logger->output, "[DEBUG]   :: "); } break;
+            case XI_LOG_LEVEL_INFO:    { xi_str_format_buffer(&logger->output, "[INFO]    :: "); } break;
+            case XI_LOG_LEVEL_WARNING: { xi_str_format_buffer(&logger->output, "[WARNING] :: "); } break;
+            case XI_LOG_LEVEL_ERROR:   { xi_str_format_buffer(&logger->output, "[ERROR]   :: "); } break;
+            case XI_LOG_LEVEL_FATAL:   { xi_str_format_buffer(&logger->output, "[FATAL]   :: "); } break;
+        }
+
+        xi_str_format_buffer_args(&logger->output, format, args);
+
+        xi_buffer_put_u8(&logger->output, '\n');
+
+        XI_ASSERT(level != XI_LOG_LEVEL_FATAL);
+    }
+}
+
+void xi_log_print(xiLogger *logger, xi_u32 level, const char *format, ...) {
+    if (logger->level <= level) {
+        switch (level) {
+            case XI_LOG_LEVEL_DEBUG:   { xi_str_format_buffer(&logger->output, "[DEBUG]   :: "); } break;
+            case XI_LOG_LEVEL_INFO:    { xi_str_format_buffer(&logger->output, "[INFO]    :: "); } break;
+            case XI_LOG_LEVEL_WARNING: { xi_str_format_buffer(&logger->output, "[WARNING] :: "); } break;
+            case XI_LOG_LEVEL_ERROR:   { xi_str_format_buffer(&logger->output, "[ERROR]   :: "); } break;
+            case XI_LOG_LEVEL_FATAL:   { xi_str_format_buffer(&logger->output, "[FATAL]   :: "); } break;
+        }
+
+        va_list args;
+        va_start(args, format);
+
+        xi_str_format_buffer_args(&logger->output, format, args);
+
+        va_end(args);
+
+        xi_buffer_put_u8(&logger->output, '\n');
+
+        XI_ASSERT(level != XI_LOG_LEVEL_FATAL);
+    }
+}
+
+
+void xi_logger_flush(xiLogger *logger) {
+    if ((logger->file.status == XI_FILE_HANDLE_STATUS_VALID) && (logger->output.used > 0)) {
+        xi_os_file_write(&logger->file, logger->output.data, XI_FILE_OFFSET_APPEND, logger->output.used);
+        logger->output.used = 0;
+    }
+}

@@ -13,7 +13,11 @@ extern "C" {
 //     - temporary arena
 //   - interactive application support
 //     - window
+//     - timing information
+//     - keyboard input
+//     - mouse input
 //   - string utilities
+//     - logging system
 //   - file system support
 //     - get user directory
 //     - get temp directory
@@ -27,6 +31,7 @@ extern "C" {
 //   - graphics rendering
 //     - basic sprite rendering
 //     - 2d animation rendering
+//   - math utilities
 //   - asset management
 //     - images
 //     - animations
@@ -34,43 +39,44 @@ extern "C" {
 //     - streaming/threaded loading
 
 // xi runtime will supply
-//     - keyboard input
-//     - mouse input
 //     - controller input
-//     - timing information
 //     - audio output
 //       - mixer
 //   - graphics rendering
 //     - custom shaders
 //     - custom render targets
-//   - math utilities
 //   - asset management
 //     - shaders
 //     - audio
 //     - fonts
 //     - packing to .xia files
-//     - streaming/threaded loading
 //   - text file tokenizer
 //
 
 #include "xi_types.h"
 #include "xi_maths.h"
 
-#include "xi_utility.h"
 #include "xi_arena.h"
+
+#include "xi_fileio.h"
+
 #include "xi_string.h"
+#include "xi_utility.h"
 
 #include "xi_thread_pool.h"
 
 #include "xi_renderer.h"
 
-#include "xi_fileio.h"
 #include "xi_xia.h"
 #include "xi_assets.h"
 
 #include "xi_draw.h"
 
 #include "xi_input.h"
+
+#define XI_VERSION_MAJOR 0
+#define XI_VERSION_MINOR 3
+#define XI_VERSION_PATCH 2
 
 #define XI_MAX_DISPLAYS 8
 
@@ -95,6 +101,22 @@ enum xiWindowState {
 };
 
 typedef struct xiContext {
+    struct {
+        // @important: do not move this from the beginning of the structure
+        //
+        // this will be filled out by the engine when the context is passed to user functions, you
+        // can use this to check if the version of the header included matches/supports the version
+        // if the engine that is running
+        //
+        // we guarantee that any changes to the 'patch' number will never change this structure, however,
+        // if the 'minor' or 'major' version numbers do not match this structure could've changed and
+        // updated headers should be used. this also extends to the .inl implementation file
+        //
+        xi_u32 major;
+        xi_u32 minor;
+        xi_u32 patch;
+    } version;
+
     // this user pointer can be set to anything, thus can be used to carry game
     // state between calls to update, render etc.
     //
@@ -122,8 +144,29 @@ typedef struct xiContext {
     xiInputKeyboard keyboard;
     xiInputMouse mouse;
 
+    struct {
+        xi_u64 ticks;
+
+        struct {
+            xi_u64 ns;
+            xi_u64 us;
+            xi_u64 ms;
+            xi_f64 s;
+        } total;
+
+        struct {
+            xi_u64 ns;
+            xi_u64 us;
+            xi_u64 ms;
+            xi_f64 s;
+
+            xi_u32 fixed_hz; // fixed step rate in hz
+            xi_f32 clamp_s;  // max delta time in seconds
+        } delta;
+    } time;
+
     // :note any members of the system struct can be considered valid _at all times_ this includes
-    // in the XI_GAME_PRE_INIT call even though other engine services have not yet been initialised
+    // in the XI_ENGINE_CONFIGURE call even though other engine services have not yet been initialised
     //
     struct {
         xi_u32 display_count;
@@ -139,6 +182,18 @@ typedef struct xiContext {
         xi_string executable_path;
         xi_string user_path;
         xi_string temp_path;
+
+        // setting this to true will open a console window to log stdout/stderr to, only really valid on
+        // windows
+        //
+        xi_b32 console_open;
+
+        // these can be used to create loggers that output to the console, if the console is not open when
+        // XI_ENGINE_CONFIGURE init is called, these may change after if the above 'console_open' was
+        // set to true
+        //
+        xiFileHandle out; // console out
+        xiFileHandle err; // console err
     } system;
 } xiContext;
 

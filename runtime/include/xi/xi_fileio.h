@@ -69,6 +69,14 @@ extern XI_API void xi_os_directory_delete(xi_string path);
 
 // open close file handles
 //
+enum xiFileHandleStatus {
+    XI_FILE_HANDLE_STATUS_VALID = 0,
+    XI_FILE_HANDLE_STATUS_FAILED_OPEN,
+    XI_FILE_HANDLE_STATUS_FAILED_WRITE,
+    XI_FILE_HANDLE_STATUS_FAILED_READ,
+    XI_FILE_HANDLE_STATUS_CLOSED
+};
+
 enum xiFileAccessFlags {
     XI_FILE_ACCESS_FLAG_READ      = (1 << 0),
     XI_FILE_ACCESS_FLAG_WRITE     = (1 << 1),
@@ -76,9 +84,13 @@ enum xiFileAccessFlags {
 };
 
 typedef struct xiFileHandle {
-    xi_b32 valid; // @todo: this should be an error enum instead to provide more information
+    xi_u32 status;
     void *os;
 } xiFileHandle;
+
+// specify this for the 'offset' parameter to file write function to append to the end of the file,
+//
+#define XI_FILE_OFFSET_APPEND ((xi_uptr) -1)
 
 // opening a non-existent file as 'write' will create the file automatically, attempting to open a
 // non-existent file as 'read' will result in an error

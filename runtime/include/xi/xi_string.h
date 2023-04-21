@@ -11,11 +11,12 @@
 //
 #define xi_str_unpack(x) (int) (x).count, (x).data
 
-extern XI_API xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count);
-extern XI_API xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end);
+inline xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count);
+inline xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end);
+
 extern XI_API xi_string xi_str_wrap_cstr(xi_u8 *data); // null-terminated
 
-// has a count and a data pointer
+// count > 0 and has data pointer
 //
 extern XI_API xi_b32 xi_str_is_valid(xi_string str);
 

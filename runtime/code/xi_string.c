@@ -1,22 +1,3 @@
-xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count) {
-    xi_string result;
-    result.count = count;
-    result.data  = data;
-
-    return result;
-}
-
-xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end) {
-    xi_string result;
-
-    XI_ASSERT(start <= end);
-
-    result.count = (xi_uptr) (end - start);
-    result.data  = start;
-
-    return result;
-}
-
 XI_INTERNAL xi_uptr xi_cstr_count(xi_u8 *data) {
     xi_uptr result = 0;
     while (data[result] != 0) {
@@ -56,6 +37,7 @@ xi_b32 xi_str_equal_flags(xi_string a, xi_string b, xi_u32 flags) {
         xi_uptr count = a.count;
         if (inexact_rhs) {
             count = XI_MIN(a.count, b.count);
+            result = true;
         }
         else {
             result = (a.count == b.count);
@@ -63,8 +45,6 @@ xi_b32 xi_str_equal_flags(xi_string a, xi_string b, xi_u32 flags) {
 
         if (result) {
             for (xi_uptr it = 0; it < count; ++it) {
-                // @todo: correctly decode utf-8
-                //
                 xi_u8 cpa = a.data[it];
                 xi_u8 cpb = b.data[it];
 
@@ -105,6 +85,8 @@ xi_b32 xi_str_equal(xi_string a, xi_string b) {
 
 // @todo: we will probably want to move away from vsnprintf at some point as it would allow us
 // to print our own types like vectors, matrices and have direct support for counted xi_strings
+//
+// :crt_dep
 //
 
 XI_INTERNAL xi_uptr xi_format_print(xi_string out, const char *format, va_list args) {
@@ -147,7 +129,11 @@ xi_string xi_str_format_buffer_args(xi_buffer *b, const char *format, va_list ar
     result.data  = &b->data[b->used];
     result.count = (b->limit - b->used);
 
-    xi_format_print(result, format, args);
+    xi_uptr count = xi_format_print(result, format, args);
+    result.count  = XI_MIN(count, result.count); // truncate if there isn't enough space
+
+    b->used += result.count;
+    XI_ASSERT(b->used <= b->limit);
 
     return result;
 }

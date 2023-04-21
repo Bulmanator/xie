@@ -74,6 +74,15 @@ typedef struct xiWin32Context {
     xi_u32 display_count;
     xiWin32DisplayInfo displays[XI_MAX_DISPLAYS];
 
+    // timing info
+    //
+    xi_u64 counter_start;
+    xi_u64 counter_freq;
+
+    xi_s64 accum_ns; // signed just in-case, due to clamp on delta time we don't need the range
+    xi_u64 fixed_ns;
+    xi_u64 clamp_ns;
+
     struct {
         HWND handle;
 
@@ -822,7 +831,10 @@ void xi_os_directory_delete(xi_string path) {
 }
 
 xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
-    xi_b32 result = false;
+    xi_b32 result = true;
+
+    handle->status = XI_FILE_HANDLE_STATUS_VALID;
+    handle->os     = 0;
 
     WCHAR wpath[PATHCCH_MAX_CCH];
     win32_path_convert_from_api_buffer(wpath, PATHCCH_MAX_CCH, path);
@@ -840,10 +852,16 @@ xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
         creation      = OPEN_ALWAYS;
     }
 
-    HANDLE hFile = CreateFileW(wpath, access_flags, FILE_SHARE_READ, 0, creation, 0, 0);
-    *(HANDLE *) &handle->os = hFile;
+    HANDLE hFile = CreateFileW(wpath, access_flags, FILE_SHARE_READ, 0, creation, FILE_ATTRIBUTE_NORMAL, 0);
 
-    result = handle->valid = (hFile != INVALID_HANDLE_VALUE);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        handle->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
+        result = false;
+    }
+    else {
+        *(HANDLE *) &handle->os = hFile;
+    }
+
     return result;
 }
 
@@ -851,7 +869,7 @@ void xi_os_file_close(xiFileHandle *handle) {
     HANDLE hFile = *(HANDLE *) &handle->os;
     CloseHandle(hFile);
 
-    handle->valid = false;
+    handle->status = XI_FILE_HANDLE_STATUS_CLOSED;
 }
 
 void xi_os_file_delete(xi_string path) {
@@ -864,16 +882,18 @@ void xi_os_file_delete(xi_string path) {
 xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr size) {
     xi_b32 result = false;
 
-    if (handle->valid) {
+    if (handle->status == XI_FILE_HANDLE_STATUS_VALID) {
         result = true;
 
         HANDLE hFile = *(HANDLE *) &handle->os;
+
+        XI_ASSERT(hFile != INVALID_HANDLE_VALUE);
 
         OVERLAPPED overlapped = { 0 };
         overlapped.Offset     = (DWORD) offset;
         overlapped.OffsetHigh = (DWORD) (offset >> 32);
 
-        xi_u8 *data     = (xi_u8 *) dst;
+        xi_u8   *data   = (xi_u8 *) dst;
         xi_uptr to_read = size;
 
         do {
@@ -888,9 +908,10 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
                 overlapped.OffsetHigh = (DWORD) (offset >> 32);
             }
             else {
-                result = handle->valid = false;
+                result = false;
+                handle->status = XI_FILE_HANDLE_STATUS_FAILED_READ;
             }
-        } while (handle->valid && to_read > 0);
+        } while ((handle->status == XI_FILE_HANDLE_STATUS_VALID) && (to_read > 0));
     }
 
     return result;
@@ -899,33 +920,51 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
 xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr size) {
     xi_b32 result = false;
 
-    if (handle->valid) {
+    if (handle->status == XI_FILE_HANDLE_STATUS_VALID) {
         result = true;
 
         HANDLE hFile = *(HANDLE *) &handle->os;
 
-        OVERLAPPED overlapped = { 0 };
-        overlapped.Offset     = (DWORD) offset;
-        overlapped.OffsetHigh = (DWORD) (offset >> 32);
+        XI_ASSERT(hFile != INVALID_HANDLE_VALUE);
 
-        xi_u8 *data      = (xi_u8 *) src;
+        OVERLAPPED *overlapped = 0;
+        OVERLAPPED overlapped_offset = { 0 };
+
+        if (offset == XI_FILE_OFFSET_APPEND) {
+            // we are appending so move to the end of the file and don't specify an overlapped structure,
+            // this is technically invalid to call on the stdout/stderr handles but it seems to work
+            // correctly regardless so we don't have to do any detection to prevent against it
+            //
+            SetFilePointer(hFile, 0, 0, FILE_END);
+        }
+        else {
+            overlapped_offset.Offset     = (DWORD) offset;
+            overlapped_offset.OffsetHigh = (DWORD) (offset >> 32);
+
+            overlapped = &overlapped_offset;
+        }
+
+        xi_u8   *data    = (xi_u8 *) src;
         xi_uptr to_write = size;
 
         do {
             DWORD nwritten = 0;
-            if (WriteFile(hFile, data, (DWORD) to_write, &nwritten, &overlapped)) {
+            if (WriteFile(hFile, data, (DWORD) to_write, &nwritten, overlapped)) {
                 to_write -= nwritten;
 
                 data   += nwritten;
                 offset += nwritten;
 
-                overlapped.Offset     = (DWORD) offset;
-                overlapped.OffsetHigh = (DWORD) (offset >> 32);
+                if (overlapped) {
+                    overlapped->Offset     = (DWORD) offset;
+                    overlapped->OffsetHigh = (DWORD) (offset >> 32);
+                }
             }
             else {
-                result = handle->valid = false;
+                handle->status = XI_FILE_HANDLE_STATUS_FAILED_WRITE;
+                result = false;
             }
-        } while (handle->valid && to_write > 0);
+        } while ((handle->status == XI_FILE_HANDLE_STATUS_VALID) && (to_write > 0));
     }
 
     return result;
@@ -1089,17 +1128,21 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
                 context->game.render   = 0;
             }
 
+            xiGameInit *init     = 0;
+            xiGameSimulate *sim  = 0;
+            xiGameRender *render = 0;
+
             if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
-                context->game.dll = LoadLibraryW(context->game.dll_dst_path);
+                HMODULE dll = LoadLibraryW(context->game.dll_dst_path);
 
-                xiGameInit *init     = 0;
-                xiGameSimulate *sim  = 0;
-                xiGameRender *render = 0;
+                if (dll) {
+                    context->game.dll = dll;
 
-                if (context->game.dll) {
-                    init   =     (xiGameInit *) GetProcAddress(context->game.dll, context->game.init_name);
-                    sim    = (xiGameSimulate *) GetProcAddress(context->game.dll, context->game.simulate_name);
-                    render =   (xiGameRender *) GetProcAddress(context->game.dll, context->game.render_name);
+                    // :dyn_dll check!
+                    //
+                    init   =     (xiGameInit *) GetProcAddress(dll, context->game.init_name);
+                    sim    = (xiGameSimulate *) GetProcAddress(dll, context->game.simulate_name);
+                    render =   (xiGameRender *) GetProcAddress(dll, context->game.render_name);
 
                     context->game.init     = init;
                     context->game.simulate = sim;
@@ -1179,6 +1222,41 @@ XI_GLOBAL xi_u8 tbl_win32_virtual_key_to_input_key[] = {
 
 XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     xiContext *xi = &context->xi;
+
+    // timing informations
+    //
+    LARGE_INTEGER time;
+    if (QueryPerformanceCounter(&time)) {
+
+        xi_u64 counter_end = time.QuadPart;
+        xi_u64 delta_ns = (1000000000 * (counter_end - context->counter_start)) / context->counter_freq;
+
+        // don't let delta time exceed the maximum specified
+        //
+        delta_ns = XI_MIN(delta_ns, context->clamp_ns);
+
+        context->accum_ns += delta_ns;
+
+        xi->time.ticks = counter_end;
+        context->counter_start = counter_end;
+
+        // delta time is fixed, set it here just in-case the user changes it for whatever reason
+        // it'll recover the next update. however, if they're doing that already it will probably
+        // produce wonky results and there isn't really much we can do about it anyway
+        //
+        xi->time.delta.ns = context->fixed_ns;
+        xi->time.delta.us = (context->fixed_ns / 1000);
+        xi->time.delta.ms = (context->fixed_ns / 1000000);
+        xi->time.delta.s  = (context->fixed_ns / 1000000000.0);
+
+        // @todo: should this just be a straight summation here, or should we increment these
+        // each time we call simulate with the fixed hz
+        //
+        xi->time.total.ns += (delta_ns);
+        xi->time.total.us  = (xi_u64) ((xi->time.total.ns / 1000.0) + 0.5);
+        xi->time.total.ms  = (xi_u64) ((xi->time.total.ns / 1000000.0) + 0.5);
+        xi->time.total.s   = (xi->time.total.ns / 1000000000.0);
+    }
 
     // check for any changes to the xiContext structure which may have been issued during
     // user game code execution
@@ -1518,6 +1596,9 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     if (width != 0 && height != 0) {
         xi->window.width  = width;
         xi->window.height = height;
+
+        xi->renderer.setup.window_dim.w = xi->window.width;
+        xi->renderer.setup.window_dim.h = xi->window.height;
     }
 
     xi->window.title = context->window.title.str;
@@ -1531,10 +1612,6 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
             break;
         }
     }
-
-    // @todo: update other state that the game context needs and that didn't come from
-    // messages
-    //
 
     if (context->game.dynamic) {
         // reload the code if it needs to be
@@ -1561,6 +1638,34 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         win32_display_info_get(context);
 
         xiContext *xi = &context->xi;
+
+        xi->version.major = XI_VERSION_MAJOR;
+        xi->version.minor = XI_VERSION_MINOR;
+        xi->version.patch = XI_VERSION_PATCH;
+
+        {
+            // setup the stdout file handle for use with loggers
+            //
+            // this may change between XI_ENGINE_CONFIGURE and XI_GAME_INIT onwards in the event
+            // the application is compiled with subsystem windows (thus not having a console) and
+            // the user requesting a console to be opened and having output re-directed through
+            // a new handle
+            //
+            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+            HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
+
+            xiFileHandle *out = &xi->system.out;
+            xiFileHandle *err = &xi->system.err;
+
+            *(HANDLE *) &out->os = hOut;
+            *(HANDLE *) &err->os = hErr;
+
+            out->status = (hOut == INVALID_HANDLE_VALUE) ?
+                XI_FILE_HANDLE_STATUS_FAILED_OPEN : XI_FILE_HANDLE_STATUS_VALID;
+
+            err->status = (hErr == INVALID_HANDLE_VALUE) ?
+                XI_FILE_HANDLE_STATUS_FAILED_OPEN : XI_FILE_HANDLE_STATUS_VALID;
+        }
 
         // setup title buffer
         //
@@ -1598,7 +1703,6 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
             context->game.init(xi, XI_ENGINE_CONFIGURE);
         }
 
-
         if (xi->thread_pool.thread_count == 0) {
             // we just choose the number of cpus reported to us by the operating system if the
             // user doesn't specify an amount of threads
@@ -1607,6 +1711,85 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
         }
 
         xi_thread_pool_init(&context->arena, &xi->thread_pool);
+
+        if (xi->system.console_open) {
+            xi->system.console_open = AttachConsole(ATTACH_PARENT_PROCESS);
+            if (!xi->system.console_open) {
+                xi->system.console_open = AllocConsole();
+            }
+
+            if (xi->system.console_open) {
+                // this only seems to work for the main executable and not the loaded game
+                // code .dll, i guess the .dll inherits the stdout/stderr handles when it is loaded
+                // and they don't get updated after the fact
+                //
+                // this is backed up by the fact that once the game code is dynamically reloaded it
+                // starts working...
+                //
+                // :hacky_console
+                //
+                xiFileHandle *out = &xi->system.out;
+                xiFileHandle *err = &xi->system.err;
+
+                HANDLE hOutput = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+
+                *(HANDLE *) &out->os = hOutput;
+                *(HANDLE *) &err->os = hOutput;
+
+                if (hOutput != INVALID_HANDLE_VALUE) {
+                    // update the handles to reflect the redirected ones
+                    //
+                    SetStdHandle(STD_OUTPUT_HANDLE, hOutput);
+                    SetStdHandle(STD_ERROR_HANDLE,  hOutput);
+
+                    out->status = err->status = XI_FILE_HANDLE_STATUS_VALID;
+
+                    // we are just going to reload the .dll in place if a console was opened, its
+                    // not a massive deal and only happens once, as the console is mainly used for debugging
+                    // this probably won't even happen in a final game anyway
+                    //
+                    // :hacky_console
+                    //
+                    // @todo: should i even bother with this, it is only needed for printf to work but as we
+                    // have our own logging system in place and that writes directly to the file handle we
+                    // specify the updated stdout/stderr handles are reflected without the need to reload
+                    // the .dll
+                    //
+                    if (context->game.dynamic) {
+                        if (context->game.dll) {
+                            FreeLibrary(context->game.dll);
+
+                            context->game.dll      = 0;
+                            context->game.init     = 0;
+                            context->game.simulate = 0;
+                            context->game.render   = 0;
+                        }
+
+                        HMODULE dll = LoadLibraryW(context->game.dll_dst_path);
+
+                        xiGameInit     *init     = 0;
+                        xiGameSimulate *simulate = 0;
+                        xiGameRender   *render   = 0;
+
+                        if (dll) {
+                            context->game.dll = dll;
+
+                            init     =     (xiGameInit *) GetProcAddress(dll, context->game.init_name);
+                            simulate = (xiGameSimulate *) GetProcAddress(dll, context->game.simulate_name);
+                            render   =   (xiGameRender *) GetProcAddress(dll, context->game.render_name);
+                        }
+
+                        context->game.init     = init;
+                        context->game.simulate = simulate;
+                        context->game.render   = render;
+                    }
+                }
+                else {
+                    out->status = err->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
+                }
+            }
+        }
 
         xi_u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
         xiWin32DisplayInfo *display = &context->displays[display_index];
@@ -1747,24 +1930,65 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
                     context->game.init(xi, XI_GAME_INIT);
                 }
 
+                // setup timing information
+                //
+                {
+                    if (xi->time.delta.fixed_hz == 0) {
+                        xi->time.delta.fixed_hz = 100;
+                    }
+
+                    xi_u64 fixed_ns   = (1000000000 / xi->time.delta.fixed_hz);
+                    context->fixed_ns = fixed_ns;
+
+                    if (xi->time.delta.clamp_s <= 0.0f) {
+                        xi->time.delta.clamp_s = 0.2f;
+                        context->clamp_ns = 200000000;
+                    }
+                    else {
+                        context->clamp_ns = (xi_u64) (1000000000 * xi->time.delta.clamp_s);
+                    }
+
+                    LARGE_INTEGER counter;
+                    if (QueryPerformanceFrequency(&counter)) {
+                        context->counter_freq = counter.QuadPart;
+                    }
+                    else {
+                        // not really much we can do here if the above call fails, so just default to
+                        // some non-zero value, this will cause very inaccurate timings, 10mhz
+                        //
+                        context->counter_freq = 10000000;
+                    }
+
+                    if (QueryPerformanceCounter(&counter)) {
+                        context->counter_start = counter.QuadPart;
+                    }
+                }
 
                 context->running = true;
                 while (context->running) {
                     win32_xi_context_update(context);
 
-                    // :temp_usage temporary memory is reset
+                    // :temp_usage temporary memory is reset after the xiContext is updated this means
+                    // temporary allocations can be used inside the update function without worring about
+                    // it being released and/or reused
+                    //
                     xi_temp_reset();
 
-                    if (context->game.simulate) {
-                        // :dyn_dll check!
-                        //
-                        context->game.simulate(xi);
-                    }
-
-                    // @todo: this should just happen in update
+                    // :dyn_dll check!
                     //
-                    renderer->setup.window_dim.w = xi->window.width;
-                    renderer->setup.window_dim.h = xi->window.height;
+                    if (context->game.simulate) {
+                        xi_u32 n_updates = 0;
+                        do {
+                            // do while loop to force at least one update per iteration
+                            //
+                            context->game.simulate(xi);
+                            context->accum_ns -= context->fixed_ns;
+
+                            n_updates += 1;
+                        } while (context->accum_ns >= (xi_s64) context->fixed_ns);
+
+                        if (context->accum_ns < 0) { context->accum_ns = 0; }
+                    }
 
                     if (context->game.render) {
                         // :dyn_dll check!
