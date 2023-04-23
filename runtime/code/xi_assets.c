@@ -541,10 +541,15 @@ XI_INTERNAL xi_u32 xi_asset_index_get_by_name(xiAssetManager *assets, xi_string 
     return result;
 }
 
-xiImageHandle xi_image_get_by_name(xiAssetManager *assets, xi_string name) {
+xiImageHandle xi_image_get_by_name_str(xiAssetManager *assets, xi_string name) {
     xiImageHandle result;
 
     result.value = xi_asset_index_get_by_name(assets, name, XIA_ASSET_TYPE_IMAGE);
+    return result;
+}
+
+xiImageHandle xi_image_get_by_name(xiAssetManager *assets, const char *name) {
+    xiImageHandle result = xi_image_get_by_name_str(assets, xi_str_wrap_cstr(name));
     return result;
 }
 
@@ -571,9 +576,14 @@ xiRendererTexture xi_image_data_get(xiAssetManager *assets, xiImageHandle image)
     return result;
 }
 
-xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets, xi_string name, xi_u32 flags) {
-    xiImageHandle image = xi_image_get_by_name(assets, name);
+xiAnimation xi_animation_get_by_name_str_flags(xiAssetManager *assets, xi_string name, xi_u32 flags) {
+    xiImageHandle image = xi_image_get_by_name_str(assets, name);
     xiAnimation result  = xi_animation_create_from_image_flags(assets, image, flags);
+    return result;
+}
+
+xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets, const char *name, xi_u32 flags) {
+    xiAnimation result = xi_animation_get_by_name_str_flags(assets, xi_str_wrap_cstr(name), flags);
     return result;
 }
 
@@ -602,8 +612,13 @@ xiAnimation xi_animation_create_from_image_flags(xiAssetManager *assets, xiImage
     return result;
 }
 
-xiAnimation xi_animation_get_by_name(xiAssetManager *assets, xi_string name) {
-    xiAnimation result = xi_animation_get_by_name_flags(assets, name, 0);
+xiAnimation xi_animation_get_by_name_str(xiAssetManager *assets, xi_string name) {
+    xiAnimation result = xi_animation_get_by_name_str_flags(assets, name, 0);
+    return result;
+}
+
+xiAnimation xi_animation_get_by_name(xiAssetManager *assets, const char *name) {
+    xiAnimation result = xi_animation_get_by_name_str(assets, xi_str_wrap_cstr(name));
     return result;
 }
 
@@ -1026,7 +1041,7 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                     if (xi_str_find_last(first->basename, &offset, '_')) {
                         xi_string name = xi_str_remove(first->basename, first->basename.count - offset);
 
-                        xiImageHandle image = xi_image_get_by_name(assets, name);
+                        xiImageHandle image = xi_image_get_by_name_str(assets, name);
                         needs_packing = (image.value == 0);
                     }
                     else {
@@ -1139,7 +1154,7 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                     // @todo: this needs to import assets that have changed!
                     //
 
-                    xiImageHandle image = xi_image_get_by_name(assets, basename);
+                    xiImageHandle image = xi_image_get_by_name_str(assets, basename);
                     if (image.value == 0) {
                         xiAssetImportInfo *import = &imports[next_import];
                         next_import += 1;

@@ -33,18 +33,8 @@ extern XI_API xi_b32 xi_buffer_put_u64(xi_buffer *buffer, xi_u64 value);
 
 // logging interface
 //
-enum xiLogLevel {
-    XI_LOG_LEVEL_DEBUG = 0,
-    XI_LOG_LEVEL_INFO,
-    XI_LOG_LEVEL_WARNING,
-    XI_LOG_LEVEL_ERROR,
-    XI_LOG_LEVEL_FATAL // will fire an assert if assertions are enabled
-};
-
 typedef struct xiLogger {
     xiFileHandle file;
-
-    xi_u32 level;
     xi_buffer output;
 } xiLogger;
 
@@ -53,30 +43,35 @@ typedef struct xiLogger {
 //
 // it will only log messages which are greater than or equal to its 'level'
 //
-extern XI_API void xi_logger_create(xiArena *arena, xiLogger *logger,
-        xiFileHandle file, xi_u32 level, xi_uptr size);
-
-extern XI_API xi_b32 xi_logger_create_from_path(xiArena *arena, xiLogger *logger,
-        xi_string path, xi_u32 level, xi_uptr size);
+extern XI_API void xi_logger_create(xiArena *arena, xiLogger *logger, xiFileHandle file, xi_uptr size);
+extern XI_API xi_b32 xi_logger_create_from_path(xiArena *arena, xiLogger *logger, xi_string path, xi_uptr size);
 
 // print a log message into the loggers buffer.
 //
 // each line logged will automatically append informational styling and a new line, log lines will be
 // output in the format:
-//          [LEVEL] :: format_string\n
+//          [ident] :: format_string\n
+//          format_string\n (if ident is empty or null)
 //
 // @todo: how to deal with buffer end? currently truncates
 //
-extern XI_API void xi_log_print_args(xiLogger *logger, xi_u32 level, const char *format, va_list args);
-extern XI_API void xi_log_print(xiLogger *logger, xi_u32 level, const char *format, ...);
+extern XI_API void xi_log_print_args(xiLogger *logger, const char *ident, const char *format, va_list args);
+extern XI_API void xi_log_print(xiLogger *logger, const char *ident, const char *format, ...);
+
+// pre-wrapped ident xi_string
+//
+extern XI_API void xi_log_print_args_str(xiLogger *logger, xi_string ident, const char *format, va_list args);
+extern XI_API void xi_log_print_str(xiLogger *logger, xi_string ident, const char *format, ...);
 
 // :note this can be used to completely disable logging in a build if desired, if the user calls
 // xi_log_print or xi_log_print_args directly their logging will not be affacted by this
 //
 #if defined(XI_NO_LOG)
     #define xi_log(...)
+    #define xi_log_str(...)
 #else
-    #define xi_log(logger, level, format, ...) xi_log_print(logger, level, format, ##__VA_ARGS__)
+    #define xi_log(logger, ident, format, ...) xi_log_print(logger, ident, format, ##__VA_ARGS__)
+    #define xi_log_str(logger, ident, format, ...) xi_log_print_str(logger, ident, format, ##__VA_ARGS__)
 #endif
 
 // write the current contents of the logger out to its file handle, this can be called at any point

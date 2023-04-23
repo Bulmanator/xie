@@ -75,8 +75,8 @@ extern "C" {
 #include "xi_input.h"
 
 #define XI_VERSION_MAJOR 0
-#define XI_VERSION_MINOR 3
-#define XI_VERSION_PATCH 2
+#define XI_VERSION_MINOR 4
+#define XI_VERSION_PATCH 0
 
 #define XI_MAX_DISPLAYS 8
 

@@ -1,16 +1,18 @@
-XI_INTERNAL xi_uptr xi_cstr_count(xi_u8 *data) {
+XI_INTERNAL xi_uptr xi_cstr_count(const char *data) {
     xi_uptr result = 0;
-    while (data[result] != 0) {
-        result += 1;
+    if (data) {
+        while (data[result] != 0) {
+            result += 1;
+        }
     }
 
     return result;
 }
 
-xi_string xi_str_wrap_cstr(xi_u8 *data) {
+xi_string xi_str_wrap_cstr(const char *data) {
     xi_string result;
     result.count = xi_cstr_count(data);
-    result.data  = data;
+    result.data  = (xi_u8 *) data;
 
     return result;
 }

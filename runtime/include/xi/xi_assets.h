@@ -146,17 +146,25 @@ typedef struct xiAnimation {
 
 // image handling functions
 //
-extern XI_API xiImageHandle xi_image_get_by_name(xiAssetManager *assets, xi_string name);
+extern XI_API xiImageHandle xi_image_get_by_name_str(xiAssetManager *assets, xi_string name);
+extern XI_API xiImageHandle xi_image_get_by_name(xiAssetManager *assets, const char *name);
+
 extern XI_API xiaImageInfo *xi_image_info_get(xiAssetManager *assets, xiImageHandle image);
 extern XI_API xiRendererTexture xi_image_data_get(xiAssetManager *assets, xiImageHandle image);
 
 // animation handling functions
 //
-extern XI_API xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets, xi_string name, xi_u32 flags);
+extern XI_API xiAnimation xi_animation_get_by_name_str_flags(xiAssetManager *assets,
+        xi_string name, xi_u32 flags);
+
+extern XI_API xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets,
+        const char *name, xi_u32 flags);
+
 extern XI_API xiAnimation xi_animation_create_from_image_flags(xiAssetManager *assets,
         xiImageHandle image, xi_u32 flags);
 
-extern XI_API xiAnimation xi_animation_get_by_name(xiAssetManager *assets, xi_string name);
+extern XI_API xiAnimation xi_animation_get_by_name_str(xiAssetManager *assets, xi_string name);
+extern XI_API xiAnimation xi_animation_get_by_name(xiAssetManager *assets, const char *name);
 extern XI_API xiAnimation xi_animation_create_from_image(xiAssetManager *assets, xiImageHandle image);
 
 // this will return true if the animation reached the end, for looping animations this will happen every

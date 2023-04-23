@@ -126,6 +126,13 @@ typedef struct xiInputKeyboard {
     xi_b32 connected; // true if there is a keyboard connected :input_connected
     xi_b32 active;    // true if any key was pressed within the last frame :input_active
 
+    // these are here for convenience, will be set to 'true' if either left/right modifiers
+    // are down on the current frame
+    //
+    xi_b32 alt;
+    xi_b32 ctrl;
+    xi_b32 shift;
+
     xiInputButton keys[XI_KEYBOARD_KEY_COUNT];
 } xiInputKeyboard;
 

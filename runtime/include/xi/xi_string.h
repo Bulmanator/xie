@@ -14,7 +14,7 @@
 inline xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count);
 inline xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end);
 
-extern XI_API xi_string xi_str_wrap_cstr(xi_u8 *data); // null-terminated
+extern XI_API xi_string xi_str_wrap_cstr(const char *data); // null-terminated
 
 // count > 0 and has data pointer
 //

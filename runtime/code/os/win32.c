@@ -1450,8 +1450,6 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
                 // we have to do some pre-processing to split up the left and right variants of
                 // control keys
                 //
-                // @todo: figure out a good way to filter Alt-Gr being posted as Ctrl+Alt
-                //
                 switch (msg.wParam) {
                     case VK_MENU: {
                         xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LALT];
@@ -1459,14 +1457,24 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
 
                         xi_input_button_handle(left,  GetKeyState(VK_LMENU) & 0x8000);
                         xi_input_button_handle(right, GetKeyState(VK_RMENU) & 0x8000);
+
+                        kb->alt = (left->down || right->down);
                     }
                     break;
                     case VK_CONTROL: {
+                        // @todo: windows posts a ctrl+alt message for altgr for legacy reasons
+                        // as its platform-specific we don't really want to say the ctrl key
+                        // is 'pressed' when right alt is pressed (altgr on some keyboards) so it
+                        // should be filtered, but i need to come up with a sane way of figuring out
+                        // if it was posted by windows rather than pressed explicitly by the user
+                        //
                         xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LCTRL];
                         xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RCTRL];
 
                         xi_input_button_handle(left,  GetKeyState(VK_LCONTROL) & 0x8000);
                         xi_input_button_handle(right, GetKeyState(VK_RCONTROL) & 0x8000);
+
+                        kb->ctrl = (left->down || right->down);
                     }
                     break;
                     case VK_SHIFT: {
@@ -1475,6 +1483,8 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
 
                         xi_input_button_handle(left,  GetKeyState(VK_LSHIFT) & 0x8000);
                         xi_input_button_handle(right, GetKeyState(VK_RSHIFT) & 0x8000);
+
+                        kb->shift = (left->down || right->down);
                     }
                     break;
                     default: {
@@ -1624,6 +1634,11 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
     DWORD result = 0;
 
     xiWin32Context *context = (xiWin32Context *) param;
+
+    // @todo: simplify window creation, this doesn't need two windows we just need to make our
+    // main window on the main thread and use that here, we can resize/set title etc. after the
+    // fact
+    //
 
     WNDCLASSW wnd_class = { 0 };
     wnd_class.style         = CS_OWNDC;
@@ -1821,7 +1836,7 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
 
         xiWin32WindowInfo window_info = { 0 };
         window_info.lpClassName  = wnd_class.lpszClassName;
-        window_info.dwStyle      = win32_window_style_get_for_state(0, xi->window.state) | WS_VISIBLE;
+        window_info.dwStyle      = win32_window_style_get_for_state(0, xi->window.state);
         window_info.hInstance    = wnd_class.hInstance;
         window_info.nWidth       = xi->window.width;
         window_info.nHeight      = xi->window.height;
@@ -1896,6 +1911,8 @@ XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
                     SetWindowPos(hwnd, HWND_TOP, x, y, w, h, SWP_NOZORDER | SWP_NOOWNERZORDER);
                 }
             }
+
+            ShowWindowAsync(hwnd, SW_SHOW);
 
             // load and initialise the renderer
             //
@@ -2072,27 +2089,31 @@ int xie_run(xiGameCode *code) {
                 TranslateMessage(&msg);
 
                 switch (msg.message) {
-                    case WM_KEYUP:
                     case WM_SYSKEYUP:
+                    case WM_KEYUP:
+
+                    case WM_SYSKEYDOWN:
+                    case WM_KEYDOWN:
+
                     case WM_LBUTTONUP:
                     case WM_MBUTTONUP:
                     case WM_RBUTTONUP:
                     case WM_XBUTTONUP:
-                    case WM_KEYDOWN:
-                    case WM_SYSKEYDOWN:
+
                     case WM_LBUTTONDOWN:
                     case WM_MBUTTONDOWN:
                     case WM_RBUTTONDOWN:
                     case WM_XBUTTONDOWN:
+
                     case WM_MOUSEMOVE:
                     case WM_MOUSEWHEEL:
-                    case WM_MOUSEHWHEEL: {
+                    case WM_MOUSEHWHEEL:
+                    {
                         PostThreadMessageW(context->main_thread, msg.message, msg.wParam, msg.lParam);
                     }
                     break;
-                    default: {
-                        DispatchMessage(&msg);
-                    }
+
+                    default: { DispatchMessage(&msg); }
                 }
             }
         }

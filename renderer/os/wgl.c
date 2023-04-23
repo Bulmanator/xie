@@ -193,13 +193,13 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
 
         if (wgl->GetExtensionsStringEXT) {
             const char *ext_str  = wgl->GetExtensionsStringEXT();
-            xi_string extensions = xi_str_wrap_cstr((xi_u8 *) ext_str);
+            xi_string extensions = xi_str_wrap_cstr(ext_str);
+
+#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
 
             xi_uptr next_space = 0;
             if (xi_str_find_first(extensions, &next_space, ' ')) {
                 xi_string extension = xi_str_prefix(extensions, next_space);
-
-#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
 
                 while (xi_str_is_valid(extension)) {
                     WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)

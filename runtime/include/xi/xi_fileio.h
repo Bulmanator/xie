@@ -69,6 +69,9 @@ extern XI_API void xi_os_directory_delete(xi_string path);
 
 // open close file handles
 //
+// @todo: these status values should be more granular... did a read fail because 'invalid offset' or
+// 'invalid size' etc..
+//
 enum xiFileHandleStatus {
     XI_FILE_HANDLE_STATUS_VALID = 0,
     XI_FILE_HANDLE_STATUS_FAILED_OPEN,
