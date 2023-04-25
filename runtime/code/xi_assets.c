@@ -212,9 +212,10 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
     assets->lookup_table_count = xi_pow2_nearest_u32(assets->max_assets) << 1;
     assets->lookup_table = xi_arena_push_array(arena, xiAssetHash, assets->lookup_table_count);
 
-    assets->max_sprite_handles = (xi_u16) xi->renderer.sprite_array.limit;
-    assets->next_sprite_handle = 2; // @incomplete: upload the correct information to these!
-    assets->sprite_generation  = 0;
+    assets->max_texture_handles = xi->renderer.texture_limit;
+    assets->max_sprite_handles  = xi->renderer.sprite_array.limit;
+    assets->next_sprite         = 2;
+    assets->next_texture        = 0;
 
     assets->total_loads = 0;
     assets->next_load   = 0;
@@ -265,13 +266,16 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
                 asset->type  = xia->type;
                 asset->file  = it;
 
-                // :asset_lookup insert into hash table
-                //
-                xi_string name;
-                name.count =  strings[xia->name_offset];
-                name.data  = &strings[xia->name_offset + 1];
 
-                xi_asset_manager_asset_hash_insert(assets, asset->type, running_total + ai, name);
+                if (xia->name_offset != XI_U32_MAX) {
+                    // :asset_lookup insert into hash table
+                    //
+                    xi_string name;
+                    name.count =  strings[xia->name_offset];
+                    name.data  = &strings[xia->name_offset + 1];
+
+                    xi_asset_manager_asset_hash_insert(assets, asset->type, running_total + ai, name);
+                }
             }
 
             assets->asset_count += count;
@@ -398,6 +402,8 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
         task->state   = XI_RENDERER_TRANSFER_TASK_STATE_LOADED;
     }
 
+    xi->renderer.assets = assets;
+
     if (assets->importer.enabled) {
         // we make a copy of the user set strings to make sure we own the memory of them
         //
@@ -444,24 +450,29 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_asset_data_load) {
 
 XI_INTERNAL xiRendererTexture xi_renderer_texture_acquire(xiAssetManager *assets, xi_u32 width, xi_u32 height) {
     xiRendererTexture result;
-    // @todo: this is only dealing with sprites at the moment
-    // @todo: error checking if width or height > U16_MAX
-    //
-    // @todo: how 'generation' is selected needs to be thought about, assets should have a generation number
-    // in the even they are reloaded or evicted so maybe that should be used?
-    //
-    result.index      = assets->next_sprite_handle;
-    result.generation = assets->sprite_generation;
-    result.width      = (xi_u16) width;
-    result.height     = (xi_u16) height;
 
-    assets->next_sprite_handle += 1;
-    if (assets->next_sprite_handle >= assets->max_sprite_handles) {
-        // :lru system
+    if (width > assets->sprite_dimension || height > assets->sprite_dimension) {
+        // can't be a sprite, otherwise our asset packer would've resized it for us
         //
-        assets->next_sprite_handle = 0;
-        assets->sprite_generation += 1;
+        result.index = assets->next_texture++;
+
+        // :renderer_handles
+        //
+        XI_ASSERT(assets->next_texture <= assets->max_texture_handles);
     }
+    else {
+        result.index  = assets->next_sprite++;
+
+        // :renderer_handles
+        //
+        XI_ASSERT(assets->next_sprite <= assets->max_sprite_handles);
+    }
+
+    // @todo: error checking if width or height > U16_MAX, maybe even request from the renderer the
+    // max supported texture size and limit on that
+    //
+    result.width  = (xi_u16) width;
+    result.height = (xi_u16) height;
 
     return result;
 }
@@ -954,8 +965,12 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 xia->type        = asset->type;
                 xia->size        = (xi_u32) total_size;
                 xia->offset      = xi_asset_manager_size_reserve(assets, xia->size);
-                xia->name_offset = 0;
                 xia->write_time  = entry->time;
+
+                // @todo: 'name_offset' being a xi_u32 artifically limits the file size to just
+                // under 4GiB maybe this shuold just be a xi_u64 instead
+                //
+                xia->name_offset = XI_U32_MAX;
 
                 xia->image.width      = w;
                 xia->image.height     = h;

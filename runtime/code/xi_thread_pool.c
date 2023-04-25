@@ -174,7 +174,11 @@ XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
     }
 }
 
-XI_INTERNAL void xi_thread_pool_init(xiArena *arena, xiThreadPool *pool) {
+XI_INTERNAL void xi_thread_pool_init(xiArena *arena, xiThreadPool *pool, xi_u32 processor_count) {
+    if (pool->thread_count == 0) {
+        pool->thread_count = processor_count;
+    }
+
     if (pool->task_limit == 0) {
         pool->task_limit = (1 << 13);
     }

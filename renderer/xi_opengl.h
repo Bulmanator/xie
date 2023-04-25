@@ -108,6 +108,7 @@ typedef void xiOpenGL_glDrawElementsBaseVertex(GLenum, GLsizei, GLenum, void *, 
 typedef void xiOpenGL_glFlushMappedBufferRange(GLenum, GLintptr, GLsizeiptr);
 typedef void xiOpenGL_glTexStorage3D(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
 typedef void xiOpenGL_glTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void *);
+typedef void xiOpenGL_glTexImage3D(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
 typedef void xiOpenGL_glDebugMessageCallback(GLDEBUGPROC, const void *);
 typedef void xiOpenGL_glBufferSubData(GLenum, GLintptr, GLsizeiptr, const void *);
 typedef void xiOpenGL_glBufferData(GLenum, GLsizeiptr, GLvoid *, GLenum);
@@ -137,7 +138,6 @@ typedef struct xiOpenGLContext {
 
     GLuint sprite_array;
 
-    xi_u32 max_textures;
     GLuint *textures;
 
     GLuint vao;
@@ -183,6 +183,7 @@ typedef struct xiOpenGLContext {
     GL_FUNCTION_POINTER(DrawElementsBaseVertex);
     GL_FUNCTION_POINTER(TexStorage3D);
     GL_FUNCTION_POINTER(TexSubImage3D);
+    GL_FUNCTION_POINTER(TexImage3D);
     GL_FUNCTION_POINTER(DebugMessageCallback);
     GL_FUNCTION_POINTER(BufferSubData);
     GL_FUNCTION_POINTER(BufferData);

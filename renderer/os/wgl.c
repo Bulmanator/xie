@@ -352,6 +352,7 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
                 WGL_LOAD_FUNCTION(gl, DrawElementsBaseVertex);
                 WGL_LOAD_FUNCTION(gl, TexStorage3D);
                 WGL_LOAD_FUNCTION(gl, TexSubImage3D);
+                WGL_LOAD_FUNCTION(gl, TexImage3D);
                 WGL_LOAD_FUNCTION(gl, DebugMessageCallback);
                 WGL_LOAD_FUNCTION(gl, BufferSubData);
                 WGL_LOAD_FUNCTION(gl, BufferData);

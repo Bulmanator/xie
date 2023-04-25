@@ -22,8 +22,7 @@ enum xiRendererTransferTaskState {
 
 typedef union xiRendererTexture {
     struct {
-        xi_u16 index;
-        xi_u16 generation;
+        xi_u32 index;
         xi_u16 width;
         xi_u16 height;
     };
@@ -59,6 +58,7 @@ enum xiRenderCommandType {
 };
 
 typedef struct xiRenderCommandDraw {
+    xiRendererTexture texture;
     xi_uptr ubo_offset; // offset into ubo for globals
 
     xi_u32 vertex_offset;
@@ -90,12 +90,13 @@ typedef struct xiShaderGlobals {
     xi_v4   camera_position;
     xi_f32  time;
     xi_f32  dt;
-    xi_f32  unused0;
+    xi_f32  unused0; // resolution?
     xi_f32  unused1;
 } xiShaderGlobals;
 
 typedef struct xiRenderer {
     xiRendererBackend *backend;
+
     xiRendererInit    *init;
     xiRendererSubmit  *submit;
 
@@ -110,6 +111,11 @@ typedef struct xiRenderer {
         xi_u32 dimension; // the square dimension of each texture slot
         xi_u32 limit;     // how many slots in the array
     } sprite_array;
+
+    // number of non-sprite textures to allow
+    // :name this is confusing, should be named something better
+    //
+    xi_u32 texture_limit;
 
     struct {
         xi_vert3 *base;

@@ -156,17 +156,17 @@ xi_m4x4_inv xi_m4x4_from_camera_transform(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_ax
 }
 
 xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane) {
-    xi_f32 a = -aspect_ratio;
+    xi_f32 a = aspect_ratio;
     xi_f32 b = 2.0f / (near_plane - far_plane);
     xi_f32 c = (near_plane + far_plane) / (near_plane - far_plane);
 
     xi_m4x4_inv result = {
         // fwd
         {
-            1, 0, 0, 0,
-            0, a, 0, 0,
-            0, 0, b, c,
-            0, 0, 0, 1
+            -1, 0, 0, 0,
+             0, a, 0, 0,
+             0, 0, b, c,
+             0, 0, 0, 1
         },
         // inv
         {

@@ -1,7 +1,7 @@
-XI_INTERNAL void xi_quad_draw_vertices(xiRenderer *renderer,
+XI_INTERNAL void xi_quad_draw_vertices(xiRenderer *renderer, xiRendererTexture texture,
         xi_vert3 vt0, xi_vert3 vt1, xi_vert3 vt2, xi_vert3 vt3)
 {
-    xiRenderCommandDraw *cmd = xi_renderer_draw_call_issue(renderer);
+    xiRenderCommandDraw *cmd = xi_renderer_draw_call_issue(renderer, texture);
 
     XI_ASSERT(cmd);
 
@@ -74,7 +74,11 @@ void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
     vt[3].uv   = xi_v3_create(1, 0, texture_index);
     vt[3].c    = ucolour;
 
-    xi_quad_draw_vertices(renderer, vt[0], vt[1], vt[2], vt[3]);
+    // just white
+    //
+    xiRendererTexture texture = renderer->assets->assets[1].data.texture;
+
+    xi_quad_draw_vertices(renderer, texture, vt[0], vt[1], vt[2], vt[3]);
 }
 
 inline xi_v2 xi_uv_for_sprite(xi_v2 dim, xi_u32 sprite_dimension) {
@@ -115,7 +119,15 @@ void xi_sprite_draw_xy(xiRenderer *renderer, xiImageHandle image,
 
     xi_v3 uv;
     uv.xy = xi_uv_for_sprite(image_dim, renderer->sprite_array.dimension);
-    uv.z  = texture.index;
+
+    if (xi_renderer_texture_is_sprite(renderer, texture)) {
+        // it is a texture
+        //
+        uv.z  = (xi_f32) texture.index;
+    }
+    else {
+        uv.z = 0;
+    }
 
     xi_f32 z = 0; // @todo: add z component
 
@@ -141,5 +153,5 @@ void xi_sprite_draw_xy(xiRenderer *renderer, xiImageHandle image,
     vt[3].uv   = uv;
     vt[3].c    = ucolour;
 
-    xi_quad_draw_vertices(renderer, vt[0], vt[1], vt[2], vt[3]);
+    xi_quad_draw_vertices(renderer, texture, vt[0], vt[1], vt[2], vt[3]);
 }

@@ -186,3 +186,20 @@ void xi_logger_flush(xiLogger *logger) {
         logger->output.used = 0;
     }
 }
+
+XI_INTERNAL xi_b32 game_code_is_valid(xiGameCode *game) {
+    xi_b32 result = (game->init != 0) && (game->simulate != 0) && (game->render != 0);
+    return result;
+}
+
+XI_INTERNAL void xi_input_button_handle(xiInputButton *button, xi_b32 down) {
+    if (button->down != down) {
+        button->pressed  = button->pressed  || (!button->down &&  down);
+        button->released = button->released || ( button->down && !down);
+        button->down     =  down;
+        button->repeat   = 0;
+    }
+    else {
+        button->repeat += 1;
+    }
+}

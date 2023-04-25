@@ -15,18 +15,24 @@
 
 #include "xi_draw.c"
 
-// there isn't really anywhere concrete for this to go as of right now
-//
-XI_INTERNAL void xi_input_button_handle(xiInputButton *button, xi_b32 down) {
-    if (button->down != down) {
-        button->pressed  = button->pressed  || (!button->down &&  down);
-        button->released = button->released || ( button->down && !down);
-        button->down     =  down;
-        button->repeat   = 0;
-    }
-    else {
-        button->repeat += 1;
-    }
+XI_INTERNAL XI_GAME_INIT(xiContext *xi, xi_u32 type) {
+    // do nothing...
+    //
+    (void) xi;
+    (void) type;
+}
+
+XI_INTERNAL XI_GAME_SIMULATE(xiContext *xi) {
+    // do nothing...
+    //
+    (void) xi;
+}
+
+XI_INTERNAL XI_GAME_RENDER(xiContext *xi, xiRenderer *renderer) {
+    // do nothing...
+    //
+    (void) xi;
+    (void) renderer;
 }
 
 #if XI_OS_WIN32

@@ -19,11 +19,35 @@ XI_INTERNAL void *xi_render_command_push_size(xiRenderer *renderer, xi_u32 type,
     return result;
 }
 
-XI_INTERNAL xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *renderer) {
+XI_INTERNAL xi_b32 xi_renderer_textures_equal(xiRendererTexture a, xiRendererTexture b) {
+    xi_b32 result = a.value == b.value;
+    return result;
+}
+
+XI_INTERNAL xi_b32 xi_draw_call_restart(xiRenderer *renderer, xiRendererTexture texture) {
+    xi_b32 result = false;
+
+    XI_ASSERT(renderer->draw_call != 0); // we check this externally, just incase it gets called elsewhere
+
+    xiRenderCommandDraw *draw = renderer->draw_call;
+
+    xi_b32 is_current_sprite = xi_renderer_texture_is_sprite(renderer, draw->texture);
+    xi_b32 is_new_sprite     = xi_renderer_texture_is_sprite(renderer, texture);
+
+    result =
+        !((is_current_sprite && is_new_sprite) ||
+           xi_renderer_textures_equal(draw->texture, texture));
+
+    return result;
+}
+
+XI_INTERNAL xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *renderer, xiRendererTexture texture) {
     xiRenderCommandDraw *result = renderer->draw_call;
-    if (!result) {
+
+    if (!result || xi_draw_call_restart(renderer, texture)) {
         result = xi_render_command_push(renderer, xiRenderCommandDraw);
         if (result) {
+            result->texture       = texture;
             result->ubo_offset    = renderer->camera.ubo_offset;
             result->vertex_offset = renderer->vertices.count;
             result->vertex_count  = 0;

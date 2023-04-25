@@ -14,27 +14,7 @@
 #pragma comment(lib, "pathcch.lib")
 #pragma comment(lib, "synchronization.lib")
 
-#define XI_MAX_GAME_LOAD_TRIES 10
-
-// custom messages to create and destroy our threaded window
-//
-#define XI_CREATE_WINDOW  (WM_USER + 0x1234)
-#define XI_DESTROY_WINDOW (WM_USER + 0x1235)
-
 #define XI_MAX_TITLE_COUNT 1024
-
-// information passed to XI_CREATE_WINDOW
-//
-typedef struct xiWin32WindowInfo {
-    LPCWSTR   lpClassName;
-    LPCWSTR   lpWindowName;
-    DWORD     dwStyle;
-    int       X;
-    int       Y;
-    int       nWidth;
-    int       nHeight;
-    HINSTANCE hInstance;
-} xiWin32WindowInfo;
 
 typedef struct xiWin32WindowData {
     // this is required to be the same as the renderer-side structures, not to be modified
@@ -64,12 +44,11 @@ typedef struct xiWin32DisplayInfo {
 typedef struct xiWin32Context {
     xiContext xi;
 
-    xi_b32 running;
+    volatile xi_b32 running; // for whether the _application_ is even running
 
     xiArena arena;
 
-    DWORD main_thread;
-    HWND  create_window;
+    xi_b32 quitting;
 
     xi_u32 display_count;
     xiWin32DisplayInfo displays[XI_MAX_DISPLAYS];
@@ -105,20 +84,11 @@ typedef struct xiWin32Context {
     } renderer;
 
     struct {
-        xi_b32 dynamic;
         xi_u64 last_time;
 
         HMODULE dll;
         LPWSTR  dll_src_path; // where the game dll is compiled to
         LPWSTR  dll_dst_path; // where the game dll is copied to prevent file locking
-
-        LPSTR init_name;
-        LPSTR simulate_name;
-        LPSTR render_name;
-
-        xiGameInit     *init;
-        xiGameSimulate *simulate;
-        xiGameRender   *render;
 
         xiGameCode *code;
     } game;
@@ -253,8 +223,8 @@ XI_INTERNAL xi_string win32_utf16_to_utf8(LPWSTR wstr) {
 //
 // :note window and display management
 //
-XI_INTERNAL LONG win32_window_style_get_for_state(LONG old_state, xi_u32 state) {
-    LONG result = old_state;
+XI_INTERNAL LONG win32_window_style_get_for_state(HWND window, xi_u32 state) {
+    LONG result = GetWindowLongW(window, GWL_STYLE);
 
     switch (state) {
         case XI_WINDOW_STATE_WINDOWED_RESIZABLE: {
@@ -280,31 +250,6 @@ XI_INTERNAL LONG win32_window_style_get_for_state(LONG old_state, xi_u32 state) 
     return result;
 }
 
-XI_INTERNAL LRESULT CALLBACK win32_window_creation_handler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    LRESULT result = 0;
-
-    switch (message) {
-        case XI_CREATE_WINDOW: {
-            xiWin32WindowInfo *info = (xiWin32WindowInfo *) wParam;
-
-            result = (LRESULT) CreateWindowExW(0, info->lpClassName, info->lpWindowName,
-                    info->dwStyle, info->X, info->Y, info->nWidth, info->nHeight, 0, 0, info->hInstance, 0);
-        }
-        break;
-
-        case XI_DESTROY_WINDOW: {
-            DestroyWindow((HWND) wParam);
-        }
-        break;
-
-        default: {
-            result = DefWindowProcW(hwnd, message, wParam, lParam);
-        } break;
-    }
-
-    return result;
-}
-
 XI_INTERNAL LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
 
@@ -312,7 +257,7 @@ XI_INTERNAL LRESULT CALLBACK win32_main_window_handler(HWND hwnd, UINT message, 
 
     switch (message) {
         case WM_CLOSE: {
-            PostThreadMessageW(context->main_thread, message, (WPARAM) hwnd, lParam);
+            if (context) { context->running = false; }
         }
         break;
         case WM_ENTERSIZEMOVE: {
@@ -867,8 +812,8 @@ xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
 
 void xi_os_file_close(xiFileHandle *handle) {
     HANDLE hFile = *(HANDLE *) &handle->os;
-    CloseHandle(hFile);
 
+    if (hFile != INVALID_HANDLE_VALUE) { CloseHandle(hFile); }
     handle->status = XI_FILE_HANDLE_STATUS_CLOSED;
 }
 
@@ -888,6 +833,7 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
         HANDLE hFile = *(HANDLE *) &handle->os;
 
         XI_ASSERT(hFile != INVALID_HANDLE_VALUE);
+        XI_ASSERT(offset != XI_FILE_OFFSET_APPEND);
 
         OVERLAPPED overlapped = { 0 };
         overlapped.Offset     = (DWORD) offset;
@@ -973,34 +919,13 @@ xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr
 //
 // :note game code management
 //
-XI_INTERNAL xi_b32 win32_game_code_is_valid(xiWin32Context *context) {
-    xi_b32 result = (context->game.init != 0) && (context->game.simulate != 0) && (context->game.render != 0);
-    return result;
-}
 
 XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
-    xiGameCode *code = context->game.code;
+    xiGameCode *game = context->game.code;
 
     xiArena *temp = xi_temp_get();
 
-    if (code->type == XI_GAME_CODE_TYPE_STATIC) {
-        context->game.init     = code->functions.init;
-        context->game.simulate = code->functions.simulate;
-        context->game.render   = code->functions.render;
-
-        context->game.dynamic  = false;
-    }
-    else {
-        context->game.dynamic = true;
-
-        context->game.init_name     = xi_arena_push_size(&context->arena, code->names.init.count + 1);
-        context->game.simulate_name = xi_arena_push_size(&context->arena, code->names.simulate.count + 1);
-        context->game.render_name   = xi_arena_push_size(&context->arena, code->names.render.count + 1);
-
-        xi_memory_copy(context->game.init_name,     code->names.init.data,     code->names.init.count);
-        xi_memory_copy(context->game.simulate_name, code->names.simulate.data, code->names.simulate.count);
-        xi_memory_copy(context->game.render_name,   code->names.render.data,   code->names.render.count);
-
+    if (game->dynamic) {
         xiDirectoryList full_list = { 0 };
         xi_directory_list_get(temp, &full_list, context->xi.system.executable_path, false);
 
@@ -1034,9 +959,9 @@ XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
 
             HMODULE lib = LoadLibraryW(wpath);
             if (lib) {
-                xiGameInit     *init     = (xiGameInit *)     GetProcAddress(lib, context->game.init_name);
-                xiGameSimulate *simulate = (xiGameSimulate *) GetProcAddress(lib, context->game.simulate_name);
-                xiGameRender   *render   = (xiGameRender *)   GetProcAddress(lib, context->game.render_name);
+                xiGameInit     *init     = (xiGameInit *)     GetProcAddress(lib, "__xi_game_init");
+                xiGameSimulate *simulate = (xiGameSimulate *) GetProcAddress(lib, "__xi_game_simulate");
+                xiGameRender   *render   = (xiGameRender *)   GetProcAddress(lib, "__xi_game_render");
 
                 if (init != 0 && simulate != 0 && render != 0) {
                     // we found a valid .dll that exports the functions specified so we can
@@ -1070,20 +995,12 @@ XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
             if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
                 context->game.dll = LoadLibraryW(context->game.dll_dst_path);
 
-                xiGameInit *init     = 0;
-                xiGameSimulate *sim  = 0;
-                xiGameRender *render = 0;
-
                 if (context->game.dll) {
-                    init   =     (xiGameInit *) GetProcAddress(context->game.dll, context->game.init_name);
-                    sim    = (xiGameSimulate *) GetProcAddress(context->game.dll, context->game.simulate_name);
-                    render =   (xiGameRender *) GetProcAddress(context->game.dll, context->game.render_name);
+                    game->init     =     (xiGameInit *) GetProcAddress(context->game.dll, "__xi_game_init");
+                    game->simulate = (xiGameSimulate *) GetProcAddress(context->game.dll, "__xi_game_simulate");
+                    game->render   =   (xiGameRender *) GetProcAddress(context->game.dll, "__xi_game_render");
 
-                    context->game.init     = init;
-                    context->game.simulate = sim;
-                    context->game.render   = render;
-
-                    if (win32_game_code_is_valid(context)) {
+                    if (game_code_is_valid(game)) {
                         WIN32_FILE_ATTRIBUTE_DATA attributes;
                         if (GetFileAttributesExW(context->game.dll_src_path,
                                     GetFileExInfoStandard, &attributes))
@@ -1097,6 +1014,14 @@ XI_INTERNAL void win32_game_code_init(xiWin32Context *context) {
                 }
             }
         }
+        else {
+            // @todo: logging...
+            //
+        }
+
+        if (!game->init)     { game->init     = __xi_game_init;     }
+        if (!game->simulate) { game->simulate = __xi_game_simulate; }
+        if (!game->render)   { game->render   = __xi_game_render;   }
     }
 }
 
@@ -1119,18 +1044,16 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
                       ((xi_u64) attributes.ftLastWriteTime.dwHighDateTime << 0);
 
         if (time != context->game.last_time) {
+            xiGameCode *game = context->game.code;
+
             if (context->game.dll) {
                 FreeLibrary(context->game.dll);
 
-                context->game.dll      = 0;
-                context->game.init     = 0;
-                context->game.simulate = 0;
-                context->game.render   = 0;
+                context->game.dll = 0;
+                game->init        = 0;
+                game->simulate    = 0;
+                game->render      = 0;
             }
-
-            xiGameInit *init     = 0;
-            xiGameSimulate *sim  = 0;
-            xiGameRender *render = 0;
 
             if (CopyFileW(context->game.dll_src_path, context->game.dll_dst_path, FALSE)) {
                 HMODULE dll = LoadLibraryW(context->game.dll_dst_path);
@@ -1138,26 +1061,24 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
                 if (dll) {
                     context->game.dll = dll;
 
-                    // :dyn_dll check!
-                    //
-                    init   =     (xiGameInit *) GetProcAddress(dll, context->game.init_name);
-                    sim    = (xiGameSimulate *) GetProcAddress(dll, context->game.simulate_name);
-                    render =   (xiGameRender *) GetProcAddress(dll, context->game.render_name);
+                    game->init     =     (xiGameInit *) GetProcAddress(dll, "__xi_game_init");
+                    game->simulate = (xiGameSimulate *) GetProcAddress(dll, "__xi_game_simulate");
+                    game->render   =   (xiGameRender *) GetProcAddress(dll, "__xi_game_render");
 
-                    context->game.init     = init;
-                    context->game.simulate = sim;
-                    context->game.render   = render;
-
-                    if (win32_game_code_is_valid(context)) {
+                    if (game_code_is_valid(game)) {
                         context->game.last_time = time;
 
                         // call init again but signal to the developer that the code was reloaded
                         // rather than initially called
                         //
-                        context->game.init(&context->xi, XI_GAME_RELOADED);
+                        game->init(&context->xi, XI_GAME_RELOADED);
                     }
                 }
             }
+
+            if (!game->init)     { game->init     = __xi_game_init;     }
+            if (!game->simulate) { game->simulate = __xi_game_simulate; }
+            if (!game->render)   { game->render   = __xi_game_render;   }
         }
     }
 }
@@ -1258,149 +1179,6 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
         xi->time.total.s   = (xi->time.total.ns / 1000000000.0);
     }
 
-    // check for any changes to the xiContext structure which may have been issued during
-    // user game code execution
-    //
-    if (!context->window.user_resizing) {
-        // :note we do not allow the application to manually set the window size if the user
-        // is resizing the window as it goes against the intent of the user, causes odd
-        // visual glitches and prevents the window from being truly resizable if the application
-        // is going to overwrite the resized dimension anyway
-        //
-        // if the application programmer wants to be able to specify strict window sizes it is
-        // recommended they do not create a resizable window and can then specify the size
-        // by setting xi->window.width and xi->window.height respectivley.
-        //
-        // this also extends to the user moving the window
-        //
-        HWND hwnd = context->window.handle;
-
-        if (xi->window.state != XI_WINDOW_STATE_FULLSCREEN) {
-            // :note change the window resoluation if the application has modified
-            // it directly, this is ignored when the window is in fullscreen mode
-            //
-            RECT client_rect;
-            GetClientRect(hwnd, &client_rect);
-
-            xi_u32 width  = (client_rect.right  - client_rect.left);
-            xi_u32 height = (client_rect.bottom - client_rect.top);
-
-            xi_f32 current_scale = (xi_f32) context->window.dpi / USER_DEFAULT_SCREEN_DPI;
-
-            xi_u32 desired_width  = (xi_u32) (current_scale * xi->window.width);
-            xi_u32 desired_height = (xi_u32) (current_scale * xi->window.height);
-
-            if (width != desired_width || height != desired_height) {
-                LONG style       = GetWindowLongW(hwnd, GWL_STYLE);
-                HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-                UINT xdpi, ydpi;
-                if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &xdpi, &ydpi) == S_OK) {
-                    client_rect.left   = 0;
-                    client_rect.top    = 0;
-                    client_rect.right  = xi->window.width;
-                    client_rect.bottom = xi->window.height;
-
-                    if (AdjustWindowRectExForDpi(&client_rect, style, FALSE, 0, xdpi)) {
-                        width  = client_rect.right - client_rect.left;
-                        height = client_rect.bottom - client_rect.top;
-
-                        SetWindowPos(hwnd, HWND_TOP, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
-                    }
-                }
-            }
-        }
-
-        if (xi->window.state != context->window.last_state) {
-            // :note change the window style if the application has requested
-            // it to be modified
-            //
-            LONG old_style = GetWindowLongW(hwnd, GWL_STYLE);
-            LONG new_style = win32_window_style_get_for_state(old_style, xi->window.state);
-
-            xi_s32 x = 0, y = 0;
-            xi_s32 w = 0, h = 0;
-            UINT flags = SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER;
-
-            if (context->window.last_state == XI_WINDOW_STATE_FULLSCREEN) {
-                // we are leaving fullscreen so restore the window position to where it was before
-                // entering fullscreen
-                //
-                SetWindowPlacement(hwnd, &context->window.placement);
-
-                // we have to restore the style to back before we went into fullscreen otherwise
-                // the client area will include the old decorations area making it slightly too big
-                //
-                SetWindowLongW(hwnd, GWL_STYLE, context->window.windowed_style);
-                SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, flags);
-            }
-
-            if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
-                // we are entering fullscreen so remember where our window was in windowed mode
-                // in case we transition back to windowed mode
-                //
-                // we know that if the above is true this can't happen because of the outer if statement
-                // checking if xi->window.state != context->window.last_state
-                //
-                if (GetWindowPlacement(hwnd, &context->window.placement)) {
-                    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-                    MONITORINFO info = { 0 };
-                    info.cbSize = sizeof(MONITORINFO);
-
-                    if (GetMonitorInfoA(monitor, &info)) {
-                        x = info.rcMonitor.left;
-                        y = info.rcMonitor.top;
-
-                        w = (info.rcMonitor.right - info.rcMonitor.left);
-                        h = (info.rcMonitor.bottom - info.rcMonitor.top);
-
-                        flags &= ~(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
-
-                        context->window.windowed_style = GetWindowLongW(hwnd, GWL_STYLE);
-                    }
-                }
-            }
-            else {
-                // we are back in windowed mode, however, due to client-side decorations we _may_
-                // need to re-adjust the window size, for example going from windowed -> fullscreen ->
-                // windowed borderless would yield the wrong window size using only the placement saved
-                // before entering fullscreen as it has a window size that takes the previously
-                // visible decorations into account
-                //
-                RECT client_rect;
-                GetClientRect(hwnd, &client_rect);
-
-                HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-                UINT xdpi, ydpi;
-                if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &xdpi, &ydpi) == S_OK) {
-                    if (AdjustWindowRectExForDpi(&client_rect, new_style, FALSE, 0, xdpi)) {
-                        w = (client_rect.right - client_rect.left);
-                        h = (client_rect.bottom - client_rect.top);
-
-                        flags &= ~(SWP_NOSIZE | SWP_NOZORDER);
-                    }
-                }
-            }
-
-            SetWindowLongW(hwnd, GWL_STYLE, new_style);
-            SetWindowPos(hwnd, HWND_TOP, x, y, w, h, flags);
-
-            context->window.last_state = xi->window.state;
-        }
-    }
-
-    if (!xi_str_equal(xi->window.title, context->window.title.str)) {
-        // :note update window title if it has changed
-        //
-        context->window.title.used = XI_MIN(xi->window.title.count, context->window.title.limit);
-        xi_memory_copy(context->window.title.data, xi->window.title.data, context->window.title.used);
-
-        LPWSTR new_title = win32_utf8_to_utf16(xi->window.title);
-        SetWindowTextW(context->window.handle, new_title);
-    }
-
     // process windows messages that our application received
     //
     xiInputMouse *mouse = &xi->mouse;
@@ -1433,12 +1211,6 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     MSG msg;
     while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE)) {
         switch (msg.message) {
-            case WM_QUIT: { context->running = false; } break;
-            case WM_CLOSE: {
-                PostQuitMessage(0);
-            }
-            break;
-
             // keyboard input
             //
             case WM_KEYUP:
@@ -1595,6 +1367,161 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
         }
     }
 
+    // if context->running is false that means we have recieved a WM_CLOSE message in our window proc
+    // which means the user has pressed the close button etc. so we signal to the game code that
+    // we are quitting, which can be used to do processing after the fact, such as saving game state etc.
+    //
+    // we have a duplicated 'quitting' variable to prevent the user from overriding this decision as the
+    // window is now closing, the user can still set xi->quit to true to manucally close the engine
+    // from their game code
+    //
+    context->quitting = !context->running;
+    xi->quit = context->quitting;
+
+    // check for any changes to the xiContext structure which may have been issued during
+    // user game code execution
+    //
+    if (!context->window.user_resizing) {
+        // :note we do not allow the application to manually set the window size if the user
+        // is resizing the window as it goes against the intent of the user, causes odd
+        // visual glitches and prevents the window from being truly resizable if the application
+        // is going to overwrite the resized dimension anyway
+        //
+        // if the application programmer wants to be able to specify strict window sizes it is
+        // recommended they do not create a resizable window and can then specify the size
+        // by setting xi->window.width and xi->window.height respectivley.
+        //
+        // this also extends to the user moving the window
+        //
+        HWND hwnd = context->window.handle;
+
+        if (xi->window.state != XI_WINDOW_STATE_FULLSCREEN) {
+            // :note change the window resoluation if the application has modified
+            // it directly, this is ignored when the window is in fullscreen mode
+            //
+            RECT client_rect;
+            GetClientRect(hwnd, &client_rect);
+
+            xi_u32 width  = (client_rect.right  - client_rect.left);
+            xi_u32 height = (client_rect.bottom - client_rect.top);
+
+            xi_f32 current_scale = (xi_f32) context->window.dpi / USER_DEFAULT_SCREEN_DPI;
+
+            xi_u32 desired_width  = (xi_u32) (current_scale * xi->window.width);
+            xi_u32 desired_height = (xi_u32) (current_scale * xi->window.height);
+
+            if (width != desired_width || height != desired_height) {
+                LONG style       = GetWindowLongW(hwnd, GWL_STYLE);
+                HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
+                UINT xdpi, ydpi;
+                if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &xdpi, &ydpi) == S_OK) {
+                    client_rect.left   = 0;
+                    client_rect.top    = 0;
+                    client_rect.right  = xi->window.width;
+                    client_rect.bottom = xi->window.height;
+
+                    if (AdjustWindowRectExForDpi(&client_rect, style, FALSE, 0, xdpi)) {
+                        UINT flags = SWP_ASYNCWINDOWPOS | SWP_NOMOVE | SWP_NOZORDER;
+
+                        width  = client_rect.right - client_rect.left;
+                        height = client_rect.bottom - client_rect.top;
+
+                        SetWindowPos(hwnd, HWND_TOP, 0, 0, width, height, flags);
+                    }
+                }
+            }
+        }
+
+        if (xi->window.state != context->window.last_state) {
+            // :note change the window style if the application has requested
+            // it to be modified
+            //
+            LONG new_style = win32_window_style_get_for_state(hwnd, xi->window.state);
+
+            xi_s32 x = 0, y = 0;
+            xi_s32 w = 0, h = 0;
+            UINT flags = SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER;
+
+            if (context->window.last_state == XI_WINDOW_STATE_FULLSCREEN) {
+                // we are leaving fullscreen so restore the window position to where it was before
+                // entering fullscreen
+                //
+                SetWindowPlacement(hwnd, &context->window.placement);
+
+                // we have to restore the style to back before we went into fullscreen otherwise
+                // the client area will include the old decorations area making it slightly too big
+                //
+                SetWindowLongW(hwnd, GWL_STYLE, context->window.windowed_style);
+                SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, flags);
+            }
+
+            if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
+                // we are entering fullscreen so remember where our window was in windowed mode
+                // in case we transition back to windowed mode
+                //
+                // we know that if the above is true this can't happen because of the outer if statement
+                // checking if xi->window.state != context->window.last_state
+                //
+                if (GetWindowPlacement(hwnd, &context->window.placement)) {
+                    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
+                    MONITORINFO info = { 0 };
+                    info.cbSize = sizeof(MONITORINFO);
+
+                    if (GetMonitorInfoA(monitor, &info)) {
+                        x = info.rcMonitor.left;
+                        y = info.rcMonitor.top;
+
+                        w = (info.rcMonitor.right - info.rcMonitor.left);
+                        h = (info.rcMonitor.bottom - info.rcMonitor.top);
+
+                        flags &= ~(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+
+                        context->window.windowed_style = GetWindowLongW(hwnd, GWL_STYLE);
+                    }
+                }
+            }
+            else {
+                // we are back in windowed mode, however, due to client-side decorations we _may_
+                // need to re-adjust the window size, for example going from windowed -> fullscreen ->
+                // windowed borderless would yield the wrong window size using only the placement saved
+                // before entering fullscreen as it has a window size that takes the previously
+                // visible decorations into account
+                //
+                RECT client_rect;
+                GetClientRect(hwnd, &client_rect);
+
+                HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
+                UINT xdpi, ydpi;
+                if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &xdpi, &ydpi) == S_OK) {
+                    if (AdjustWindowRectExForDpi(&client_rect, new_style, FALSE, 0, xdpi)) {
+                        w = (client_rect.right - client_rect.left);
+                        h = (client_rect.bottom - client_rect.top);
+
+                        flags &= ~(SWP_NOSIZE | SWP_NOZORDER);
+                    }
+                }
+            }
+
+            SetWindowLongW(hwnd, GWL_STYLE, new_style);
+            SetWindowPos(hwnd, HWND_TOP, x, y, w, h, flags);
+
+            context->window.last_state = xi->window.state;
+        }
+    }
+
+    if (!xi_str_equal(xi->window.title, context->window.title.str)) {
+        // :note update window title if it has changed
+        //
+        context->window.title.used = XI_MIN(xi->window.title.count, context->window.title.limit);
+        xi_memory_copy(context->window.title.data, xi->window.title.data, context->window.title.used);
+
+        LPWSTR new_title = win32_utf8_to_utf16(xi->window.title);
+        SetWindowTextW(context->window.handle, new_title);
+    }
+
     // update window state
     //
     RECT client_area;
@@ -1623,498 +1550,514 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
         }
     }
 
-    if (context->game.dynamic) {
+    xiGameCode *game = context->game.code;
+    if (game->dynamic) {
         // reload the code if it needs to be
         //
         win32_game_code_reload(context);
     }
 }
 
-XI_INTERNAL DWORD WINAPI win32_main_thread(LPVOID param) {
+XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
     DWORD result = 0;
 
     xiWin32Context *context = (xiWin32Context *) param;
 
-    // @todo: simplify window creation, this doesn't need two windows we just need to make our
-    // main window on the main thread and use that here, we can resize/set title etc. after the
-    // fact
+    xiContext *xi = &context->xi;
+
+    xi->version.major = XI_VERSION_MAJOR;
+    xi->version.minor = XI_VERSION_MINOR;
+    xi->version.patch = XI_VERSION_PATCH;
+
+    {
+        // setup the stdout file handle for use with loggers
+        //
+        // this may change between XI_ENGINE_CONFIGURE and XI_GAME_INIT onwards in the event
+        // the application is compiled with subsystem windows (thus not having a console) and
+        // the user requesting a console to be opened and having output re-directed through
+        // a new handle
+        //
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
+
+        xiFileHandle *out = &xi->system.out;
+        xiFileHandle *err = &xi->system.err;
+
+        *(HANDLE *) &out->os = hOut;
+        *(HANDLE *) &err->os = hErr;
+
+        out->status = (hOut == INVALID_HANDLE_VALUE) ?
+            XI_FILE_HANDLE_STATUS_FAILED_OPEN : XI_FILE_HANDLE_STATUS_VALID;
+
+        err->status = (hErr == INVALID_HANDLE_VALUE) ?
+            XI_FILE_HANDLE_STATUS_FAILED_OPEN : XI_FILE_HANDLE_STATUS_VALID;
+    }
+
+    // setup title buffer
     //
+    context->window.title.used  = 0;
+    context->window.title.limit = XI_MAX_TITLE_COUNT;
+    context->window.title.data  = xi_arena_push_array(&context->arena, xi_u8, XI_MAX_TITLE_COUNT);
 
-    WNDCLASSW wnd_class = { 0 };
-    wnd_class.style         = CS_OWNDC;
-    wnd_class.lpfnWndProc   = win32_main_window_handler;
-    wnd_class.hInstance     = GetModuleHandleW(0);
-    wnd_class.hIcon         = LoadIconA(0, IDI_APPLICATION);
-    wnd_class.hCursor       = LoadCursorA(0, IDC_ARROW);
-    wnd_class.hbrBackground = (HBRUSH) GetStockObject(BLACK_BRUSH);
-    wnd_class.lpszClassName = L"xi_game_window_class";
+    LPWSTR exe_path     = win32_system_path_get(WIN32_PATH_TYPE_EXECUTABLE);
+    LPWSTR temp_path    = win32_system_path_get(WIN32_PATH_TYPE_TEMP);
+    LPWSTR user_path    = win32_system_path_get(WIN32_PATH_TYPE_USER);
+    LPWSTR working_path = win32_system_path_get(WIN32_PATH_TYPE_WORKING);
 
-    if (RegisterClassW(&wnd_class)) {
-        win32_display_info_get(context);
+    xi->system.executable_path = win32_path_convert_to_api(&context->arena, exe_path);
+    xi->system.temp_path       = win32_path_convert_to_api(&context->arena, temp_path);
+    xi->system.user_path       = win32_path_convert_to_api(&context->arena, user_path);
+    xi->system.working_path    = win32_path_convert_to_api(&context->arena, working_path);
 
-        xiContext *xi = &context->xi;
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
 
-        xi->version.major = XI_VERSION_MAJOR;
-        xi->version.minor = XI_VERSION_MINOR;
-        xi->version.patch = XI_VERSION_PATCH;
+    xi->system.processor_count = system_info.dwNumberOfProcessors;
 
-        {
-            // setup the stdout file handle for use with loggers
+    win32_game_code_init(context);
+
+    xiGameCode *game = context->game.code;
+
+    // call pre-init for engine system configurations
+    //
+    // @todo: this could, and probably should, just be replaced with a configuration file in
+    // the future. or could just have both a pre-init call and a configuration file
+    //
+    game->init(xi, XI_ENGINE_CONFIGURE);
+
+    // open console if requested
+    //
+    if (xi->system.console_open) {
+        xi->system.console_open = AttachConsole(ATTACH_PARENT_PROCESS);
+        if (!xi->system.console_open) {
+            xi->system.console_open = AllocConsole();
+        }
+
+        if (xi->system.console_open) {
+            // this only seems to work for the main executable and not the loaded game
+            // code .dll, i guess the .dll inherits the stdout/stderr handles when it is loaded
+            // and they don't get updated after the fact
             //
-            // this may change between XI_ENGINE_CONFIGURE and XI_GAME_INIT onwards in the event
-            // the application is compiled with subsystem windows (thus not having a console) and
-            // the user requesting a console to be opened and having output re-directed through
-            // a new handle
+            // this is backed up by the fact that once the game code is dynamically reloaded it
+            // starts working...
             //
-            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-            HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
-
+            // :hacky_console
+            //
             xiFileHandle *out = &xi->system.out;
             xiFileHandle *err = &xi->system.err;
 
-            *(HANDLE *) &out->os = hOut;
-            *(HANDLE *) &err->os = hErr;
+            HANDLE hOutput = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 
-            out->status = (hOut == INVALID_HANDLE_VALUE) ?
-                XI_FILE_HANDLE_STATUS_FAILED_OPEN : XI_FILE_HANDLE_STATUS_VALID;
+            *(HANDLE *) &out->os = hOutput;
+            *(HANDLE *) &err->os = hOutput;
 
-            err->status = (hErr == INVALID_HANDLE_VALUE) ?
-                XI_FILE_HANDLE_STATUS_FAILED_OPEN : XI_FILE_HANDLE_STATUS_VALID;
-        }
-
-        // setup title buffer
-        //
-        context->window.title.used  = 0;
-        context->window.title.limit = XI_MAX_TITLE_COUNT;
-        context->window.title.data  = xi_arena_push_array(&context->arena, xi_u8, XI_MAX_TITLE_COUNT);
-
-        LPWSTR exe_path     = win32_system_path_get(WIN32_PATH_TYPE_EXECUTABLE);
-        LPWSTR temp_path    = win32_system_path_get(WIN32_PATH_TYPE_TEMP);
-        LPWSTR user_path    = win32_system_path_get(WIN32_PATH_TYPE_USER);
-        LPWSTR working_path = win32_system_path_get(WIN32_PATH_TYPE_WORKING);
-
-        xi->system.executable_path = win32_path_convert_to_api(&context->arena, exe_path);
-        xi->system.temp_path       = win32_path_convert_to_api(&context->arena, temp_path);
-        xi->system.user_path       = win32_path_convert_to_api(&context->arena, user_path);
-        xi->system.working_path    = win32_path_convert_to_api(&context->arena, working_path);
-
-        SYSTEM_INFO system_info;
-        GetSystemInfo(&system_info);
-
-        xi->system.processor_count = system_info.dwNumberOfProcessors;
-
-        win32_game_code_init(context);
-
-        if (context->game.init != 0) {
-            // :dyn_dll we should have a default 'init', 'simulate' and 'render' function that
-            // are used in place of any functions we don't successfully retrieve from the dynamic dll
-            // so we don't have to do all of these 'if (context->game.<function>)' checks
-            //
-            // call pre-init for engine system configurations
-            //
-            // @todo: this could, and probably should, just be replaced with a configuration file in
-            // the future. or could just have both a pre-init call and a configuration file
-            //
-            context->game.init(xi, XI_ENGINE_CONFIGURE);
-        }
-
-        if (xi->thread_pool.thread_count == 0) {
-            // we just choose the number of cpus reported to us by the operating system if the
-            // user doesn't specify an amount of threads
-            //
-            xi->thread_pool.thread_count = system_info.dwNumberOfProcessors;
-        }
-
-        xi_thread_pool_init(&context->arena, &xi->thread_pool);
-
-        if (xi->system.console_open) {
-            xi->system.console_open = AttachConsole(ATTACH_PARENT_PROCESS);
-            if (!xi->system.console_open) {
-                xi->system.console_open = AllocConsole();
-            }
-
-            if (xi->system.console_open) {
-                // this only seems to work for the main executable and not the loaded game
-                // code .dll, i guess the .dll inherits the stdout/stderr handles when it is loaded
-                // and they don't get updated after the fact
+            if (hOutput != INVALID_HANDLE_VALUE) {
+                // update the handles to reflect the redirected ones
                 //
-                // this is backed up by the fact that once the game code is dynamically reloaded it
-                // starts working...
+                SetStdHandle(STD_OUTPUT_HANDLE, hOutput);
+                SetStdHandle(STD_ERROR_HANDLE,  hOutput);
+
+                out->status = err->status = XI_FILE_HANDLE_STATUS_VALID;
+
+                // we are just going to reload the .dll in place if a console was opened, its
+                // not a massive deal and only happens once, as the console is mainly used for debugging
+                // this probably won't even happen in a final game anyway
                 //
                 // :hacky_console
                 //
-                xiFileHandle *out = &xi->system.out;
-                xiFileHandle *err = &xi->system.err;
-
-                HANDLE hOutput = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-
-                *(HANDLE *) &out->os = hOutput;
-                *(HANDLE *) &err->os = hOutput;
-
-                if (hOutput != INVALID_HANDLE_VALUE) {
-                    // update the handles to reflect the redirected ones
-                    //
-                    SetStdHandle(STD_OUTPUT_HANDLE, hOutput);
-                    SetStdHandle(STD_ERROR_HANDLE,  hOutput);
-
-                    out->status = err->status = XI_FILE_HANDLE_STATUS_VALID;
-
-                    // we are just going to reload the .dll in place if a console was opened, its
-                    // not a massive deal and only happens once, as the console is mainly used for debugging
-                    // this probably won't even happen in a final game anyway
-                    //
-                    // :hacky_console
-                    //
-                    // @todo: should i even bother with this, it is only needed for printf to work but as we
-                    // have our own logging system in place and that writes directly to the file handle we
-                    // specify the updated stdout/stderr handles are reflected without the need to reload
-                    // the .dll
-                    //
-                    if (context->game.dynamic) {
-                        if (context->game.dll) {
-                            FreeLibrary(context->game.dll);
-
-                            context->game.dll      = 0;
-                            context->game.init     = 0;
-                            context->game.simulate = 0;
-                            context->game.render   = 0;
-                        }
-
-                        HMODULE dll = LoadLibraryW(context->game.dll_dst_path);
-
-                        xiGameInit     *init     = 0;
-                        xiGameSimulate *simulate = 0;
-                        xiGameRender   *render   = 0;
-
-                        if (dll) {
-                            context->game.dll = dll;
-
-                            init     =     (xiGameInit *) GetProcAddress(dll, context->game.init_name);
-                            simulate = (xiGameSimulate *) GetProcAddress(dll, context->game.simulate_name);
-                            render   =   (xiGameRender *) GetProcAddress(dll, context->game.render_name);
-                        }
-
-                        context->game.init     = init;
-                        context->game.simulate = simulate;
-                        context->game.render   = render;
-                    }
-                }
-                else {
-                    out->status = err->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
-                }
+                // @todo: should i even bother with this, it is only needed for printf to work but as we
+                // have our own logging system in place and that writes directly to the file handle we
+                // specify the updated stdout/stderr handles are reflected without the need to reload
+                // the .dll
+                //
+                context->game.last_time = 0;
+                win32_game_code_reload(context);
+            }
+            else {
+                out->status = err->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
             }
         }
+    }
 
-        xi_u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
-        xiWin32DisplayInfo *display = &context->displays[display_index];
+    //
+    // configure window
+    //
+    HWND hwnd = context->window.handle;
 
-        UINT dpi = display->dpi;
-        xi_f32 scale = display->xi.scale;
+    // show the window now it has been configured to be visible
+    //
+    ShowWindowAsync(hwnd, SW_SHOW);
 
-        XI_ASSERT(scale >= 1.0f);
+    xi_u32 display_index = XI_MIN(xi->window.display, xi->system.display_count);
+    xiWin32DisplayInfo *display = &context->displays[display_index];
 
-        if (xi->window.width == 0 || xi->window.height == 0) {
-            // just default to 1280x720 if the user doesn't specify a window size
-            // could use CW_USEDEFAULT but its a pain because you can't properly
-            // specify X,Y with it
+    xi_f32 scale = display->xi.scale;
+
+    UINT swp_flags = (SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS);
+
+    if (xi->window.width == 0 || xi->window.height == 0) {
+        if (xi->window.display == 0) {
+            // the user didn't move the window from the default display and also didn't specify a
+            // size that they wanted, as the window was created with the correct defaults we don't
+            // need to do anything so add these flags in to prevent SetWindowPos from altering
+            // the window position/size
             //
+            swp_flags |= (SWP_NOSIZE | SWP_NOMOVE);
+        }
+        else {
             xi->window.width  = 1280;
             xi->window.height = 720;
         }
+    }
 
-        RECT rect;
-        rect.left   = 0;
-        rect.top    = 0;
-        rect.right  = (LONG) (scale * xi->window.width);
-        rect.bottom = (LONG) (scale * xi->window.height);
 
-        // set the window size scaled correctly
-        //
-        xi->window.width  = rect.right;
-        xi->window.height = rect.bottom;
+    RECT rect;
+    rect.left   = 0;
+    rect.top    = 0;
+    rect.right  = (LONG) (scale * xi->window.width);
+    rect.bottom = (LONG) (scale * xi->window.height);
 
-        xiWin32WindowInfo window_info = { 0 };
-        window_info.lpClassName  = wnd_class.lpszClassName;
-        window_info.dwStyle      = win32_window_style_get_for_state(0, xi->window.state);
-        window_info.hInstance    = wnd_class.hInstance;
-        window_info.nWidth       = xi->window.width;
-        window_info.nHeight      = xi->window.height;
-        window_info.lpWindowName = L"xie";
+    // set the window size scaled correctly
+    //
+    xi->window.width  = rect.right;
+    xi->window.height = rect.bottom;
 
-        if (AdjustWindowRectExForDpi(&rect, window_info.dwStyle, FALSE, 0, dpi)) {
-            window_info.nWidth  = (rect.right - rect.left);
-            window_info.nHeight = (rect.bottom - rect.top);
-        }
+    int X, Y;
+    int nWidth, nHeight;
+    DWORD dwStyle;
 
-        // center the window on the selected display
-        //
-        window_info.X = display->bounds.left + ((xi_s32) (display->xi.width  - window_info.nWidth)  >> 1);
-        window_info.Y = display->bounds.top  + ((xi_s32) (display->xi.height - window_info.nHeight) >> 1);
+    // we are setting up the window initially as if it were a non-fullscreen window, this allows us
+    // to grab the initial window placement before entering fullscreen so we don't get odd results
+    // if the user decides to leave fullscreen after the fact
+    //
+    // :fullscreen_window
+    //
+    xi_u32 state = xi->window.state;
+    if (state == XI_WINDOW_STATE_FULLSCREEN) { state = XI_WINDOW_STATE_WINDOWED; }
 
-        if (xi_str_is_valid(xi->window.title)) {
-            xi->window.title.count   = XI_MIN(xi->window.title.count, context->window.title.limit);
-            window_info.lpWindowName = win32_utf8_to_utf16(xi->window.title);
-        }
+    dwStyle = win32_window_style_get_for_state(hwnd, state);
 
-        HWND hwnd = (HWND) SendMessageW(context->create_window, XI_CREATE_WINDOW, (WPARAM) &window_info, 0);
-        if (hwnd != 0) {
-            context->window.handle = hwnd;
-            context->window.dpi    = dpi;
-
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR) context);
-
-            // we have to reset the style in the case of borderless windows because windows
-            // doesn't respect the dwStyle we provide to window creation and will add WS_CAPTION back
-            // in giving our borderless window a titlebar that we didn't want
-            //
-            {
-                LONG style = GetWindowLong(hwnd, GWL_STYLE);
-                style      = win32_window_style_get_for_state(style, xi->window.state);
-
-                UINT flags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED;
-
-                SetWindowLongW(hwnd, GWL_STYLE, style);
-                SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, flags);
-
-                context->window.last_state = xi->window.state;
-            }
-
-            // we copy the title into our own buffer, that is capped at 1024 bytes
-            // in the event the incoming title is stored in .bss storage we can't store a pointer
-            // to it directly due to dynamic code reloading
-            //
-            {
-                xi_string title = xi->window.title;
-                if (!xi_str_is_valid(title)) { title = xi_str_wrap_const("xie"); }
-
-                XI_ASSERT(title.count <= XI_MAX_TITLE_COUNT);
-
-                xi_memory_copy(context->window.title.data, title.data, title.count);
-
-                context->window.title.used = title.count;
-                xi->window.title = context->window.title.str;
-            }
-
-            // we setup the window as normal and then after creation set it to fullscreen
-            // this way we can get an initial window placement to return the window back into windowed
-            // mode with
-            //
-            if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
-                if (GetWindowPlacement(hwnd, &context->window.placement)) {
-                    int x = display->bounds.left;
-                    int y = display->bounds.top;
-
-                    int w = (display->bounds.right - display->bounds.left);
-                    int h = (display->bounds.bottom - display->bounds.top);
-
-                    SetWindowPos(hwnd, HWND_TOP, x, y, w, h, SWP_NOZORDER | SWP_NOOWNERZORDER);
-                }
-            }
-
-            ShowWindowAsync(hwnd, SW_SHOW);
-
-            // load and initialise the renderer
-            //
-            xiRenderer *renderer = &xi->renderer;
-            {
-                HMODULE lib = LoadLibraryA("xi_opengld.dll");
-                if (lib) {
-                    context->renderer.lib  = lib;
-                    context->renderer.init = (xiRendererInit *) GetProcAddress(lib, "xi_opengl_init");
-
-                    if (context->renderer.init) {
-                        xiWin32WindowData data = { 0 }; // :renderer_core
-                        data.hInstance = wnd_class.hInstance;
-                        data.hwnd      = hwnd;
-
-                        context->renderer.valid = context->renderer.init(renderer, &data);
-                    }
-                }
-            }
-
-            if (context->renderer.valid) {
-                xi_asset_manager_init(&context->arena, &xi->assets, xi);
-
-                renderer->assets = &xi->assets;
-
-                if (context->game.init != 0) {
-                    // :dyn_dll check!
-                    //
-                    // once all of the engine systems have been setup, send the game code a post init
-                    // call which allows them to call any init they require using the engine systems
-                    //
-                    context->game.init(xi, XI_GAME_INIT);
-                }
-
-                // setup timing information
-                //
-                {
-                    if (xi->time.delta.fixed_hz == 0) {
-                        xi->time.delta.fixed_hz = 100;
-                    }
-
-                    xi_u64 fixed_ns   = (1000000000 / xi->time.delta.fixed_hz);
-                    context->fixed_ns = fixed_ns;
-
-                    if (xi->time.delta.clamp_s <= 0.0f) {
-                        xi->time.delta.clamp_s = 0.2f;
-                        context->clamp_ns = 200000000;
-                    }
-                    else {
-                        context->clamp_ns = (xi_u64) (1000000000 * xi->time.delta.clamp_s);
-                    }
-
-                    LARGE_INTEGER counter;
-                    if (QueryPerformanceFrequency(&counter)) {
-                        context->counter_freq = counter.QuadPart;
-                    }
-                    else {
-                        // not really much we can do here if the above call fails, so just default to
-                        // some non-zero value, this will cause very inaccurate timings, 10mhz
-                        //
-                        context->counter_freq = 10000000;
-                    }
-
-                    if (QueryPerformanceCounter(&counter)) {
-                        context->counter_start = counter.QuadPart;
-                    }
-                }
-
-                context->running = true;
-                while (context->running) {
-                    win32_xi_context_update(context);
-
-                    // :temp_usage temporary memory is reset after the xiContext is updated this means
-                    // temporary allocations can be used inside the update function without worring about
-                    // it being released and/or reused
-                    //
-                    xi_temp_reset();
-
-                    // :dyn_dll check!
-                    //
-                    if (context->game.simulate) {
-                        xi_u32 n_updates = 0;
-                        do {
-                            // do while loop to force at least one update per iteration
-                            //
-                            context->game.simulate(xi);
-                            context->accum_ns -= context->fixed_ns;
-
-                            n_updates += 1;
-                        } while (context->accum_ns >= (xi_s64) context->fixed_ns);
-
-                        if (context->accum_ns < 0) { context->accum_ns = 0; }
-                    }
-
-                    if (context->game.render) {
-                        // :dyn_dll check!
-                        //
-                        context->game.render(xi, renderer);
-                    }
-
-                    // :note we have to do this in-case the user has set the thread queue to have a single
-                    // thread if this is the case the only thread that can execute work is the main thread,
-                    // however, as the main thread is busy running the game anything that is pushed on to the
-                    // work queue will never be executed as no thread are looking at it.
-                    //
-                    // happens after the game code 'simulate' and 'render' functions have been called
-                    // so we know we aren't going to get anymore tasks from user-side
-                    //
-                    // so we check if the thread count is 1 and then wait on it here. this will be very slow
-                    // as everything is now single-threaded, however for debugging will be very useful and
-                    // keeps the game working when no worker threads are enabled
-                    //
-                    if (xi->thread_pool.thread_count == 1) { xi_thread_pool_await_complete(&xi->thread_pool); }
-
-                    // we check if the renderer is valid and do not run in the case it is not
-                    // this allows us to assume the submit function is always there
-                    //
-                    renderer->submit(renderer);
-                }
-
-                SendMessageW(context->create_window, XI_DESTROY_WINDOW, (WPARAM) context->window.handle, 0);
-            }
-            else {
-                // @todo: logging...
-                //
-                result = 1;
-            }
-        }
-        else {
-            // @todo: logging...
-            //
-            result = 1;
-        }
+    if (AdjustWindowRectExForDpi(&rect, dwStyle, FALSE, 0, display->dpi)) {
+        nWidth  = (rect.right - rect.left);
+        nHeight = (rect.bottom - rect.top);
     }
     else {
-        // @todo: logging...
-        //
-        result = 1;
+        nWidth  = xi->window.width;
+        nHeight = xi->window.height;
     }
 
-    ExitProcess(result);
+    // center the window on the selected display
+    //
+    X = display->bounds.left + ((xi_s32) (display->xi.width  - nWidth)  >> 1);
+    Y = display->bounds.top  + ((xi_s32) (display->xi.height - nHeight) >> 1);
+
+    // as the window was previously created with default parameters we can just select the correct
+    // dimensions specified by the user and then set the window position/size to that, this
+    // also handles the fact that windows will ignore borderless styles when initially creating a window
+    //
+    SetWindowLongW(hwnd, GWL_STYLE, dwStyle);
+    SetWindowPos(hwnd, HWND_TOP, X, Y, nWidth, nHeight, swp_flags);
+
+    if (xi_str_is_valid(xi->window.title)) {
+        xi->window.title.count = XI_MIN(xi->window.title.count, context->window.title.limit);
+
+        LPWSTR title = win32_utf8_to_utf16(xi->window.title);
+        SetWindowTextW(hwnd, title);
+
+        // copy it into our buffer as we need to own any pointer in case they are in static storage and get
+        // reloaded
+        //
+        xi_memory_copy(context->window.title.data, xi->window.title.data, xi->window.title.count);
+        context->window.title.used = xi->window.title.count;
+
+        xi->window.title = context->window.title.str;
+    }
+
+    context->window.dpi = display->dpi;
+    context->window.last_state = xi->window.state;
+
+    // show the window now it has been configured and the renderer has been initialised
+    //
+    ShowWindowAsync(hwnd, SW_SHOW);
+
+    // :fullscreen_window
+    //
+    if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
+        if (GetWindowPlacement(hwnd, &context->window.placement)) {
+            int x = display->bounds.left;
+            int y = display->bounds.top;
+
+            int w = (display->bounds.right - display->bounds.left);
+            int h = (display->bounds.bottom - display->bounds.top);
+
+            // we need to update the style as we initially configured as if it were a normal window
+            // but fullscreen windows don't have a titlebar/border
+            //
+            // we need to save the windowed style as it may need to adjust the client rect when leaving
+            // fullscreen mode
+            //
+            context->window.windowed_style = GetWindowLongW(hwnd, GWL_STYLE);
+            LONG style = win32_window_style_get_for_state(hwnd, xi->window.state);
+
+            UINT flags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS;
+
+            SetWindowLongW(hwnd, GWL_STYLE, style);
+            SetWindowPos(hwnd, HWND_TOP, x, y, w, h, flags);
+
+            // update user-side window to reflect the new size
+            //
+            xi->window.width  = w;
+            xi->window.height = h;
+        }
+    }
+
+
+    // load and initialise the renderer
+    //
+    xiRenderer *renderer = &xi->renderer;
+    {
+        HMODULE lib = LoadLibraryA("xi_opengld.dll");
+        if (lib) {
+            context->renderer.lib  = lib;
+            context->renderer.init = (xiRendererInit *) GetProcAddress(lib, "xi_opengl_init");
+
+            if (context->renderer.init) {
+                xiWin32WindowData data = { 0 }; // :renderer_core
+                data.hInstance = GetModuleHandleW(0);
+                data.hwnd      = hwnd;
+
+                context->renderer.valid = context->renderer.init(renderer, &data);
+            }
+        }
+    }
+
+    if (context->renderer.valid) {
+        // setup thread pool
+        //
+        xi_thread_pool_init(&context->arena, &xi->thread_pool, system_info.dwNumberOfProcessors);
+        xi_asset_manager_init(&context->arena, &xi->assets, xi);
+
+        // once all of the engine systems have been setup, send the game code a post init
+        // call which allows them to call any init they require using the engine systems
+        //
+        game->init(xi, XI_GAME_INIT);
+
+        // setup timing information
+        //
+        {
+            if (xi->time.delta.fixed_hz == 0) {
+                xi->time.delta.fixed_hz = 100;
+            }
+
+            xi_u64 fixed_ns   = (1000000000 / xi->time.delta.fixed_hz);
+            context->fixed_ns = fixed_ns;
+
+            if (xi->time.delta.clamp_s <= 0.0f) {
+                xi->time.delta.clamp_s = 0.2f;
+                context->clamp_ns = 200000000;
+            }
+            else {
+                context->clamp_ns = (xi_u64) (1000000000 * xi->time.delta.clamp_s);
+            }
+
+            LARGE_INTEGER counter;
+            if (QueryPerformanceFrequency(&counter)) {
+                context->counter_freq = counter.QuadPart;
+            }
+            else {
+                // not really much we can do here if the above call fails, so just default to
+                // some non-zero value, this will cause very inaccurate timings, 10mhz
+                //
+                context->counter_freq = 10000000;
+            }
+
+            if (QueryPerformanceCounter(&counter)) {
+                context->counter_start = counter.QuadPart;
+            }
+        }
+
+        while (true) {
+            win32_xi_context_update(context);
+
+            // :temp_usage temporary memory is reset after the xiContext is updated this means
+            // temporary allocations can be used inside the update function without worring about
+            // it being released and/or reused
+            //
+            xi_temp_reset();
+
+            do {
+                // do while loop to force at least one update per iteration
+                //
+                game->simulate(xi);
+                context->accum_ns -= context->fixed_ns;
+
+                // we only need to process one simulate if we are quitting
+                //
+                if (context->quitting || xi->quit) { break; }
+            } while (context->accum_ns >= (xi_s64) context->fixed_ns);
+
+            if (context->accum_ns < 0) { context->accum_ns = 0; }
+
+            game->render(xi, renderer);
+
+            // :note we have to do this in-case the user has set the thread queue to have a single
+            // thread if this is the case the only thread that can execute work is the main thread,
+            // however, as the main thread is busy running the game anything that is pushed on to the
+            // work queue will never be executed as no thread are looking at it.
+            //
+            // happens after the game code 'simulate' and 'render' functions have been called
+            // so we know we aren't going to get anymore tasks from user-side
+            //
+            // so we check if the thread count is 1 and then wait on it here. this will be very slow
+            // as everything is now single-threaded, however for debugging will be very useful and
+            // keeps the game working when no worker threads are enabled
+            //
+            if (xi->thread_pool.thread_count == 1) { xi_thread_pool_await_complete(&xi->thread_pool); }
+
+            // we check if the renderer is valid and do not run in the case it is not
+            // this allows us to assume the submit function is always there
+            //
+            renderer->submit(renderer);
+
+            if (context->quitting || xi->quit) {
+                // leave after executing an entire frame, this allows the game code to do one last
+                // iteration with the 'quit' bool set to true allowing it to do any cleanup/other
+                // work that it needs to do when quitting...
+                //
+                break;
+            }
+        }
+
+        // just in case there are any tasks left on the pool which are part of the game's
+        // shutdown code
+        //
+        xi_thread_pool_await_complete(&xi->thread_pool);
+    }
+
+    // tell our main thread that is processing our messages that we have now quit and it should
+    // exit its message loop, it will wait for us to actually finish processing, after this
+    // line is is assumed that our window is no longer valid
+    //
+    PostMessageW(hwnd, WM_QUIT, (WPARAM) result, 0);
+    return result;
 }
 
 int xie_run(xiGameCode *code) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    WNDCLASSW create_class = { 0 };
-    create_class.lpfnWndProc   = win32_window_creation_handler;
-    create_class.hInstance     = GetModuleHandleW(0);
-    create_class.hIcon         = LoadIconA(0, IDI_APPLICATION);
-    create_class.hCursor       = LoadCursorA(0, IDC_ARROW);
-    create_class.hbrBackground = (HBRUSH) GetStockObject(BLACK_BRUSH);
-    create_class.lpszClassName = L"xi_create_window_class";
+    WNDCLASSW wndclass = { 0 };
+    wndclass.style         = CS_OWNDC;
+    wndclass.lpfnWndProc   = win32_main_window_handler;
+    wndclass.hInstance     = GetModuleHandleW(0);
+    wndclass.hIcon         = LoadIconA(0, IDI_APPLICATION);
+    wndclass.hCursor       = LoadCursorA(0, IDC_ARROW);
+    wndclass.hbrBackground = (HBRUSH) GetStockObject(BLACK_BRUSH);
+    wndclass.lpszClassName = L"xi_game_window_class";
 
-    if (RegisterClassW(&create_class)) {
-        HWND create_window = CreateWindowExW(0, create_class.lpszClassName, L"xi_create_window", 0,
-                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, create_class.hInstance, 0);
+    if (RegisterClassW(&wndclass)) {
+        xiArena arena = { 0 };
+        xi_arena_init_virtual(&arena, XI_MB(128));
 
-        if (create_window) {
-            xiArena arena = { 0 };
-            xi_arena_init_virtual(&arena, XI_MB(128));
+        xiWin32Context *context = xi_arena_push_type(&arena, xiWin32Context);
 
-            xiWin32Context *context = xi_arena_push_type(&arena, xiWin32Context);
+        context->arena     = arena;
+        context->game.code = code;
 
-            context->arena         = arena;
-            context->game.code     = code;
-            context->create_window = create_window;
+        // acquire information about the displays connected
+        //
+        win32_display_info_get(context);
+        if (context->display_count != 0) {
+            // center on the first monitor, which will be the default if the user chooses not
+            // to configure any of the window properties
+            //
+            xiWin32DisplayInfo *display = &context->displays[0];
 
-            CreateThread(0, 0, win32_main_thread, context, 0, &context->main_thread);
+            int X, Y;
+            int nWidth = 1280, nHeight = 720;
 
-            for (;;) {
-                MSG msg;
-                GetMessageW(&msg, 0, 0, 0);
-                TranslateMessage(&msg);
+            RECT client;
+            client.left   = 0;
+            client.top    = 0;
+            client.right  = (LONG) (display->xi.scale * nWidth);
+            client.bottom = (LONG) (display->xi.scale * nHeight);
 
-                switch (msg.message) {
-                    case WM_SYSKEYUP:
-                    case WM_KEYUP:
+            if (AdjustWindowRectExForDpi(&client, WS_OVERLAPPEDWINDOW, FALSE, 0, display->dpi)) {
+                nWidth  = (client.right - client.left);
+                nHeight = (client.bottom - client.top);
+            }
 
-                    case WM_SYSKEYDOWN:
-                    case WM_KEYDOWN:
+            X = display->bounds.left + ((xi_s32) (display->xi.width  - nWidth)  >> 1);
+            Y = display->bounds.top  + ((xi_s32) (display->xi.height - nHeight) >> 1);
 
-                    case WM_LBUTTONUP:
-                    case WM_MBUTTONUP:
-                    case WM_RBUTTONUP:
-                    case WM_XBUTTONUP:
+            HWND hwnd = CreateWindowExW(0, wndclass.lpszClassName, L"xie", WS_OVERLAPPEDWINDOW,
+                    X, Y, nWidth, nHeight, 0, 0, wndclass.hInstance,  0);
 
-                    case WM_LBUTTONDOWN:
-                    case WM_MBUTTONDOWN:
-                    case WM_RBUTTONDOWN:
-                    case WM_XBUTTONDOWN:
+            if (hwnd != 0) {
+                context->window.handle = hwnd;
+                context->running = true;
 
-                    case WM_MOUSEMOVE:
-                    case WM_MOUSEWHEEL:
-                    case WM_MOUSEHWHEEL:
-                    {
-                        PostThreadMessageW(context->main_thread, msg.message, msg.wParam, msg.lParam);
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR) context);
+
+                DWORD game_thread;
+                HANDLE hThread = CreateThread(0, 0, win32_game_thread, context, 0, &game_thread);
+                if (hThread != 0) {
+                    while (true) {
+                        MSG msg;
+                        if (!GetMessageW(&msg, 0, 0, 0)) {
+                            // we got a WM_QUIT message so we should quit
+                            //
+                            XI_ASSERT(msg.message == WM_QUIT);
+                            break;
+                        }
+
+                        // @todo: we might want to capture text messages in the future so will have to
+                        // call TranslateMessage(&msg); and handle the WM_CHAR message
+                        //
+
+                        switch (msg.message) {
+                            case WM_SYSKEYUP:
+                            case WM_KEYUP:
+
+                            case WM_SYSKEYDOWN:
+                            case WM_KEYDOWN:
+
+                            case WM_LBUTTONUP:
+                            case WM_MBUTTONUP:
+                            case WM_RBUTTONUP:
+                            case WM_XBUTTONUP:
+
+                            case WM_LBUTTONDOWN:
+                            case WM_MBUTTONDOWN:
+                            case WM_RBUTTONDOWN:
+                            case WM_XBUTTONDOWN:
+
+                            case WM_MOUSEMOVE:
+                            case WM_MOUSEWHEEL:
+                            case WM_MOUSEHWHEEL:
+                            {
+                                PostThreadMessageW(game_thread, msg.message, msg.wParam, msg.lParam);
+                            }
+                            break;
+
+                            default: { DispatchMessage(&msg); }
+                        }
                     }
-                    break;
 
-                    default: { DispatchMessage(&msg); }
+                    // wait for our main thread to actually exit
+                    //
+                    WaitForSingleObject(hThread, INFINITE);
+
+                    DestroyWindow(hwnd);
                 }
+                else {
+                    // @todo: logging...
+                    //
+                }
+            }
+            else {
+                // @todo: logging...
+                //
             }
         }
         else {

@@ -178,6 +178,15 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
 
+        if (renderer->texture_limit == 0) {
+            // some arbitary number of textures
+            //
+            renderer->texture_limit = 128;
+        }
+
+        gl->textures = xi_arena_push_array(&gl->arena, GLuint, renderer->texture_limit);
+        glGenTextures(renderer->texture_limit, gl->textures);
+
         // setup texture transfer queue
         //
         xiRendererTransferQueue *transfer_queue = &renderer->transfer_queue;
@@ -388,9 +397,20 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
                 XI_ASSERT((task->offset + task->size) == offset);
             }
             else {
-                // @incomplete: bind the texture handle from the non-sprite set
+                XI_ASSERT(index < (GLsizei) renderer->texture_limit);
+
+                // just a straight texture copy as these are larger non-sprite textures they
+                // do not have mip-mapping
                 //
-                index = 0;
+                glBindTexture(GL_TEXTURE_2D_ARRAY, gl->textures[index]);
+
+                gl->TexImage3D(GL_TEXTURE_2D_ARRAY, 0, gl->texture_format, width, height, 1,
+                        0, GL_RGBA, GL_UNSIGNED_BYTE, (void *) task->offset);
+
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
             }
         }
         else if (task->state == XI_RENDERER_TRANSFER_TASK_STATE_PENDING) {
@@ -452,7 +472,6 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
     //
 
     gl->ActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, gl->sprite_array);
 
     xi_uptr globals_size = XI_ALIGN_UP(sizeof(xiShaderGlobals), renderer->uniforms.default_alignment);
 
@@ -465,6 +484,13 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
             case XI_RENDER_COMMAND_xiRenderCommandDraw: {
                 xiRenderCommandDraw *draw = (xiRenderCommandDraw *) (command_buffer->data + offset);
                 offset += sizeof(xiRenderCommandDraw);
+
+                if (xi_renderer_texture_is_sprite(renderer, draw->texture)) {
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, gl->sprite_array);
+                }
+                else {
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, gl->textures[draw->texture.index]);
+                }
 
                 gl->BindBufferRange(GL_UNIFORM_BUFFER, 0, gl->ubo, draw->ubo_offset, globals_size);
 

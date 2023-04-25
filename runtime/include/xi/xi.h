@@ -75,8 +75,8 @@ extern "C" {
 #include "xi_input.h"
 
 #define XI_VERSION_MAJOR 0
-#define XI_VERSION_MINOR 4
-#define XI_VERSION_PATCH 0
+#define XI_VERSION_MINOR 6
+#define XI_VERSION_PATCH 2
 
 #define XI_MAX_DISPLAYS 8
 
@@ -126,6 +126,14 @@ typedef struct xiContext {
     //
     void *user;
 
+    // signals to the engine that the game would like to quit and shutdown, can be set to true at any
+    // point
+    //
+    // if this is passed to the game code as 'true' the user has requested that the game close
+    // (i.e. closing the window etc.) and should be handled appropriatley (saving game state if desired etc.)
+    //
+    xi_b32 quit;
+
     struct {
         xi_u32 width;
         xi_u32 height;
@@ -133,17 +141,24 @@ typedef struct xiContext {
         xi_u32 display; // index from zero < system.display_count
         xi_u32 state;
 
-        xi_string title;
+        xi_string title; // it is valid to use temporary memory to change the title
     } window;
 
     xiAssetManager assets;
+
     xiThreadPool thread_pool;
 
+    // drawing
+    //
     xiRenderer renderer;
 
+    // input
+    //
     xiInputKeyboard keyboard;
-    xiInputMouse mouse;
+    xiInputMouse    mouse;
 
+    // time
+    //
     struct {
         xi_u64 ticks;
 
@@ -192,8 +207,8 @@ typedef struct xiContext {
         // XI_ENGINE_CONFIGURE init is called, these may change after if the above 'console_open' was
         // set to true
         //
-        xiFileHandle out; // console out
-        xiFileHandle err; // console err
+        xiFileHandle out; // console stdout
+        xiFileHandle err; // console stderr
     } system;
 } xiContext;
 
@@ -222,44 +237,29 @@ enum xiGameInitType {
     XI_GAME_RELOADED
 };
 
-// the game initialisation function that is used to setup the engine and game. called once for engine and
-// once for game, with the exception of dynamically loaded gmae code that is hot-reloaded
+// these function definition macros should be used by the game code for your initialisation, simulate
+// and render functions. they can either be marked as export with 'extern XI_EXPORT' and dynamically
+// loaded at runtime, or can be passed as direct pointers via the xiGameCode structure below
 //
-#define XI_GAME_INIT(name) void name(xiContext *xi, xi_u32 init_type)
-typedef XI_GAME_INIT(xiGameInit);
-
-// the game simulate function that is used to perform a single update step, will be called once
-// per update step
+// parameters can be declared in these macros as if it were a normal function declaration, this
+// is purely for documentational/redability purposes
 //
-#define XI_GAME_SIMULATE(name) void name(xiContext *xi)
-typedef XI_GAME_SIMULATE(xiGameSimulate);
+#define XI_GAME_INIT(...)     void __xi_game_init(xiContext *xi, xi_u32 type)
+#define XI_GAME_SIMULATE(...) void __xi_game_simulate(xiContext *xi)
+#define XI_GAME_RENDER(...)   void __xi_game_render(xiContext *xi, xiRenderer *renderer)
 
-// the game render function used to produce draw commands for the backend renderer,
-// will be called once per frame
-//
-#define XI_GAME_RENDER(name) void name(xiContext *xi, xiRenderer *renderer)
-typedef XI_GAME_RENDER(xiGameRender);
-
-enum xiGameCodeType {
-    XI_GAME_CODE_TYPE_DYNAMIC = 0,
-    XI_GAME_CODE_TYPE_STATIC
-};
+typedef void (xiGameInit)    (xiContext *xi, xi_u32 type);
+typedef void (xiGameSimulate)(xiContext *);
+typedef void (xiGameRender)  (xiContext *, xiRenderer *);
 
 typedef struct xiGameCode {
-    xi_u32 type;
-    union {
-        struct {
-            xi_string init;     // name of the init function to load
-            xi_string simulate; // name of the simulate function to load
-            xi_string render;   // name of the render function to load
-        } names;
+    xi_b32 dynamic;
 
-        struct {
-            xiGameInit     *init;     // direct pointer to the init function to call
-            xiGameSimulate *simulate; // direct pointer to the simulate function to call
-            xiGameRender   *render;   // direct pointer to the render function to call
-        } functions;
-    };
+    // these can be left null if 'dynamic' is set to true
+    //
+    xiGameInit     *init;     // direct pointer to the init function to call
+    xiGameSimulate *simulate; // direct pointer to the simulate function to call
+    xiGameRender   *render;   // direct pointer to the render function to call
 } xiGameCode;
 
 // this will execute the main loop of the engine. game code can either be supplied directly via

@@ -99,11 +99,19 @@ typedef struct xiAssetManager {
     xiAssetHash *lookup_table;
 
     // texture handles are acquired from this
-    // @todo: some sort of lru system
     //
-    xi_u16 sprite_generation;
-    xi_u16 next_sprite_handle;
-    xi_u16 max_sprite_handles;
+    // @incomplete: this needs a big overhaul, we should be requesting handles directly from the renderer
+    // this way _it_ can control how resources are allocated and evicted (as this varies wildly depending
+    // on graphics backend) and then we request the data attached to said handle, if the data is some
+    // invalid value we request to reload the asset
+    //
+    // :renderer_handles
+    //
+    xi_u16 next_sprite;
+    xi_u16 next_texture;
+
+    xi_u32 max_sprite_handles;
+    xi_u32 max_texture_handles;
 
     // this value is controlled by the texture array dimension set for the renderer, it can be controlled
     // there. any value set here directly will be overwritten
