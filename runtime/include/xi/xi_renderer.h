@@ -134,6 +134,9 @@ typedef struct xiRenderer {
 
     xiRendererTransferQueue transfer_queue;
 
+    xi_f32 layer_offset; // each pushed layer is offset by this amount, default is 1.0f
+    xi_f32 layer; // current z layer, can be reset by assigning to zero, reset automatically each frame
+
     xi_buffer command_buffer;
     xiRenderCommandDraw *draw_call;
 } xiRenderer;
@@ -158,5 +161,16 @@ extern XI_API void xi_camera_transform_set(xiRenderer *renderer,
 //
 extern XI_API void xi_camera_transform_set_axes(xiRenderer *renderer,
         xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags);
+
+extern XI_API xi_v3 xi_unproject_xy(xiCameraTransform *camera, xi_v2 clip);
+extern XI_API xi_v3 xi_unproject_xyz(xiCameraTransform *camera, xi_v2 clip, xi_f32 z);
+
+extern XI_API xi_rect3 xi_camera_bounds_get(xiCameraTransform *camera);
+extern XI_API xi_rect3 xi_camera_bounds_get_at_z(xiCameraTransform *camera, xi_f32 z);
+
+// pushes a new layer, this increments the z offset by the amount specified by 'layer_offset'
+// all sprites/quads will then be drawn at this z offset until another layer is pushed
+//
+extern XI_API void xi_renderer_layer_push(xiRenderer *renderer);
 
 #endif  // XI_RENDERER_H_

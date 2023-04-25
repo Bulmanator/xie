@@ -236,7 +236,7 @@ XI_INTERNAL LONG win32_window_style_get_for_state(HWND window, xi_u32 state) {
             result &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
         }
         break;
-        case XI_WINDOW_STATE_BORDERLESS:
+        case XI_WINDOW_STATE_WINDOWED_BORDERLESS:
         case XI_WINDOW_STATE_FULLSCREEN: {
             result &= ~WS_OVERLAPPEDWINDOW;
         }
@@ -1331,8 +1331,8 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
 
                 // update the clip space position
                 //
-                mouse->position.clip.x = 1.0f - (2.0f * (pt.x / (xi_f32) xi->window.width));
-                mouse->position.clip.y = 1.0f - (2.0f * (pt.y / (xi_f32) xi->window.height));
+                mouse->position.clip.x = -1.0f + (2.0f * (pt.x / (xi_f32) xi->window.width));
+                mouse->position.clip.y =  1.0f - (2.0f * (pt.y / (xi_f32) xi->window.height));
 
                 // calculate the deltas, a summation in case we get more than one mouse move
                 // event within a single frame

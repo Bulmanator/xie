@@ -211,6 +211,10 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 
         transfer_queue->base = gl->MapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0,
             transfer_queue->limit, buffer_flags | GL_MAP_FLUSH_EXPLICIT_BIT);
+
+        if (renderer->layer_offset == 0.0f) {
+            renderer->layer_offset = 1.0f;
+        }
     }
 
     return result;
@@ -514,6 +518,8 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
     renderer->command_buffer.used = 0;
 
     xi_arena_reset(&renderer->uniforms);
+
+    renderer->layer = 0;
 
     renderer->draw_call = 0;
 }

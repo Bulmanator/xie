@@ -203,3 +203,44 @@ void xi_camera_transform_set_axes(xiRenderer *renderer,
     xi_f32 focal_length = 1.5696855771174903493f; // ~65 degree fov
     xi_camera_transform_set(renderer, x_axis, y_axis, z_axis, position, flags, 0.001f, 10000.0f, focal_length);
 }
+
+xi_v3 xi_unproject_xy(xiCameraTransform *camera, xi_v2 clip) {
+    xi_v3 result = xi_unproject_xyz(camera, clip, camera->position.z);
+    return result;
+}
+
+extern XI_API xi_v3 xi_unproject_xyz(xiCameraTransform *camera, xi_v2 clip, xi_f32 z) {
+    xi_v3 result;
+
+    xi_v4 z_dist = xi_v4_from_v3(xi_v3_sub(camera->position, xi_v3_mul_f32(camera->z_axis, z)), 1.0f);
+    xi_v4 persp  = xi_m4x4_mul_v4(camera->transform.fwd, z_dist);
+
+    clip = xi_v2_mul_f32(clip, persp.w);
+
+    xi_v4 world = xi_m4x4_mul_v4(camera->transform.inv, xi_v4_create(clip.x, clip.y, persp.z, persp.w));
+
+    result = world.xyz;
+    return result;
+}
+
+extern XI_API xi_rect3 xi_camera_bounds_get(xiCameraTransform *camera) {
+    xi_rect3 result;
+    result.min = xi_unproject_xy(camera, xi_v2_create(-1, -1));
+    result.max = xi_unproject_xy(camera, xi_v2_create( 1,  1));
+
+    return result;
+}
+
+extern XI_API xi_rect3 xi_camera_bounds_get_at_z(xiCameraTransform *camera, xi_f32 z) {
+    xi_rect3 result;
+    result.min = xi_unproject_xyz(camera, xi_v2_create(-1, -1), z);
+    result.max = xi_unproject_xyz(camera, xi_v2_create( 1,  1), z);
+
+    return result;
+}
+
+
+
+void xi_renderer_layer_push(xiRenderer *renderer) {
+    renderer->layer += renderer->layer_offset;
+}

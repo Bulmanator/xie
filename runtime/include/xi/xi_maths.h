@@ -97,6 +97,12 @@ inline xi_v2 xi_v2_max(xi_v2 a, xi_v2 b);
 inline xi_v3 xi_v3_max(xi_v3 a, xi_v3 b);
 inline xi_v4 xi_v4_max(xi_v4 a, xi_v4 b);
 
+// misc vector functions
+//
+inline xi_v2 xi_v2_perp(xi_v2 a);
+
+inline xi_v3 xi_v3_cross(xi_v3 a, xi_v3 b);
+
 // operators
 //
 inline xi_v2u xi_v2u_add(xi_v2u a, xi_v2u b);

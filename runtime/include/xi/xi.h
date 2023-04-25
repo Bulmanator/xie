@@ -75,7 +75,7 @@ extern "C" {
 #include "xi_input.h"
 
 #define XI_VERSION_MAJOR 0
-#define XI_VERSION_MINOR 6
+#define XI_VERSION_MINOR 7
 #define XI_VERSION_PATCH 2
 
 #define XI_MAX_DISPLAYS 8
@@ -96,7 +96,7 @@ typedef struct xiDisplay {
 enum xiWindowState {
     XI_WINDOW_STATE_WINDOWED = 0,
     XI_WINDOW_STATE_WINDOWED_RESIZABLE,
-    XI_WINDOW_STATE_BORDERLESS,
+    XI_WINDOW_STATE_WINDOWED_BORDERLESS,
     XI_WINDOW_STATE_FULLSCREEN
 };
 

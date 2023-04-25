@@ -302,6 +302,8 @@ typedef struct xi_vert3 {
 #define XI_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define XI_MAX(a, b) ((a) > (b) ? (a) : (b))
 
+#define XI_CLAMP(a, min, max) (XI_MIN(XI_MAX(a, min), max))
+
 #if !defined(XI_NO_ASSERT)
     #include <assert.h>
     #define XI_ASSERT(exp) assert(exp)

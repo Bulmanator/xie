@@ -163,10 +163,10 @@ xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio, xi_f32 near_pla
     xi_m4x4_inv result = {
         // fwd
         {
-            -1, 0, 0, 0,
-             0, a, 0, 0,
-             0, 0, b, c,
-             0, 0, 0, 1
+            1, 0, 0, 0,
+            0, a, 0, 0,
+            0, 0, b, c,
+            0, 0, 0, 1
         },
         // inv
         {
@@ -183,8 +183,8 @@ xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio, xi_f32 near_pla
 xi_m4x4_inv xi_m4x4_perspective_projection(xi_f32 focal_length,
         xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane)
 {
-    xi_f32 a = -focal_length / aspect_ratio;
-    xi_f32 b =  focal_length;
+    xi_f32 a = focal_length / aspect_ratio;
+    xi_f32 b = focal_length;
 
     xi_f32 c = -(near_plane + far_plane) / (far_plane - near_plane);
     xi_f32 d = -(2.0f * near_plane * far_plane) / (far_plane - near_plane);

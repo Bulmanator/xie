@@ -298,7 +298,7 @@ xi_v2 xi_v2_noz(xi_v2 a) {
 
     xi_f32 len_sq = xi_v2_dot(a, a);
     if (len_sq > (XI_EPSILON_F32 * XI_EPSILON_F32)) {
-        result = xi_v2_mul_f32(a, 1.0f / len_sq);
+        result = xi_v2_mul_f32(a, 1.0f / xi_sqrt(len_sq));
     }
 
     return result;
@@ -309,7 +309,7 @@ xi_v3 xi_v3_noz(xi_v3 a) {
 
     xi_f32 len_sq = xi_v3_dot(a, a);
     if (len_sq > (XI_EPSILON_F32 * XI_EPSILON_F32)) {
-        result = xi_v3_mul_f32(a, 1.0f / len_sq);
+        result = xi_v3_mul_f32(a, 1.0f / xi_sqrt(len_sq));
     }
 
     return result;
@@ -320,7 +320,7 @@ xi_v4 xi_v4_noz(xi_v4 a) {
 
     xi_f32 len_sq = xi_v4_dot(a, a);
     if (len_sq > (XI_EPSILON_F32 * XI_EPSILON_F32)) {
-        result = xi_v4_mul_f32(a, 1.0f / len_sq);
+        result = xi_v4_mul_f32(a, 1.0f / xi_sqrt(len_sq));
     }
 
     return result;
@@ -378,6 +378,22 @@ xi_v4 xi_v4_max(xi_v4 a, xi_v4 b) {
     result.y = XI_MAX(a.y, b.y);
     result.z = XI_MAX(a.z, b.z);
     result.w = XI_MAX(a.w, b.w);
+
+    return result;
+}
+
+// misc vector functions
+//
+inline xi_v2 xi_v2_perp(xi_v2 a) {
+    xi_v2 result = xi_v2_create(-a.y, a.x);
+    return result;
+}
+
+inline xi_v3 xi_v3_cross(xi_v3 a, xi_v3 b) {
+    xi_v3 result;
+    result.x = (a.y * b.z) - (a.z * b.y);
+    result.y = (a.z * b.x) - (a.z * b.x);
+    result.z = (a.x * b.y) - (a.y * b.x);
 
     return result;
 }
