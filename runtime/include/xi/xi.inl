@@ -31,6 +31,73 @@ xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end) {
 //
 #include <math.h>
 
+// xorshift rng
+//
+void xi_rng_seed(xiRandomState *rng, xi_u64 seed) {
+    rng->state = seed;
+}
+
+xi_u32 xi_rng_u32(xiRandomState *rng) {
+    xi_u32 result = (xi_u32) xi_rng_u64(rng);
+    return result;
+}
+
+xi_u64 xi_rng_u64(xiRandomState *rng) {
+    xi_u64 result = rng->state;
+
+    result ^= (result << 13);
+    result ^= (result >>  7);
+    result ^= (result << 17);
+
+    rng->state = result;
+    return result;
+}
+
+xi_f32 xi_rng_unilateral_f32(xiRandomState *rng) {
+    xi_f32 result = (xi_f32) xi_rng_unilateral_f64(rng);
+    return result;
+}
+
+xi_f32 xi_rng_bilateral_f32(xiRandomState *rng) {
+    xi_f32 result = -1.0f + (2.0f * xi_rng_unilateral_f32(rng));
+    return result;
+}
+
+xi_f64 xi_rng_unilateral_f64(xiRandomState *rng) {
+    xi_f64 result = xi_rng_u64(rng) / (xi_f64) XI_U64_MAX;
+    return result;
+}
+
+xi_f64 xi_rng_bilateral_f64(xiRandomState *rng) {
+    xi_f64 result = -1.0f + (2.0f * xi_rng_unilateral_f64(rng));
+    return result;
+}
+
+xi_u32 xi_rng_range_u32(xiRandomState *rng, xi_u32 min, xi_u32 max) {
+    xi_u32 result = min + (xi_u32) ((xi_rng_unilateral_f32(rng) * (max - min)) + 0.5f);
+    return result;
+}
+
+xi_f32 xi_rng_range_f32(xiRandomState *rng, xi_f32 min, xi_f32 max) {
+    xi_f32 result = min + (xi_rng_unilateral_f32(rng) * (max - min));
+    return result;
+}
+
+xi_u64 xi_rng_range_u64(xiRandomState *rng, xi_u64 min, xi_u64 max) {
+    xi_u64 result = min + (xi_u64) ((xi_rng_unilateral_f64(rng) * (max - min)) + 0.5);
+    return result;
+}
+
+xi_f64 xi_rng_range_f64(xiRandomState *rng, xi_f64 min, xi_f64 max) {
+    xi_f64 result = min + (xi_rng_unilateral_f64(rng) * (max - min));
+    return result;
+}
+
+xi_u32 xi_rng_choice_u32(xiRandomState *rng, xi_u32 choice_count) {
+    xi_u32 result = xi_rng_u32(rng) % choice_count;
+    return result;
+}
+
 // xi_sqrt and xi_rsqrt_approx are implemented using simd intrinsics below
 // :simd_maths
 //

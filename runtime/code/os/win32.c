@@ -4,6 +4,35 @@
 #include <shlobj.h>
 #include <pathcch.h>
 
+#define CINTERFACE
+#define COBJMACROS
+#define CONST_VTABLE
+#include <MMDeviceAPI.h>
+#include <AudioClient.h>
+
+// @todo: maybe i should switch to xaudio2 but its probably not any better with the com crap they
+// shove on top of every new winapi these days
+//
+
+const CLSID CLSID_MMDeviceEnumerator = {
+    0xbcde0395, 0xe52f, 0x467c, {0x8e, 0x3d, 0xc4, 0x57, 0x92, 0x91, 0x69, 0x2e}
+};
+
+const IID IID_IMMDeviceEnumerator = {
+    0xa95664d2, 0x9614, 0x4f35, {0xa7, 0x46, 0xde, 0x8d, 0xb6, 0x36, 0x17, 0xe6}
+};
+
+const IID IID_IAudioClient = {
+    0x1cb9ad4c, 0xdbfa, 0x4c32, {0xb1, 0x78, 0xc2, 0xf5, 0x68, 0xa7, 0x03, 0xb2}
+};
+
+const IID IID_IAudioRenderClient = {
+    0xf294acfc, 0x3146, 0x4483, {0xa7, 0xbf, 0xad, 0xdc, 0xa7, 0xc2, 0x60, 0xe2}
+};
+
+#define REFTIMES_PER_SEC      (10000000)
+#define REFTIMES_PER_MILLISEC (10000)
+
 #include <stdio.h>
 
 #pragma comment(lib, "user32.lib")
@@ -75,6 +104,14 @@ typedef struct xiWin32Context {
         xi_u32    last_state;
         xi_buffer title;
     } window;
+
+    struct {
+        xi_b32 enabled;
+
+        IAudioClient *client;
+        IAudioRenderClient *renderer;
+        xi_u32 frame_count;
+    } audio;
 
     struct {
         xi_b32 valid;
@@ -1083,6 +1120,97 @@ XI_INTERNAL void win32_game_code_reload(xiWin32Context *context) {
     }
 }
 
+//
+// :note sound functions
+//
+XI_INTERNAL void win32_audio_initialise(xiWin32Context *context) {
+    xiAudioPlayer *player = &context->xi.audio_player;
+    xi_audio_player_init(&context->arena, player);
+
+    // initialise wasapi
+    //
+    REFERENCE_TIME duration =
+        (REFERENCE_TIME) ((player->frame_count / (xi_f32) player->sample_rate) * REFTIMES_PER_SEC);
+
+    IAudioClient *audio_client = 0;
+    IAudioRenderClient *audio_renderer = 0;
+    xi_u32 frame_count = 0;
+
+    IMMDeviceEnumerator *enumerator = 0;
+
+    HRESULT hr = CoCreateInstance(&CLSID_MMDeviceEnumerator, 0,
+            CLSCTX_ALL, &IID_IMMDeviceEnumerator, (void **) &enumerator);
+
+    if (SUCCEEDED(hr)) {
+        IMMDevice *device = 0;
+
+        hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, eRender, eConsole, &device);
+        if (SUCCEEDED(hr)) {
+            hr = IMMDevice_Activate(device, &IID_IAudioClient, CLSCTX_ALL, 0, (void **) &audio_client);
+            if (SUCCEEDED(hr)) {
+                WAVEFORMATEX wav_format = { 0 };
+                wav_format.wFormatTag      = WAVE_FORMAT_PCM;
+                wav_format.nChannels       = 2;
+                wav_format.nSamplesPerSec  = player->sample_rate;
+                wav_format.wBitsPerSample  = 16;
+                wav_format.nBlockAlign     = (wav_format.wBitsPerSample * wav_format.nChannels) / 8;
+                wav_format.nAvgBytesPerSec = wav_format.nBlockAlign * wav_format.nSamplesPerSec;
+                wav_format.cbSize          = 0;
+                hr = IAudioClient_Initialize(audio_client, AUDCLNT_SHAREMODE_SHARED,
+                        AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, duration, 0, &wav_format, 0);
+
+                if (SUCCEEDED(hr)) {
+                    hr = IAudioClient_GetBufferSize(audio_client, &frame_count);
+
+                    if (SUCCEEDED(hr)) {
+                        hr = IAudioClient_GetService(audio_client,
+                                &IID_IAudioRenderClient, (void **) &audio_renderer);
+
+                        if (SUCCEEDED(hr)) {
+                            hr = IAudioClient_Start(audio_client);
+                            context->audio.enabled = SUCCEEDED(hr);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (context->audio.enabled) {
+        context->audio.client      = audio_client;
+        context->audio.renderer    = audio_renderer;
+        context->audio.frame_count = frame_count;
+    }
+}
+
+XI_INTERNAL void win32_audio_mix(xiWin32Context *context) {
+    if (context->audio.enabled) {
+        xiContext *xi = &context->xi;
+
+        // wow non-insane audio api, good job microsoft!
+        //
+
+        xi_u32 queued_frames = 0;
+        HRESULT hr = IAudioClient_GetCurrentPadding(context->audio.client, &queued_frames);
+        if (SUCCEEDED(hr)) {
+            XI_ASSERT(queued_frames <= context->audio.frame_count);
+
+            xi_u32 frame_count = context->audio.frame_count - queued_frames;
+            xi_u8 *samples = 0;
+
+            if (frame_count > 0) {
+                hr = IAudioRenderClient_GetBuffer(context->audio.renderer, frame_count, &samples);
+                if (SUCCEEDED(hr)) {
+                    xi_f32 dt = (xi_f32) xi->time.delta.s;
+                    xi_audio_player_update(&xi->audio_player, &xi->assets, (xi_s16 *) samples, frame_count, dt);
+
+                    IAudioRenderClient_ReleaseBuffer(context->audio.renderer, frame_count, 0);
+                }
+            }
+        }
+    }
+}
+
 // :note input handling functions
 //
 XI_GLOBAL xi_u8 tbl_win32_virtual_key_to_input_key[] = {
@@ -1178,6 +1306,8 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
         xi->time.total.ms  = (xi_u64) ((xi->time.total.ns / 1000000.0) + 0.5);
         xi->time.total.s   = (xi->time.total.ns / 1000000000.0);
     }
+
+    win32_audio_mix(context);
 
     // process windows messages that our application received
     //
@@ -1833,6 +1963,10 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
     }
 
     if (context->renderer.valid) {
+        // audio may fail to initialise, in that case we just continue without audio
+        //
+        win32_audio_initialise(context);
+
         // setup thread pool
         //
         xi_thread_pool_init(&context->arena, &xi->thread_pool, system_info.dwNumberOfProcessors);
@@ -1891,6 +2025,16 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
                 //
                 game->simulate(xi);
                 context->accum_ns -= context->fixed_ns;
+
+                // @hack: this is to prevent processing audio events multiple times if this
+                // loop does multiple iterations, we should probably have a 'fixed_simulate' function
+                // along with a 'simulate' function that the game code exports. the fixed one is called
+                // like in this loop with a fixed timestep (potentially) multiple times a frame whereas
+                // the normal simulate function is only called once per frame
+                //
+                // :multiple_updates
+                //
+                xi->audio_player.event_count = 0;
 
                 // we only need to process one simulate if we are quitting
                 //
@@ -1957,7 +2101,7 @@ int xie_run(xiGameCode *code) {
 
     if (RegisterClassW(&wndclass)) {
         xiArena arena = { 0 };
-        xi_arena_init_virtual(&arena, XI_MB(128));
+        xi_arena_init_virtual(&arena, XI_GB(4));
 
         xiWin32Context *context = xi_arena_push_type(&arena, xiWin32Context);
 

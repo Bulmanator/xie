@@ -14,6 +14,10 @@ typedef struct xiImageHandle {
    xi_u32 value;
 } xiImageHandle;
 
+typedef struct xiSoundHandle {
+   xi_u32 value;
+} xiSoundHandle;
+
 typedef struct xiAssetFile {
     xi_b32 modified; // whether we need to rewrite the asset info table and string table
 
@@ -46,6 +50,7 @@ typedef struct xiAsset {
 
     union {
         xiRendererTexture texture;
+        xi_uptr sample_base;
     } data;
 } xiAsset;
 
@@ -119,6 +124,9 @@ typedef struct xiAssetManager {
     xi_u32 sprite_dimension;
     xi_f32 animation_dt; // in seconds
 
+    xi_u32 sample_rate;
+    xi_buffer sample_buffer;
+
     struct {
         xi_b32 enabled;
         xi_string search_dir;
@@ -134,7 +142,6 @@ enum xiAnimationFlags {
     XI_ANIMATION_FLAG_ONE_SHOT  = (1 << 2), // play once
     XI_ANIMATION_FLAG_PAUSED    = (1 << 3), // don't update frame even when update is called
 };
-
 
 // :note by default animations will loop forever and will play forward, the flags above can be combined
 // to alter this behaviour.
@@ -184,6 +191,13 @@ extern XI_API xiAnimation xi_animation_create_from_image(xiAssetManager *assets,
 //
 extern XI_API xi_b32 xi_animation_update(xiAnimation *animation, xi_f32 dt);
 
+// get, as a percentage, the amount of the animation that has been played, for looping animations this
+// resets every loop, for ping-pong animations tracks only 'ping' or 'pong' percentage
+//
+// can be used to execute events at certain times throughout the animation
+//
+extern XI_API xi_f32 xi_animation_playback_percentage_get(xiAnimation *animation);
+
 // reset an animation, this can be used to restart one-shot animations that have finished or simply restart
 // animations in the middle of their playback
 //
@@ -195,5 +209,13 @@ extern XI_API void xi_animation_unpause(xiAnimation *animation);
 // returns the image handle associated with the current frame of the animation
 //
 extern XI_API xiImageHandle xi_animation_current_frame_get(xiAnimation *animation);
+
+// sound handling functions
+//
+extern XI_API xiSoundHandle xi_sound_get_by_name_str(xiAssetManager *assets, xi_string name);
+extern XI_API xiSoundHandle xi_sound_get_by_name(xiAssetManager *assets, const char *name);
+
+extern XI_API xiaSoundInfo *xi_sound_info_get(xiAssetManager *assets, xiSoundHandle sound);
+extern XI_API xi_s16 *xi_sound_data_get(xiAssetManager *assets, xiSoundHandle sound);
 
 #endif  // XI_ASSETS_H_

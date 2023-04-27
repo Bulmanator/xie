@@ -25,6 +25,7 @@ XI_INTERNAL xi_uptr xi_image_mip_mapped_size(xi_u32 w, xi_u32 h);
 //
 XI_GLOBAL const xi_u32 tbl_xia_type_hash_mix[XIA_ASSET_TYPE_COUNT - 1] = {
     0xcb03f267,
+    0xe14e6b0b
 };
 
 // it is important that "name" is in asset manager owned memory as it is stored on the asset hash directly
@@ -402,6 +403,18 @@ XI_INTERNAL void xi_asset_manager_init(xiArena *arena, xiAssetManager *assets, x
         task->state   = XI_RENDERER_TRANSFER_TASK_STATE_LOADED;
     }
 
+    if (assets->sample_buffer.limit == 0) {
+        // to be on the safe side
+        //
+        assets->sample_buffer.limit = XI_MB(128);
+    }
+
+    assets->sample_buffer.used = 0;
+    assets->sample_buffer.data = xi_arena_push_size(arena, assets->sample_buffer.limit);
+
+    assets->sample_rate = xi->audio_player.sample_rate;
+    XI_ASSERT(assets->sample_rate > 0);
+
     xi->renderer.assets = assets;
 
     if (assets->importer.enabled) {
@@ -479,7 +492,7 @@ XI_INTERNAL xiRendererTexture xi_renderer_texture_acquire(xiAssetManager *assets
 
 void xi_image_load(xiAssetManager *assets, xiImageHandle image) {
     if (assets->total_loads < assets->max_assets) {
-        if (image.value < assets->max_assets) {
+        if (image.value < assets->asset_count) {
             xiAsset *asset = &assets->assets[image.value];
             if (asset->state != XI_ASSET_STATE_LOADED) {
                 xiaAssetInfo *xia = &assets->xias[image.value];
@@ -530,7 +543,7 @@ XI_INTERNAL xi_u32 xi_asset_index_get_by_name(xiAssetManager *assets, xi_string 
 
     xi_b32 found = false;
 
-    while (!found) {
+    do {
         if (i > assets->lookup_table_count) {
             // we have tried every slot and didn't find anything so bail
             //
@@ -543,11 +556,14 @@ XI_INTERNAL xi_u32 xi_asset_index_get_by_name(xiAssetManager *assets, xi_string 
         xi_u32 table_index = (hash + (i * i)) & mask;
         xiAssetHash *slot  = &assets->lookup_table[table_index];
 
+        // :asset_slot
+        //
         result = slot->index;
         found  = (slot->hash == hash) && xi_str_equal(slot->value, name);
 
         i += 1;
     }
+    while (!found && result);
 
     return result;
 }
@@ -683,6 +699,21 @@ xi_b32 xi_animation_update(xiAnimation *animation, xi_f32 dt) {
     return result;
 }
 
+xi_f32 xi_animation_playback_percentage_get(xiAnimation *animation) {
+    xi_f32 result;
+
+    xi_u32 frames = animation->frame_count - 1; // zero based to make it align with 1.0 at 100%
+
+    if (animation->flags & XI_ANIMATION_FLAG_REVERSE) {
+        result =  (frames - animation->current_frame) / (xi_f32) frames;
+    }
+    else {
+        result = animation->current_frame / (xi_f32) frames;
+    }
+
+    return result;
+}
+
 void xi_animation_reset(xiAnimation *animation) {
     xi_u32 first_frame = (animation->flags & XI_ANIMATION_FLAG_REVERSE) ? animation->frame_count - 1 : 0;
     animation->current_frame = first_frame;
@@ -700,6 +731,77 @@ xiImageHandle xi_animation_current_frame_get(xiAnimation *animation) {
     xiImageHandle result;
 
     result.value = animation->base_frame.value + animation->current_frame;
+    return result;
+}
+
+// sound handling functions
+//
+void xi_sound_load(xiAssetManager *assets, xiSoundHandle sound) {
+    if (assets->total_loads < assets->max_assets) {
+        if (sound.value < assets->asset_count) {
+            xiAsset *asset = &assets->assets[sound.value];
+            if (asset->state != XI_ASSET_STATE_LOADED) {
+                xiaAssetInfo *xia = &assets->xias[sound.value];
+
+                // it is a bug if a sound handle is passed to this function and the asset type is not
+                // a sound so we should assert this to catch bugs
+                //
+                XI_ASSERT(xia->type == XIA_ASSET_TYPE_SOUND);
+
+                xi_uptr remaining = (assets->sample_buffer.limit - assets->sample_buffer.used);
+                if (remaining >= xia->size) {
+                    asset->data.sample_base = assets->sample_buffer.used;
+                    assets->sample_buffer.used += xia->size;
+
+                    xiAssetLoadInfo *asset_load = &assets->asset_loads[assets->next_load++];
+                    assets->next_load %= assets->max_assets;
+
+                    asset->state = XI_ASSET_STATE_PENDING;
+
+                    asset_load->assets = assets;
+                    asset_load->file   = &assets->files[asset->file];
+                    asset_load->asset  = asset;
+                    asset_load->data   = &assets->sample_buffer.data[asset->data.sample_base];
+                    asset_load->offset = xia->offset;
+                    asset_load->size   = xia->size;
+
+                    assets->total_loads += 1;
+
+                    xi_thread_pool_enqueue(assets->thread_pool, xi_asset_data_load, (void *) asset_load);
+                }
+            }
+        }
+    }
+}
+
+xiSoundHandle xi_sound_get_by_name_str(xiAssetManager *assets, xi_string name) {
+    xiSoundHandle result;
+
+    result.value = xi_asset_index_get_by_name(assets, name, XIA_ASSET_TYPE_SOUND);
+    return result;
+}
+
+xiSoundHandle xi_sound_get_by_name(xiAssetManager *assets, const char *name) {
+    xiSoundHandle result = xi_sound_get_by_name_str(assets, xi_str_wrap_cstr(name));
+    return result;
+}
+
+xiaSoundInfo *xi_sound_info_get(xiAssetManager *assets, xiSoundHandle sound) {
+    xiaSoundInfo *result = &assets->xias[sound.value].sound;
+    return result;
+}
+
+xi_s16 *xi_sound_data_get(xiAssetManager *assets, xiSoundHandle sound) {
+    xi_s16 *result = 0;
+
+    xiAsset *asset = &assets->assets[sound.value];
+    XI_ASSERT(asset->type == XIA_ASSET_TYPE_SOUND);
+
+    if (asset->state == XI_ASSET_STATE_UNLOADED) {
+        xi_sound_load(assets, sound);
+    }
+
+    result = (xi_s16 *) &assets->sample_buffer.data[asset->data.sample_base];
     return result;
 }
 
@@ -1005,7 +1107,133 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
     }
 }
 
-#include <windows.h>
+//
+// wav importing
+//
+#pragma pack(push, 1)
+typedef struct xiWavHeader {
+    xi_u32 riff_code;
+    xi_u32 size;
+    xi_u32 wave_code;
+} xiWavHeader;
+
+#define XI_PCM_FORMAT (0x0001)
+
+#define XI_RIFF_CODE_RIFF XI_FOURCC('R', 'I', 'F', 'F')
+#define XI_RIFF_CODE_WAVE XI_FOURCC('W', 'A', 'V', 'E')
+#define XI_RIFF_CODE_FMT  XI_FOURCC('f', 'm', 't', ' ')
+#define XI_RIFF_CODE_DATA XI_FOURCC('d', 'a', 't', 'a')
+
+typedef struct xiWavChunk {
+    xi_u32 code;
+    xi_u32 size;
+} xiWavChunk;
+
+typedef struct xiWavFmtChunk {
+    xi_u16 format;
+    xi_u16 channels;
+    xi_u32 sample_rate;
+    xi_u32 data_rate;
+    xi_u16 block_align;
+    xi_u16 bit_depth;
+    xi_u16 ext_size;
+    xi_u16 valid_bits;
+    xi_u32 channel_mask;
+    xi_u8  sub_format[16];
+} xiWavFmtChunk;
+
+#pragma pack(pop)
+
+XI_INTERNAL XI_THREAD_TASK_PROC(xi_sound_asset_import) {
+    (void) pool;
+
+    xiAssetImportInfo *import = (xiAssetImportInfo *) arg;
+    xiAssetManager *assets    = import->assets;
+
+    xiArena *temp = xi_temp_get();
+
+    xiDirectoryEntry *entry = import->entry;
+
+    xi_string file_data = xi_file_read_all(temp, entry->path);
+    if (xi_str_is_valid(file_data)) {
+        xiWavHeader *header = (xiWavHeader *) file_data.data;
+        if (header->riff_code == XI_RIFF_CODE_RIFF &&
+            header->wave_code == XI_RIFF_CODE_WAVE)
+        {
+            xi_u8 *data  = file_data.data;
+            xi_u32 total = header->size;
+            xi_u32 used  = sizeof(xiWavHeader);
+
+            xiWavFmtChunk *fmt = 0;
+
+            xi_u32 samples_size = 0;
+            xi_u8 *samples = 0;
+
+            while (used < total) {
+                xiWavChunk *chunk = (xiWavChunk *) (data + used);
+                switch (chunk->code) {
+                    case XI_RIFF_CODE_FMT: {
+                        fmt = (xiWavFmtChunk *) (chunk + 1);
+                    }
+                    break;
+                    case XI_RIFF_CODE_DATA: {
+                        samples_size = chunk->size;
+                        samples = (xi_u8 *) (chunk + 1);
+                    }
+                    break;
+                }
+
+                used += sizeof(xiWavChunk);
+                used += chunk->size;
+            }
+
+            if (fmt && samples && samples_size > 0) {
+                xi_b32 matches = (fmt->format == XI_PCM_FORMAT) && (fmt->channels == 2) &&
+                    (fmt->sample_rate == assets->sample_rate) && (fmt->bit_depth == 16);
+
+                if (matches) {
+                    xi_u32 handle = xi_asset_handles_reserve(assets, 1);
+                    if (handle != 0) {
+                        xiAssetFile *file = &assets->files[assets->file_count - 1];
+
+                        xiAsset *asset    = &assets->assets[handle];
+                        xiaAssetInfo *xia = &assets->xias[handle];
+
+                        asset->state = XI_ASSET_STATE_UNLOADED;
+                        asset->type  = XIA_ASSET_TYPE_SOUND;
+                        asset->index = handle - file->base_asset;
+                        asset->file  = assets->file_count - 1;
+
+                        // 4GiB per asset, we couldn't even load a sound this big anyway
+                        //
+                        XI_ASSERT(samples_size <= XI_U32_MAX);
+
+                        xia->type        = asset->type;
+                        xia->size        = (xi_u32) samples_size;
+                        xia->offset      = xi_asset_manager_size_reserve(assets, xia->size);
+                        xia->write_time  = entry->time;
+
+                        // @todo: 'name_offset' being a xi_u32 artifically limits the file size to just
+                        // under 4GiB maybe this shuold just be a xi_u64 instead
+                        //
+                        xia->name_offset = XI_U32_MAX;
+
+                        xia->sound.channel_count = fmt->channels;
+                        xia->sound.sample_count  = samples_size / (fmt->bit_depth >> 3);
+
+                        xi_string name = xi_asset_name_append(file, xia, entry->basename);
+                        xi_asset_manager_asset_hash_insert(assets, asset->type, handle, name);
+
+                        xi_os_file_write(&file->handle, samples, xia->offset, xia->size);
+
+                        file->modified = true;
+                        XI_ATOMIC_INCREMENT_U32(&file->asset_count);
+                    }
+                }
+            }
+        }
+    }
+}
 
 void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
     if (assets->file_count == 0) {
@@ -1023,8 +1251,6 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
 
     xi_u32 next_import = 0;
     xiAssetImportInfo *imports = xi_arena_push_array(temp, xiAssetImportInfo, assets->max_assets);
-
-    xi_u32 assets_packed = 0;
 
     for (xi_u32 it = 0; it < list.count; ++it) {
         xiDirectoryEntry *entry = &list.entries[it];
@@ -1127,8 +1353,6 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
 
                                 xi_thread_pool_enqueue(assets->thread_pool,
                                         xi_image_asset_import, (void *) import);
-
-                                assets_packed += 1;
                             }
                         }
                     }
@@ -1143,52 +1367,55 @@ void xi_asset_manager_import_to_xia(xiAssetManager *assets) {
                 //
             }
         }
-        else {
-            xi_uptr dot;
-            if (xi_str_find_last(entry->path, &dot, '.')) {
-                xi_string ext = xi_str_suffix(entry->path, entry->path.count - dot);
-                if (xi_str_equal(ext, xi_str_wrap_const(".png"))) {
-                    // we have an image asset!
-                    //
-                    // @incomplete: this will break if there are more assets to import than max assets were
-                    // allocated! come up with some sort of ring buffer design to use the imports
-                    //
-                    XI_ASSERT(next_import < assets->max_assets);
+        else if (xi_str_ends_with(entry->path, xi_str_wrap_const(".png"))) {
+            // we have an image asset!
+            //
+            // @incomplete: this will break if there are more assets to import than max assets were
+            // allocated! come up with some sort of ring buffer design to use the imports
+            //
+            XI_ASSERT(next_import < assets->max_assets);
 
-                    // check if it is a sprite
-                    //
-                    // @duplicate: from above in the actual image import code, maybe this can happen
-                    // there?
-                    //
-                    xi_string basename = entry->basename;
-                    xi_string prefix   = xi_str_prefix(basename, assets->importer.sprite_prefix.count);
-                    if (xi_str_equal(prefix, assets->importer.sprite_prefix)) {
-                        basename = xi_str_advance(basename, prefix.count);
-                    }
+            // check if it is a sprite
+            //
+            // @duplicate: from above in the actual image import code, maybe this can happen
+            // there?
+            //
+            xi_string basename = entry->basename;
+            xi_string prefix   = xi_str_prefix(basename, assets->importer.sprite_prefix.count);
+            if (xi_str_equal(prefix, assets->importer.sprite_prefix)) {
+                basename = xi_str_advance(basename, prefix.count);
+            }
 
-                    // @todo: this needs to import assets that have changed!
-                    //
+            // @todo: this needs to import assets that have changed!
+            //
 
-                    xiImageHandle image = xi_image_get_by_name_str(assets, basename);
-                    if (image.value == 0) {
-                        xiAssetImportInfo *import = &imports[next_import];
-                        next_import += 1;
+            xiImageHandle image = xi_image_get_by_name_str(assets, basename);
+            if (image.value == 0) {
+                xiAssetImportInfo *import = &imports[next_import];
+                next_import += 1;
 
-                        import->assets      =  assets;
-                        import->entry       =  entry;
-                        import->handle      =  0; // allocated automatically
-                        import->frame_index = -1;
+                import->assets      =  assets;
+                import->entry       =  entry;
+                import->handle      =  0; // allocated automatically
+                import->frame_index = -1;
 
-                        xi_thread_pool_enqueue(assets->thread_pool, xi_image_asset_import, (void *) import);
-                        assets_packed += 1;
-                    }
-                }
-                else {
-                    int x = 0;
-                    x += 1;
+                xi_thread_pool_enqueue(assets->thread_pool, xi_image_asset_import, (void *) import);
+            }
+        }
+        else if (xi_str_ends_with(entry->path, xi_str_wrap_const(".wav"))) {
+            // this assumes that the audio player has been configured to the sample-rate that
+            // the games assest will be using
+            //
+            xiSoundHandle sound = xi_sound_get_by_name_str(assets, entry->basename);
+            if (sound.value == 0) {
+                xiAssetImportInfo *import = &imports[next_import];
+                next_import += 1;
 
-                    // unsupported asset type!
-                }
+                import->assets = assets;
+                import->entry  = entry;
+                import->handle = 0; // allocated automatically
+
+                xi_thread_pool_enqueue(assets->thread_pool, xi_sound_asset_import, (void *) import);
             }
         }
     }

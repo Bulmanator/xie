@@ -13,6 +13,7 @@
 #include "xi_fileio.c"
 #include "xi_assets.c"
 
+#include "xi_audio.c"
 #include "xi_draw.c"
 
 XI_INTERNAL XI_GAME_INIT(xiContext *xi, xi_u32 type) {

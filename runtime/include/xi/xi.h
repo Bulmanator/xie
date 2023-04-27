@@ -70,12 +70,13 @@ extern "C" {
 #include "xi_xia.h"
 #include "xi_assets.h"
 
+#include "xi_audio.h"
 #include "xi_draw.h"
 
 #include "xi_input.h"
 
 #define XI_VERSION_MAJOR 0
-#define XI_VERSION_MINOR 7
+#define XI_VERSION_MINOR 9
 #define XI_VERSION_PATCH 2
 
 #define XI_MAX_DISPLAYS 8
@@ -179,6 +180,10 @@ typedef struct xiContext {
             xi_f32 clamp_s;  // max delta time in seconds
         } delta;
     } time;
+
+    // audio
+    //
+    xiAudioPlayer audio_player;
 
     // :note any members of the system struct can be considered valid _at all times_ this includes
     // in the XI_ENGINE_CONFIGURE call even though other engine services have not yet been initialised

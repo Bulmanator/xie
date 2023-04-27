@@ -5,6 +5,31 @@
     #define XI_EPSILON_F32 0.00001f
 #endif
 
+typedef struct xiRandomState {
+    xi_u64 state;
+} xiRandomState;
+
+// rng xorshift
+//
+inline void xi_rng_seed(xiRandomState *rng, xi_u64 seed);
+
+inline xi_u32 xi_rng_u32(xiRandomState *rng);
+inline xi_u64 xi_rng_u64(xiRandomState *rng);
+
+inline xi_f32 xi_rng_unilateral_f32(xiRandomState *rng); //  0 to 1
+inline xi_f32 xi_rng_bilateral_f32(xiRandomState *rng);  // -1 to 1
+
+inline xi_f64 xi_rng_unilateral_f64(xiRandomState *rng); //  0 to 1
+inline xi_f64 xi_rng_bilateral_f64(xiRandomState *rng);  // -1 to 1
+
+inline xi_u32 xi_rng_range_u32(xiRandomState *rng, xi_u32 min, xi_u32 max);
+inline xi_f32 xi_rng_range_f32(xiRandomState *rng, xi_f32 min, xi_f32 max);
+
+inline xi_u64 xi_rng_range_u64(xiRandomState *rng, xi_u64 min, xi_u64 max);
+inline xi_f64 xi_rng_range_f64(xiRandomState *rng, xi_f64 min, xi_f64 max);
+
+inline xi_u32 xi_rng_choice(xiRandomState *rng, xi_u32 choice_count);
+
 // sqrt
 //
 inline xi_f32 xi_sqrt(xi_f32 a);

@@ -57,4 +57,7 @@ extern XI_API xi_string xi_str_slice(xi_string str, xi_uptr start, xi_uptr end);
 extern XI_API xi_b32 xi_str_find_first(xi_string str, xi_uptr *offset, xi_u32 codepoint);
 extern XI_API xi_b32 xi_str_find_last(xi_string str,  xi_uptr *offset, xi_u32 codepoint);
 
+extern XI_API xi_b32 xi_str_starts_with(xi_string str, xi_string prefix);
+extern XI_API xi_b32 xi_str_ends_with(xi_string str, xi_string suffix);
+
 #endif  // XI_STRING_H_

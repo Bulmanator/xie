@@ -255,3 +255,17 @@ xi_b32 xi_str_find_last(xi_string str, xi_uptr *offset, xi_u32 codepoint) {
 
     return result;
 }
+
+xi_b32 xi_str_starts_with(xi_string str, xi_string prefix) {
+    xi_string start = xi_str_prefix(str, prefix.count);
+
+    xi_b32 result = xi_str_equal(start, prefix);
+    return result;
+}
+
+xi_b32 xi_str_ends_with(xi_string str, xi_string suffix) {
+    xi_string end = xi_str_suffix(str, suffix.count);
+
+    xi_b32 result = xi_str_equal(end, suffix);
+    return result;
+}

@@ -2,11 +2,12 @@
 #define XI_XIA_H_
 
 #define XIA_HEADER_SIGNATURE XI_FOURCC('X', 'I', 'A', 'F')
-#define XIA_HEADER_VERSION   1
+#define XIA_HEADER_VERSION   2
 
 enum xiaAssetType {
     XIA_ASSET_TYPE_NONE = 0,
     XIA_ASSET_TYPE_IMAGE,
+    XIA_ASSET_TYPE_SOUND,
     XIA_ASSET_TYPE_COUNT
 };
 
@@ -52,6 +53,11 @@ typedef struct xiaImageInfo {
     xi_u8  mip_levels;  // > 0 if sprite @unused: remove, not needed
 } xiaImageInfo;
 
+typedef struct xiaSoundInfo {
+    xi_u32 channel_count; // only 2 supported at the moment
+    xi_u32 sample_count;  // total number of samples
+} xiaSoundInfo;
+
 typedef struct xiaAssetInfo {
     xi_u64 offset;
     xi_u32 size;
@@ -60,6 +66,7 @@ typedef struct xiaAssetInfo {
     xi_u32 type;
     union {
         xiaImageInfo image;
+        xiaSoundInfo sound;
         xi_u8 pad[36];
     };
 
