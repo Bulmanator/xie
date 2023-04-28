@@ -196,7 +196,7 @@ XI_INTERNAL void xi_input_button_handle(xiInputButton *button, xi_b32 down) {
     if (button->down != down) {
         button->pressed  = button->pressed  || (!button->down &&  down);
         button->released = button->released || ( button->down && !down);
-        button->down     =  down;
+        button->down     = down;
         button->repeat   = 0;
     }
     else {

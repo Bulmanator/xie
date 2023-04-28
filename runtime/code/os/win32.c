@@ -84,6 +84,8 @@ typedef struct xiWin32Context {
 
     // timing info
     //
+    xi_b32 did_update;
+
     xi_u64 counter_start;
     xi_u64 counter_freq;
 
@@ -1316,29 +1318,48 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     xiInputMouse *mouse = &xi->mouse;
     xiInputKeyboard *kb = &xi->keyboard;
 
-    // reset mouse params for this frame
+    // @todo: this might require some more thought with the multiple update situation, there could be
+    // places where if across a frame boundary where an update did not occur due to the timing being
+    // faster than the fixed step we could have a button event that has both 'pressed' and 'released' on the
+    // same frame. i guess this is possible anyway even with perfect timing if the polling rate is high enough?
     //
-    mouse->connected    = true;
-    mouse->active       = false;
-    mouse->delta.screen = xi_v2s_create(0, 0);
-    mouse->delta.clip   =  xi_v2_create(0, 0);
-    mouse->delta.wheel  =  xi_v2_create(0, 0);
-
-    mouse->left.pressed   = mouse->left.released   = false;
-    mouse->middle.pressed = mouse->middle.released = false;
-    mouse->right.pressed  = mouse->right.released  = false;
-    mouse->x0.pressed     = mouse->x0.released     = false;
-    mouse->x1.pressed     = mouse->x1.released     = false;
-
-    // reset keyboard params for this frame
+    // we could have a single update pass that is always called but shouldn't be used for physics
+    // or whatever needs fixed timesteps, maybe we could use that for input handling and this issue goes away
     //
-    kb->connected = true;
-    kb->active    = false;
+    // otherwise maybe it really is just best to have an event driven system that can be handled in the
+    // simulate function, as it won't do anything if multiple updates happened (assuming all events were
+    // consumed on the first iteration) and it can also easily queue up new events when no update happened
+    //
+    // :step_input
+    //
+    //
+    if (context->did_update) {
+        // reset mouse params for this frame
+        //
+        mouse->connected    = true;
+        mouse->active       = false;
+        mouse->delta.screen = xi_v2s_create(0, 0);
+        mouse->delta.clip   =  xi_v2_create(0, 0);
+        mouse->delta.wheel  =  xi_v2_create(0, 0);
 
-    for (xi_u32 it = 0; it < XI_KEYBOARD_KEY_COUNT; ++it) {
-        kb->keys[it].pressed  = false;
-        kb->keys[it].released = false;
+        mouse->left.pressed   = mouse->left.released   = false;
+        mouse->middle.pressed = mouse->middle.released = false;
+        mouse->right.pressed  = mouse->right.released  = false;
+        mouse->x0.pressed     = mouse->x0.released     = false;
+        mouse->x1.pressed     = mouse->x1.released     = false;
+
+        // reset keyboard params for this frame
+        //
+        kb->connected = true;
+        kb->active    = false;
+
+        for (xi_u32 it = 0; it < XI_KEYBOARD_KEY_COUNT; ++it) {
+            kb->keys[it].pressed  = false;
+            kb->keys[it].released = false;
+        }
     }
+
+    context->did_update = false;
 
     MSG msg;
     while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE)) {
@@ -1803,8 +1824,8 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
                 // specify the updated stdout/stderr handles are reflected without the need to reload
                 // the .dll
                 //
-                context->game.last_time = 0;
-                win32_game_code_reload(context);
+                // context->game.last_time = 0;
+                // @todo: reenable at some point win32_game_code_reload(context);
             }
             else {
                 out->status = err->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
@@ -2022,11 +2043,13 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
             //
             xi_temp_reset();
 
-            do {
+            while (context->accum_ns >= (xi_s64) context->fixed_ns) {
                 // do while loop to force at least one update per iteration
                 //
                 game->simulate(xi);
                 context->accum_ns -= context->fixed_ns;
+
+                context->did_update = true;
 
                 // @hack: this is to prevent processing audio events multiple times if this
                 // loop does multiple iterations, we should probably have a 'fixed_simulate' function
@@ -2041,7 +2064,7 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
                 // we only need to process one simulate if we are quitting
                 //
                 if (context->quitting || xi->quit) { break; }
-            } while (context->accum_ns >= (xi_s64) context->fixed_ns);
+            }
 
             if (context->accum_ns < 0) { context->accum_ns = 0; }
 

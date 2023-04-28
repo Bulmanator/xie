@@ -7,6 +7,7 @@ void xi_gl_debug_proc(GLenum source, GLenum type, GLuint id, GLenum severity,
     (void) type;
     (void) id;
     (void) len;
+    (void) message;
     (void) user_data;
 
     if (severity == GL_DEBUG_SEVERITY_HIGH) {
@@ -30,7 +31,7 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_DEPTH_TEST);
         glDepthFunc(GL_LEQUAL);
 
         // we were able to create an os specific opengl context, so continue with the os non-specific

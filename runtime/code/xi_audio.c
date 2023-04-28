@@ -125,7 +125,7 @@ void xi_music_layer_disable_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32
                 // music volume actually reaches zero
                 //
                 xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
-                        layer->target_volume, true, index, layer->handle);
+                        layer->tag, true, index, layer->handle);
             }
         }
     }
@@ -244,7 +244,7 @@ XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *a
                     layer->enabled = false;
 
                     xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
-                            layer->target_volume, true, it, layer->handle);
+                            layer->tag, true, it, layer->handle);
                 }
 
                 xiaSoundInfo *info = xi_sound_info_get(assets, layer->handle);

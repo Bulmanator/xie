@@ -119,6 +119,7 @@ typedef struct xiLinuxContext {
 
     xi_b32 quitting;
 
+    xi_b32 did_update;
     xi_u64 start_ns;
     xi_u64 resolution_ns;
 
@@ -587,7 +588,6 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
         XI_ASSERT(fd >= 0);
         XI_ASSERT(offset != XI_FILE_OFFSET_APPEND);
 
-
         xi_u8 *data = (xi_u8 *) dst;
         while (size > 0) {
             int nread = pread(fd, data, size, offset);
@@ -999,29 +999,35 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
     xiInputMouse *mouse = &xi->mouse;
     xiInputKeyboard *kb = &xi->keyboard;
 
-    // reset mouse params for this frame
+    // :step_input
     //
-    mouse->connected    = true;
-    mouse->active       = false;
-    mouse->delta.screen = xi_v2s_create(0, 0);
-    mouse->delta.clip   =  xi_v2_create(0, 0);
-    mouse->delta.wheel  =  xi_v2_create(0, 0);
+    if (context->did_update) {
+        // reset mouse params for this frame
+        //
+        mouse->connected    = true;
+        mouse->active       = false;
+        mouse->delta.screen = xi_v2s_create(0, 0);
+        mouse->delta.clip   =  xi_v2_create(0, 0);
+        mouse->delta.wheel  =  xi_v2_create(0, 0);
 
-    mouse->left.pressed   = mouse->left.released   = false;
-    mouse->middle.pressed = mouse->middle.released = false;
-    mouse->right.pressed  = mouse->right.released  = false;
-    mouse->x0.pressed     = mouse->x0.released     = false;
-    mouse->x1.pressed     = mouse->x1.released     = false;
+        mouse->left.pressed   = mouse->left.released   = false;
+        mouse->middle.pressed = mouse->middle.released = false;
+        mouse->right.pressed  = mouse->right.released  = false;
+        mouse->x0.pressed     = mouse->x0.released     = false;
+        mouse->x1.pressed     = mouse->x1.released     = false;
 
-    // reset keyboard params for this frame
-    //
-    kb->connected = true;
-    kb->active    = false;
+        // reset keyboard params for this frame
+        //
+        kb->connected = true;
+        kb->active    = false;
 
-    for (xi_u32 it = 0; it < XI_KEYBOARD_KEY_COUNT; ++it) {
-        kb->keys[it].pressed  = false;
-        kb->keys[it].released = false;
+        for (xi_u32 it = 0; it < XI_KEYBOARD_KEY_COUNT; ++it) {
+            kb->keys[it].pressed  = false;
+            kb->keys[it].released = false;
+        }
     }
+
+    context->did_update = false;
 
     // we don't handle programatic resizes if the user has manually resized the window
     //
