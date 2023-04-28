@@ -28,7 +28,7 @@ inline xi_f32 xi_rng_range_f32(xiRandomState *rng, xi_f32 min, xi_f32 max);
 inline xi_u64 xi_rng_range_u64(xiRandomState *rng, xi_u64 min, xi_u64 max);
 inline xi_f64 xi_rng_range_f64(xiRandomState *rng, xi_f64 min, xi_f64 max);
 
-inline xi_u32 xi_rng_choice(xiRandomState *rng, xi_u32 choice_count);
+inline xi_u32 xi_rng_choice_u32(xiRandomState *rng, xi_u32 choice_count);
 
 // sqrt
 //

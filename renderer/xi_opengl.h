@@ -11,9 +11,11 @@ typedef struct xiOpenGLContext xiRendererBackend;
     #include <windows.h>
 
     #include <gl/gl.h>
+    typedef uintptr_t GLsizeiptr;
+#elif XI_OS_LINUX
+    #include <GL/gl.h>
 #endif
 
-typedef uintptr_t GLsizeiptr;
 typedef intptr_t  GLintptr;
 typedef char      GLchar;
 

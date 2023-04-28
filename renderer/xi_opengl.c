@@ -7,11 +7,7 @@ void xi_gl_debug_proc(GLenum source, GLenum type, GLuint id, GLenum severity,
     (void) type;
     (void) id;
     (void) len;
-    (void) message;
     (void) user_data;
-
-    OutputDebugString(message);
-    OutputDebugString("\n");
 
     if (severity == GL_DEBUG_SEVERITY_HIGH) {
         XI_ASSERT(false && "opengl error!");
@@ -526,4 +522,6 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
 
 #if XI_OS_WIN32
     #include "os/wgl.c"
+#elif XI_OS_LINUX
+    #include "os/sdl2_gl.c"
 #endif

@@ -20,7 +20,15 @@ XI_INTERNAL void xi_os_futex_broadcast(xiFutex *futex); // all threads
     #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) (_InterlockedCompareExchange64((__int64 volatile *) target, value, compare) == (__int64) compare)
 
 #elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #error "incomplete implementation"
+    // @todo: do all of these really need __ATOMIC_SEQ_CST
+    //
+    #define XI_FUTEX_INCREMENT(futex) __atomic_add_fetch(futex, 1, __ATOMIC_SEQ_CST)
+    #define XI_FUTEX_DECREMENT(futex) __atomic_sub_fetch(futex, 1, __ATOMIC_SEQ_CST)
+
+    #define XI_ATOMIC_ADD_U64(target, value) __atomic_fetch_add(target, value, __ATOMIC_SEQ_CST)
+
+    #define XI_ATOMIC_EXCHANGE_U64(target, value) __atomic_exchange_n(target, value, __ATOMIC_SEQ_CST)
+    #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) __atomic_compare_exchange_n(target, &(compare), value, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
 #endif
 
 

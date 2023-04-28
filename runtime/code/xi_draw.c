@@ -155,7 +155,7 @@ void xi_quad_outline_draw_xy(xiRenderer *renderer, xi_v4 colour,
     }
 }
 
-inline xi_v2 xi_uv_for_sprite(xi_v2 dim, xi_u32 sprite_dimension) {
+XI_INTERNAL inline xi_v2 xi_uv_for_sprite(xi_v2 dim, xi_u32 sprite_dimension) {
     xi_v2 result = xi_v2_create(1, 1);
     if (dim.w <= sprite_dimension && dim.h <= sprite_dimension) {
         result = xi_v2_mul_f32(dim, 1.0f / (xi_f32) sprite_dimension);

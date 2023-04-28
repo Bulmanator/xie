@@ -108,17 +108,25 @@ void xi_music_layer_enable_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 
 
 void xi_music_layer_disable_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 effect, xi_f32 rate) {
     if (index < player->music.layer_count) {
-        xiSound *sound = &player->music.layers[index];
+        xiSound *layer = &player->music.layers[index];
 
         if (rate <= 0) { rate = 1; }
 
-        sound->enabled       = false;
-        sound->target_volume = 0.0f;
-        sound->rate          = -rate;
+        layer->enabled       = false;
+        layer->target_volume = 0.0f;
+        layer->rate          = -rate;
 
-        if (effect == XI_MUSIC_LAYER_EFFECT_INSTANT) { sound->volume = 0.0f; }
+        if (effect == XI_MUSIC_LAYER_EFFECT_INSTANT) {
+            layer->volume  = 0.0f;
+            layer->enabled = false;
 
-        xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED, sound->tag, true, index, sound->handle);
+            // instant will push a sound effect because the audio turns of right away,
+            // if the fade effect is used instead, it will push an audio event when the
+            // music volume actually reaches zero
+            //
+            xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
+                    layer->target_volume, true, index, layer->handle);
+        }
     }
 }
 
@@ -142,8 +150,10 @@ void xi_music_layer_toggle_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 
             sound->rate          = rate;
         }
 
-        xi_u32 type = (sound->enabled ? XI_AUDIO_EVENT_TYPE_STARTED : XI_AUDIO_EVENT_TYPE_STOPPED);
-        xi_audio_event_push(player, type, sound->tag, true, index, sound->handle);
+        if (sound->enabled || (effect == XI_MUSIC_LAYER_EFFECT_INSTANT)) {
+            xi_u32 type = (sound->enabled ? XI_AUDIO_EVENT_TYPE_STARTED : XI_AUDIO_EVENT_TYPE_STOPPED);
+            xi_audio_event_push(player, type, sound->tag, true, index, sound->handle);
+        }
     }
 }
 
@@ -229,7 +239,12 @@ XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *a
                 layer->volume += (layer->rate * dt);
                 layer->volume  = XI_CLAMP(layer->volume, 0.0f, 1.0f);
 
-                if (layer->volume <= 0) { layer->enabled = false; }
+                if (layer->volume <= 0) {
+                    layer->enabled = false;
+
+                    xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
+                            layer->target_volume, true, it, layer->handle);
+                }
 
                 xiaSoundInfo *info = xi_sound_info_get(assets, layer->handle);
                 xi_s16 *data = xi_sound_data_get(assets, layer->handle);

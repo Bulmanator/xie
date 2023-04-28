@@ -6,7 +6,10 @@
     #define XI_ATOMIC_INCREMENT_U32(target) _InterlockedIncrement((volatile long *) target)
     #define XI_ATOMIC_DECREMENT_U32(target) _InterlockedDecrement((volatile long *) target)
 #else
-    #error "incomplete implementation"
+    #define XI_ATOMIC_COMPARE_EXCHANGE_U32(target, value, compare) __atomic_compare_exchange_n(target, &(compare), value, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)
+    #define XI_ATOMIC_EXCHANGE_U32(target, value) __atomic_exchange_n(target, value, __ATOMIC_SEQ_CST)
+    #define XI_ATOMIC_INCREMENT_U32(target) __atomic_fetch_add(target, 1, __ATOMIC_SEQ_CST)
+    #define XI_ATOMIC_DECREMENT_U32(target) __atomic_fetch_sub(target, 1, __ATOMIC_SEQ_CST)
 #endif
 
 // forward declaring stuff that might be needed
@@ -37,10 +40,22 @@ XI_INTERNAL void xi_asset_manager_asset_hash_insert(xiAssetManager *assets,
     xi_u32 mix  = tbl_xia_type_hash_mix[type];
     xi_u32 hash = xi_str_fnv1a_hash_u32(name) ^ mix;
 
+    // @workaround: for the fact that __atomic_compare_exchange_n takes a pointer
+    // to the comparand for whatever reason
+    //
+    // these macros should _really_ be api function calls, not only the user-code can
+    // use them if they are doing threading but also to make it more consistent throughout
+    //
+    // :compare_xhg
+    //
+    xi_u32 zero;
+
     xi_u32 i = 0;
 
     xiAssetHash *slot = 0;
     do {
+        zero = 0; // :compare_xhg it modifies the compare value??? why??
+
         if (i > assets->lookup_table_count) {
             slot = 0;
             break;
@@ -52,7 +67,7 @@ XI_INTERNAL void xi_asset_manager_asset_hash_insert(xiAssetManager *assets,
         slot = &assets->lookup_table[table_index];
 
         i += 1;
-    } while (!XI_ATOMIC_COMPARE_EXCHANGE_U32(&slot->index, index, 0));
+    } while (!XI_ATOMIC_COMPARE_EXCHANGE_U32(&slot->index, index, zero));
 
     // we initialise our lookup table to be 2 * round_pow2(max_assets), which will have a maximum load
     // factor of 50%, so this lookup will realisitically never fail
@@ -535,6 +550,13 @@ void xi_image_load(xiAssetManager *assets, xiImageHandle image) {
 XI_INTERNAL xi_u32 xi_asset_index_get_by_name(xiAssetManager *assets, xi_string name, xi_u32 type) {
     xi_u32 result;
 
+    // @todo: pass the xia as a parameter here instead of just type and or in the
+    // frame count to the mix for images?
+    //
+    // this will allow a still image and an animation to have the same name without requiring
+    // a whole new type and if the frame count is zero or does nothing
+    //
+
     xi_u32 mask = assets->lookup_table_count - 1;
     xi_u32 mix  = tbl_xia_type_hash_mix[type];
     xi_u32 hash = xi_str_fnv1a_hash_u32(name) ^ mix;
@@ -924,6 +946,7 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
                 //
                 handle = xi_asset_handles_reserve(assets, 1);
             }
+
 
             if (handle != 0) {
                 xiAssetFile *file = &assets->files[assets->file_count - 1];

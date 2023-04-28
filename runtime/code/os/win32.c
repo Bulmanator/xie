@@ -674,7 +674,7 @@ void win32_directory_list_builder_get_recursive(xiArena *arena,
             // explicitly mark these as hidden though
             //
             if ((data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0)  { continue; }
-            if (data.cFileName[0] == L'.') { continue; }
+            if (data.cFileName[0] == L'.') { continue; } // :cf
 
             FILETIME time = data.ftLastWriteTime;
             xi_b32 is_dir = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -779,6 +779,7 @@ xi_b32 xi_os_directory_create(xi_string path) {
             if (!CreateDirectoryW(wpath, 0)) {
                 DWORD error = GetLastError();
                 if (error != ERROR_ALREADY_EXISTS) {
+                    result = false;
                     break;
                 }
             }
@@ -836,12 +837,11 @@ xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
 
     HANDLE hFile = CreateFileW(wpath, access_flags, FILE_SHARE_READ, 0, creation, FILE_ATTRIBUTE_NORMAL, 0);
 
+    *(HANDLE *) &handle->os = hFile;
+
     if (hFile == INVALID_HANDLE_VALUE) {
         handle->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
         result = false;
-    }
-    else {
-        *(HANDLE *) &handle->os = hFile;
     }
 
     return result;
@@ -1310,6 +1310,8 @@ XI_INTERNAL void win32_xi_context_update(xiWin32Context *context) {
     win32_audio_mix(context);
 
     // process windows messages that our application received
+    //
+    // @todo: input reset call?
     //
     xiInputMouse *mouse = &xi->mouse;
     xiInputKeyboard *kb = &xi->keyboard;
@@ -2056,6 +2058,8 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
             // so we check if the thread count is 1 and then wait on it here. this will be very slow
             // as everything is now single-threaded, however for debugging will be very useful and
             // keeps the game working when no worker threads are enabled
+            //
+            // :single_worker
             //
             if (xi->thread_pool.thread_count == 1) { xi_thread_pool_await_complete(&xi->thread_pool); }
 

@@ -451,12 +451,12 @@ xi_v4 xi_v4_max(xi_v4 a, xi_v4 b) {
 
 // misc vector functions
 //
-inline xi_v2 xi_v2_perp(xi_v2 a) {
+xi_v2 xi_v2_perp(xi_v2 a) {
     xi_v2 result = xi_v2_create(-a.y, a.x);
     return result;
 }
 
-inline xi_v3 xi_v3_cross(xi_v3 a, xi_v3 b) {
+xi_v3 xi_v3_cross(xi_v3 a, xi_v3 b) {
     xi_v3 result;
     result.x = (a.y * b.z) - (a.z * b.y);
     result.y = (a.z * b.x) - (a.z * b.x);
@@ -869,5 +869,60 @@ xi_f32 xi_rsqrt_approx(xi_f32 a) {
 }
 
 #elif XI_ARCH_AARCH64
+    #error "incomplete implementation"
 #endif
 
+// for linux we bootstrap load the xie_run function directly from the .so file
+// rather than linking with it becasue linking with shared objects on linux comes
+// with a whole host of problems
+//
+#if XI_OS_LINUX
+
+#include <dlfcn.h>
+#include <unistd.h>
+#include <linux/limits.h>
+#include <string.h>
+
+#include <stdio.h>
+
+int xie_run(xiGameCode *code) {
+    int result = 1;
+
+    int (*__xie_bootstrap_run)(xiGameCode *);
+    void *lib;
+
+    // attempt to load a global install, if fails fallback to load the local
+    // install in the same directory as the executable.
+    //
+    lib = dlopen("libxid.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!lib) {
+        char path[PATH_MAX + 1];
+        ssize_t len = readlink("/proc/self/exe", path, PATH_MAX);
+        if (len > 0) {
+            while ((len > 0) && (path[len] != '/')) {
+                len -= 1;
+            }
+
+            path[len + 1] = 0; // now basedir with terminating slash
+            strcat(path, "libxid.so");
+
+            lib = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+        }
+    }
+
+    if (lib != 0) {
+        __xie_bootstrap_run = dlsym(lib, "__xie_bootstrap_run");
+        if (__xie_bootstrap_run != 0) {
+            result = __xie_bootstrap_run(code);
+        }
+    }
+    else {
+        // @temp: this is for debugging while developing
+        //
+        printf("failed to load lib: %s!\n", dlerror());
+    }
+
+    return result;
+}
+
+#endif

@@ -57,8 +57,6 @@ extern "C" {
 #elif defined(__linux__)
     #undef  XI_OS_LINUX
     #define XI_OS_LINUX 1
-
-    #error "linux support has not been implemented"
 #endif
 
 //

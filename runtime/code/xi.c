@@ -38,5 +38,7 @@ XI_INTERNAL XI_GAME_RENDER(xiContext *xi, xiRenderer *renderer) {
 
 #if XI_OS_WIN32
     #include "os/win32.c"
+#elif XI_OS_LINUX
+    #include "os/linux.c"
 #endif
 
