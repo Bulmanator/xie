@@ -12,7 +12,7 @@ against.
 ### Linux
 Linux support is very preliminary and currently relies on [SDL2](libsdl.org/). To build on Linux you will need
 the `gcc` toolchain installed and it is as simple as executing `linux.sh` in the root of the repository. This
-will build `xid.so`, however you do not need to link against this as long as it is within the same folder as
+will build `libxid.so`, however you do not need to link against this as long as it is within the same folder as
 your executable. It will be dynamically loaded at runtime.
 
 ## Features
