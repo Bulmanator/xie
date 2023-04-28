@@ -16,6 +16,8 @@ extern "C" {
 //     - timing information
 //     - keyboard input
 //     - mouse input
+//     - audio output
+//       - mixer
 //   - string utilities
 //     - logging system
 //   - file system support
@@ -35,19 +37,19 @@ extern "C" {
 //   - asset management
 //     - images
 //     - animations
+//     - audio
 //     - packing to .xia files
 //     - streaming/threaded loading
 
+
 // xi runtime will supply
 //     - controller input
-//     - audio output
-//       - mixer
+
 //   - graphics rendering
 //     - custom shaders
 //     - custom render targets
 //   - asset management
 //     - shaders
-//     - audio
 //     - fonts
 //     - packing to .xia files
 //   - text file tokenizer
