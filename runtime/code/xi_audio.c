@@ -110,22 +110,23 @@ void xi_music_layer_disable_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32
     if (index < player->music.layer_count) {
         xiSound *layer = &player->music.layers[index];
 
-        if (rate <= 0) { rate = 1; }
+        if (layer->enabled) {
+            if (rate <= 0) { rate = 1; }
 
-        layer->enabled       = false;
-        layer->target_volume = 0.0f;
-        layer->rate          = -rate;
+            layer->enabled       = false;
+            layer->target_volume = 0.0f;
+            layer->rate          = -rate;
 
-        if (effect == XI_MUSIC_LAYER_EFFECT_INSTANT) {
-            layer->volume  = 0.0f;
-            layer->enabled = false;
+            if (effect == XI_MUSIC_LAYER_EFFECT_INSTANT) {
+                layer->volume  = 0.0f;
 
-            // instant will push a sound effect because the audio turns of right away,
-            // if the fade effect is used instead, it will push an audio event when the
-            // music volume actually reaches zero
-            //
-            xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
-                    layer->target_volume, true, index, layer->handle);
+                // instant will push a sound effect because the audio turns of right away,
+                // if the fade effect is used instead, it will push an audio event when the
+                // music volume actually reaches zero
+                //
+                xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
+                        layer->target_volume, true, index, layer->handle);
+            }
         }
     }
 }

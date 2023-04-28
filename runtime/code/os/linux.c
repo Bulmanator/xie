@@ -1027,6 +1027,9 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
     //
     xi_b32 user_resize = false;
 
+    int window_width = 0, window_height = 0;
+    SDL->GetWindowSize(SDL->window, &window_width, &window_height);
+
     SDL_Event event;
     while (SDL->PollEvent(&event)) {
         switch (event.type) {
@@ -1115,8 +1118,8 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
 
                 // update clip position
                 //
-                mouse->position.clip.x = -1.0f + (2.0f * (pt.x / (xi_f32) xi->window.width));
-                mouse->position.clip.y =  1.0f - (2.0f * (pt.y / (xi_f32) xi->window.height));
+                mouse->position.clip.x = -1.0f + (2.0f * (pt.x / (xi_f32) window_width));
+                mouse->position.clip.y =  1.0f - (2.0f * (pt.y / (xi_f32) window_height));
 
                 xi_v2s delta_screen = xi_v2s_sub(mouse->position.screen, old_screen);
                 xi_v2  delta_clip   =  xi_v2_sub(mouse->position.clip,   old_clip);
@@ -1168,6 +1171,8 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
     if (!user_resize) {
         // handle programamtic resizing
         //
+        // @todo: implement this
+        //
 
         // handle window state changes
         //
@@ -1209,7 +1214,9 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
         }
     }
 
-    int window_width = 0, window_height = 0;
+    window_width  = 0;
+    window_height = 0;
+
     SDL->GL_GetDrawableSize(SDL->window, &window_width, &window_height);
     if (window_width > 0 && window_height > 0) {
         xi->window.width  = window_width;
@@ -1410,7 +1417,7 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                     //
                     xi_temp_reset();
 
-                    do {
+                    while (context->accum_ns >= context->fixed_ns) {
                         game->simulate(xi);
                         context->accum_ns -= context->fixed_ns;
 
@@ -1419,7 +1426,7 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                         xi->audio_player.event_count = 0;
 
                         if (context->quitting || xi->quit) { break; }
-                    } while (context->accum_ns >= context->fixed_ns);
+                    }
 
                     if (context->accum_ns < 0) { context->accum_ns = 0; }
 
