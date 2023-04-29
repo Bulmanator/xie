@@ -37,9 +37,12 @@ typedef int xiSDL2_SDL_SetWindowFullscreen(SDL_Window *, SDL_bool);
 typedef int xiSDL2_SDL_SetWindowResizable(SDL_Window *, SDL_bool);
 typedef int xiSDL2_SDL_GetWindowSize(SDL_Window *, int *, int *);
 typedef int xiSDL2_SDL_QueueAudio(SDL_AudioDeviceID, const void *, Uint32);
+typedef int xiSDL2_SDL_GetNumVideoDisplays(void);
+typedef int xiSDL2_SDL_GetDesktopDisplayMode(int, SDL_DisplayMode *);
 
 typedef Uint32 xiSDL2_SDL_GetQueuedAudioSize(SDL_AudioDeviceID);
 
+typedef const char *xiSDL2_SDL_GetDisplayName(int);
 typedef const char *xiSDL2_SDL_GetError(void);
 
 typedef SDL_AudioDeviceID xiSDL2_SDL_OpenAudioDevice(const char *, int, const SDL_AudioSpec *, SDL_AudioSpec *, int);
@@ -104,6 +107,9 @@ typedef struct xiSDL2Context {
     SDL2_FUNCTION_POINTER(QueueAudio);
     SDL2_FUNCTION_POINTER(GetQueuedAudioSize);
     SDL2_FUNCTION_POINTER(PauseAudioDevice);
+    SDL2_FUNCTION_POINTER(GetNumVideoDisplays);
+    SDL2_FUNCTION_POINTER(GetDesktopDisplayMode);
+    SDL2_FUNCTION_POINTER(GetDisplayName);
 
     SDL2_FUNCTION_POINTER(GL_GetDrawableSize);
 } xiSDL2Context;
@@ -112,6 +118,7 @@ typedef struct xiSDL2Context {
 
 typedef struct xiLinuxContext {
     xiArena arena;
+    xiLogger logger;
 
     xiContext xi;
 
@@ -762,6 +769,8 @@ XI_INTERNAL xiSDL2Context *linux_sdl2_load(xiLinuxContext *context) {
     xiSDL2Context *SDL = &context->SDL;
     SDL->lib = dlopen("libSDL2.so", RTLD_LAZY | RTLD_LOCAL);
     if (!SDL->lib) {
+        xi_log(&context->logger, "init", "failed to find libSDL2.so globally... trying locally");
+
         const char *exe_dir = linux_system_path_get(LINUX_PATH_TYPE_EXECUTABLE);
 
         xiArena *temp = xi_temp_get();
@@ -791,6 +800,9 @@ XI_INTERNAL xiSDL2Context *linux_sdl2_load(xiLinuxContext *context) {
         SDL2_FUNCTION_LOAD(SDL, QueueAudio);
         SDL2_FUNCTION_LOAD(SDL, GetQueuedAudioSize);
         SDL2_FUNCTION_LOAD(SDL, PauseAudioDevice);
+        SDL2_FUNCTION_LOAD(SDL, GetNumVideoDisplays);
+        SDL2_FUNCTION_LOAD(SDL, GetDesktopDisplayMode);
+        SDL2_FUNCTION_LOAD(SDL, GetDisplayName);
 
         SDL2_FUNCTION_LOAD(SDL, GL_GetDrawableSize);
 
@@ -807,9 +819,48 @@ XI_INTERNAL xiSDL2Context *linux_sdl2_load(xiLinuxContext *context) {
         if (SDL->Init(SDL_INIT_VIDEO) == 0) {
             result = SDL;
         }
+        else {
+            xi_log(&context->logger, "init", "failed to initialise (%s)", SDL->GetError());
+        }
+    }
+    else {
+        xi_log(&context->logger, "init", "failed to load libSDL2.so");
     }
 
     return result;
+}
+
+XI_INTERNAL void linux_sdl2_displays_enumerate(xiLinuxContext *context) {
+    xiSDL2Context *SDL = &context->SDL;
+
+    int count = SDL->GetNumVideoDisplays();
+    if (count > 0) {
+        count = XI_MIN(count, XI_MAX_DISPLAYS);
+
+        xiContext *xi = &context->xi;
+        for (int it = 0; it < count; ++it) {
+            xiDisplay *display = &xi->system.displays[xi->system.display_count];
+
+            SDL_DisplayMode mode;
+            if (SDL->GetDesktopDisplayMode(it, &mode) == 0) {
+                const char *cname = SDL->GetDisplayName(it);
+                if (cname != 0) {
+                    xi_string name = xi_str_wrap_cstr(cname);
+                    display->name  = xi_str_copy(&context->arena, name);
+                }
+
+                // @incomplete: sdl doesn't provide a way to calculate scale without first creating a
+                // window and checking the differences between GetDrawableSize and GetWindowSize
+                //
+                display->width        = mode.w;
+                display->height       = mode.h;
+                display->refresh_rate = mode.refresh_rate;
+                display->scale        = 1.0f;
+
+                xi->system.display_count += 1;
+            }
+        }
+    }
 }
 
 XI_INTERNAL void linux_sdl2_audio_init(xiLinuxContext *context) {
@@ -841,13 +892,11 @@ XI_INTERNAL void linux_sdl2_audio_init(xiLinuxContext *context) {
             SDL->audio.enabled = true;
         }
         else {
-            // @todo: logging...
-            //
+            xi_log(&context->logger, "audio", "no device found... disabling audio");
         }
     }
     else {
-        // @todo: logging
-        //
+        xi_log(&context->logger, "audio", "failed to initialise (%s)", SDL->GetError());
     }
 
 }
@@ -1232,7 +1281,7 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
         xi->renderer.setup.window_dim.h = window_height;
     }
 
-    //xi->window.title = SDL->title.str;
+    xi->window.title = SDL->title.str;
 
     xiGameCode *game = context->game.code;
     if (game->dynamic) {
@@ -1243,6 +1292,9 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
 extern int __xie_bootstrap_run(xiGameCode *game) {
     int result = 1;
 
+    xiFileHandle cout = { XI_FILE_HANDLE_STATUS_VALID, (void *) STDOUT_FILENO };
+    xiFileHandle cerr = { XI_FILE_HANDLE_STATUS_VALID, (void *) STDERR_FILENO };
+
     xiLinuxContext *context;
     {
         xiArena arena;
@@ -1250,11 +1302,15 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
 
         context = xi_arena_push_type(&arena, xiLinuxContext);
         context->arena = arena;
+
+        xi_logger_create(&context->arena, &context->logger, cout, XI_KB(512));
     }
 
     xiSDL2Context *SDL = linux_sdl2_load(context); // also stored context->SDL
     if (SDL) {
         xiContext *xi = &context->xi;
+
+        linux_sdl2_displays_enumerate(context);
 
         context->game.code = game;
 
@@ -1268,11 +1324,8 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
         // setup out/err file handles for writing to the console, always open
         // on linux which is nice
         //
-        xi->system.out.status = XI_FILE_HANDLE_STATUS_VALID;
-        xi->system.err.status = XI_FILE_HANDLE_STATUS_VALID;
-
-        *(int *) &xi->system.out.os = STDOUT_FILENO;
-        *(int *) &xi->system.err.os = STDOUT_FILENO;
+        xi->system.out = cout;
+        xi->system.err = cerr;
 
         SDL->title.used   = 0;
         SDL->title.limit  = XI_MAX_TITLE_COUNT;
@@ -1301,8 +1354,6 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
             xi->window.height = 720;
         }
 
-        // @todo: enumerate displays
-        //
         int display = XI_MIN(xi->window.display, xi->system.display_count);
 
         int p = SDL_WINDOWPOS_CENTERED_DISPLAY(display);
@@ -1360,6 +1411,12 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
 
                         context->renderer.valid = context->renderer.init(renderer, window_data);
                     }
+                    else {
+                        xi_log(&context->logger, "renderer", "xi_opengl_init not found");
+                    }
+                }
+                else {
+                    xi_log(&context->logger, "renderer", "failed to load xi_opengld.so");
                 }
             }
 
@@ -1408,16 +1465,10 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                     context->start_ns = (1000000000 * timer_start.tv_sec) + timer_start.tv_nsec;
                 }
 
-                xi_b32 running = true;
-                while (running) {
-                    linux_xi_context_update(context);
+                xi_logger_flush(&context->logger);
 
-                    SDL_Event e;
-                    while (SDL->PollEvent(&e)) {
-                        if (e.type == SDL_QUIT) {
-                            running = false;
-                        }
-                    }
+                while (true) {
+                    linux_xi_context_update(context);
 
                     // :temp_usage
                     //
@@ -1426,6 +1477,8 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                     while (context->accum_ns >= context->fixed_ns) {
                         game->simulate(xi);
                         context->accum_ns -= context->fixed_ns;
+
+                        context->did_update = true;
 
                         // :multiple_updates
                         //
@@ -1447,14 +1500,21 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                         break;
                     }
                 }
+
+                xi_thread_pool_await_complete(&xi->thread_pool);
+
+                result = 0;
+            }
+            else {
+                xi_log(&context->logger, "renderer", "failed to initialise");
             }
         }
+        else {
+            xi_log(&context->logger, "window", "failed to create (%s)", SDL->GetError());
+        }
+    }
 
-    }
-    else {
-        // @todo: logging...
-        //
-    }
+    xi_logger_flush(&context->logger);
 
     return result;
 }

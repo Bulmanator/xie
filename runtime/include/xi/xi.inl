@@ -915,11 +915,12 @@ int xie_run(xiGameCode *code) {
         if (__xie_bootstrap_run != 0) {
             result = __xie_bootstrap_run(code);
         }
+        else {
+            printf("[internal error] :: failed to load '__xie_bootstrap_run' (%s)\n", dlerror());
+        }
     }
     else {
-        // @temp: this is for debugging while developing
-        //
-        printf("failed to load lib: %s!\n", dlerror());
+        printf("[internal error] :: failed to load libxid.so (%s)\n", dlerror());
     }
 
     return result;

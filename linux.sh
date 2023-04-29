@@ -7,7 +7,7 @@ fi
 
 pushd "build" > /dev/null
 
-compiler_flags="-I../runtime/include -fPIC -Wall -Wno-unused-function -Wno-missing-braces"
+compiler_flags="-I../runtime/include -fPIC -Wall -Wno-unused-function -Wno-missing-braces -Wall"
 linker_flags=""
 
 # build debug runtime .so
