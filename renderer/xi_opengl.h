@@ -72,6 +72,7 @@ typedef char      GLchar;
 #define GL_TEXTURE30                       0x84DE
 #define GL_TEXTURE31                       0x84DF
 #define GL_CLAMP_TO_EDGE                   0x812F
+#define GL_TEXTURE_LOD_BIAS                0x8501
 
 #define GL_MAP_WRITE_BIT                   0x0002
 #define GL_MAP_PERSISTENT_BIT              0x0040

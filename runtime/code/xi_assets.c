@@ -1074,6 +1074,46 @@ XI_INTERNAL XI_THREAD_TASK_PROC(xi_image_asset_import) {
 
                     XI_ASSERT(next == (pixels + total_size));
                 }
+                else {
+                    // @copypaste: from above just for testing, mip-maps for non-sprite images
+                    //
+                    total_size = xi_image_mip_mapped_size(w, h);
+                    pixels     = xi_arena_push_size(temp, total_size);
+
+                    // copy the base image data into the new buffer
+                    //
+                    xi_memory_copy(pixels, image_data, 4 * w * h);
+
+                    // generate mip maps
+                    //
+                    xi_u8 *cur   = pixels;
+                    xi_u32 cur_w = w;
+                    xi_u32 cur_h = h;
+
+                    xi_u8 *next   = cur + (4 * cur_w * cur_h);
+                    xi_u32 next_w = cur_w >> 1;
+                    xi_u32 next_h = cur_h >> 1;
+
+                    while (cur_w > 1 || cur_h > 1) {
+                        if (next_w == 0) { next_w = 1; }
+                        if (next_h == 0) { next_h = 1; }
+
+                        stbir_resize_uint8_srgb(cur, cur_w, cur_h, 0,
+                                next, next_w, next_h, 0, 4, 3, STBIR_FLAG_ALPHA_PREMULTIPLIED);
+
+                        cur   = next;
+                        cur_w = next_w;
+                        cur_h = next_h;
+
+                        next   = cur + (4 * cur_w * cur_h);
+                        next_w = cur_w >> 1;
+                        next_h = cur_h >> 1;
+
+                        level_count += 1;
+                    }
+
+                    XI_ASSERT(next == (pixels + total_size));
+                }
 
                 xiAsset *asset    = &assets->assets[handle];
                 xiaAssetInfo *xia = &assets->xias[handle];

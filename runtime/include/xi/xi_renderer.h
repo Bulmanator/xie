@@ -159,7 +159,16 @@ extern XI_API void xi_camera_transform_set(xiRenderer *renderer,
 // like above but will use a default near plane of 0.001f, a default far plane of 10000.0f and a focal
 // length matching roughly 65 degree fov
 //
-extern XI_API void xi_camera_transform_set_axes(xiRenderer *renderer,
+extern XI_API void xi_camera_transform_set_from_axes(xiRenderer *renderer,
+        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags);
+
+// get a camera transform without actually setting it to the renderer
+//
+extern XI_API void xi_camera_transform_get(xiCameraTransform *camera, xi_f32 aspect_ratio,
+        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position,
+        xi_u32 flags, xi_f32 near_plane, xi_f32 far_plane, xi_f32 focal_length);
+
+extern XI_API void xi_camera_transform_get_from_axes(xiCameraTransform *camera, xi_f32 aspect_ratio,
         xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags);
 
 extern XI_API xi_v3 xi_unproject_xy(xiCameraTransform *camera, xi_v2 clip);

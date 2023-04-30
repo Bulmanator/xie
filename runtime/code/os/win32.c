@@ -1847,7 +1847,7 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
 
     xi_f32 scale = display->xi.scale;
 
-    UINT swp_flags = (SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS);
+    UINT swp_flags = (SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED);
 
     if (xi->window.width == 0 || xi->window.height == 0) {
         if (xi->window.display == 0) {
@@ -1858,10 +1858,9 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
             //
             swp_flags |= (SWP_NOSIZE | SWP_NOMOVE);
         }
-        else {
-            xi->window.width  = 1280;
-            xi->window.height = 720;
-        }
+
+        xi->window.width  = 1280;
+        xi->window.height = 720;
     }
 
 
@@ -1953,8 +1952,7 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
             context->window.windowed_style = GetWindowLongW(hwnd, GWL_STYLE);
             LONG style = win32_window_style_get_for_state(hwnd, xi->window.state);
 
-            UINT flags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS;
-
+            UINT flags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED;
             SetWindowLongW(hwnd, GWL_STYLE, style);
             SetWindowPos(hwnd, HWND_TOP, x, y, w, h, flags);
 
@@ -1965,11 +1963,13 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
         }
     }
 
-
     // load and initialise the renderer
     //
     xiRenderer *renderer = &xi->renderer;
     {
+        renderer->setup.window_dim.w = xi->window.width;
+        renderer->setup.window_dim.h = xi->window.height;
+
         HMODULE lib = LoadLibraryA("xi_opengld.dll");
         if (lib) {
             context->renderer.lib  = lib;
@@ -1994,11 +1994,6 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
         //
         xi_thread_pool_init(&context->arena, &xi->thread_pool, system_info.dwNumberOfProcessors);
         xi_asset_manager_init(&context->arena, &xi->assets, xi);
-
-        // once all of the engine systems have been setup, send the game code a post init
-        // call which allows them to call any init they require using the engine systems
-        //
-        game->init(xi, XI_GAME_INIT);
 
         // setup timing information
         //
@@ -2031,8 +2026,14 @@ XI_INTERNAL DWORD WINAPI win32_game_thread(LPVOID param) {
 
             if (QueryPerformanceCounter(&counter)) {
                 context->counter_start = counter.QuadPart;
+                xi->time.ticks = context->counter_start;
             }
         }
+
+        // once all of the engine systems have been setup, send the game code a post init
+        // call which allows them to call any init they require using the engine systems
+        //
+        game->init(xi, XI_GAME_INIT);
 
         while (true) {
             win32_xi_context_update(context);

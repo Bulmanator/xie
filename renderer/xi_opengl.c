@@ -405,11 +405,42 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
                 //
                 glBindTexture(GL_TEXTURE_2D_ARRAY, gl->textures[index]);
 
-                gl->TexImage3D(GL_TEXTURE_2D_ARRAY, 0, gl->texture_format, width, height, 1,
-                        0, GL_RGBA, GL_UNSIGNED_BYTE, (void *) task->offset);
+                GLuint level_count = 1;
+                GLsizei mipw = width;
+                GLsizei miph = height;
+
+                while (mipw > 1 || miph > 1) {
+                    mipw >>= 1;
+                    miph >>= 1;
+
+                    level_count += 1;
+                }
+
+                gl->TexStorage3D(GL_TEXTURE_2D_ARRAY, level_count, gl->texture_format, width, height, 1);
+
+                gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, width, height, 1,
+                        GL_RGBA, GL_UNSIGNED_BYTE, (void *) task->offset);
+
+                GLint level = 1;
+                xi_uptr offset = task->offset + (4 * width * height);
+                while (width > 1  || height > 1) {
+                    width  >>= 1;
+                    height >>= 1;
+
+                    if (width  == 0) { width  = 1; }
+                    if (height == 0) { height = 1; }
+
+                    gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, level, 0, 0, 0, width, height, 1,
+                            GL_RGBA, GL_UNSIGNED_BYTE, (void *) offset);
+
+                    offset += (4 * width * height);
+                    level  += 1;
+                }
+
+                XI_ASSERT(offset == (task->offset + task->size));
 
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
             }
@@ -491,6 +522,18 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
                 }
                 else {
                     glBindTexture(GL_TEXTURE_2D_ARRAY, gl->textures[draw->texture.index]);
+
+                    // @hack: to get around weird mip-map behaviour for larger textures, this seems to work
+                    // perfectly for what we are using
+                    //
+                    // @incomplete: what we really want is some way to specify samplers rather than just
+                    // textures :renderer_handles
+                    // this will be overhauled at some point
+                    //
+                    GLfloat bias_x = renderer->setup.window_dim.w / (GLfloat) draw->texture.width;
+                    GLfloat bias_y = renderer->setup.window_dim.h / (GLfloat) draw->texture.height;
+
+                    glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_LOD_BIAS, 1.0f - XI_MAX(bias_x, bias_y));
                 }
 
                 gl->BindBufferRange(GL_UNIFORM_BUFFER, 0, gl->ubo, draw->ubo_offset, globals_size);

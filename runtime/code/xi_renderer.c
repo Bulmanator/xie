@@ -197,11 +197,44 @@ void xi_camera_transform_set(xiRenderer *renderer,
     renderer->draw_call = 0;
 }
 
-void xi_camera_transform_set_axes(xiRenderer *renderer,
+void xi_camera_transform_set_from_axes(xiRenderer *renderer,
         xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags)
 {
     xi_f32 focal_length = 1.5696855771174903493f; // ~65 degree fov
     xi_camera_transform_set(renderer, x_axis, y_axis, z_axis, position, flags, 0.001f, 10000.0f, focal_length);
+}
+
+void xi_camera_transform_get(xiCameraTransform *camera, xi_f32 aspect_ratio,
+        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position,
+        xi_u32 flags, xi_f32 near_plane, xi_f32 far_plane, xi_f32 focal_length)
+{
+    camera->x_axis   = x_axis;
+    camera->y_axis   = y_axis;
+    camera->z_axis   = z_axis;
+
+    camera->position = position;
+
+    xi_m4x4_inv projection;
+
+    if (flags & XI_CAMERA_TRANSFORM_FLAG_ORTHOGRAPHIC) {
+        projection = xi_m4x4_orthographic_projection(aspect_ratio, near_plane, far_plane);
+    }
+    else {
+        projection = xi_m4x4_perspective_projection(focal_length, aspect_ratio, near_plane, far_plane);
+    }
+
+    xi_m4x4_inv tx = xi_m4x4_from_camera_transform(x_axis, y_axis, z_axis, position);
+
+    camera->transform.fwd = xi_m4x4_mul(projection.fwd, tx.fwd);
+    camera->transform.inv = xi_m4x4_mul(tx.inv, projection.inv);
+}
+
+void xi_camera_transform_get_from_axes(xiCameraTransform *camera, xi_f32 aspect_ratio,
+        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags)
+{
+    xi_f32 focal_length = 1.5696855771174903493f; // ~65 degree fov
+    xi_camera_transform_get(camera, aspect_ratio, x_axis, y_axis, z_axis,
+            position, flags, 0.001f, 10000.0f, focal_length);
 }
 
 xi_v3 xi_unproject_xy(xiCameraTransform *camera, xi_v2 clip) {

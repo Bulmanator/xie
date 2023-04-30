@@ -79,7 +79,7 @@ extern "C" {
 
 #define XI_VERSION_MAJOR 0
 #define XI_VERSION_MINOR 10
-#define XI_VERSION_PATCH 4
+#define XI_VERSION_PATCH 7
 
 #define XI_MAX_DISPLAYS 8
 

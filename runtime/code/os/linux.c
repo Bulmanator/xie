@@ -1396,8 +1396,19 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
             SDL->window_state = xi->window.state;
             xi->window.title  = SDL->title.str;
 
+            {
+                int actual_w, actual_h;
+                SDL->GL_GetDrawableSize(SDL->window, &actual_w, &actual_h);
+
+                xi->window.width  = actual_w;
+                xi->window.height = actual_h;
+            }
+
             xiRenderer *renderer = &xi->renderer;
             {
+                renderer->setup.window_dim.width  = xi->window.w;
+                renderer->setup.window_dim.height = xi->window.h;
+
                 xiArena *temp = xi_temp_get();
                 xi_string renderer_path = xi_str_format(temp, "%s/xi_opengld.so", exe_path);
 
@@ -1426,8 +1437,6 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                 xi_u32 n_processors = xi->system.processor_count;
                 xi_thread_pool_init(&context->arena, &xi->thread_pool, n_processors);
                 xi_asset_manager_init(&context->arena, &xi->assets, xi);
-
-                game->init(xi, XI_GAME_INIT);
 
                 // setup timing information
                 //
@@ -1463,7 +1472,10 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                     clock_gettime(CLOCK_MONOTONIC_RAW, &timer_start);
 
                     context->start_ns = (1000000000 * timer_start.tv_sec) + timer_start.tv_nsec;
+                    xi->time.ticks    = context->start_ns;
                 }
+
+                game->init(xi, XI_GAME_INIT);
 
                 xi_logger_flush(&context->logger);
 
