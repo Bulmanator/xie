@@ -1406,8 +1406,18 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
 
             xiRenderer *renderer = &xi->renderer;
             {
-                renderer->setup.window_dim.w = xi->window.w;
-                renderer->setup.window_dim.h = xi->window.h;
+                // @todo: this _realy_ shouldn't need this duplicated value anyway i should just pass the
+                // context window to the renderer directly and it should work with that it requires the
+                // window structure in xiContext to be an actual struct rather than an inline on so
+                // i'll have to change it at some point.
+                //
+                // it will be more consistent this way
+                //
+                // :renderer_window . we can also do the 'platform' typedef thing to void to have platform
+                // data stored directly on the window or something
+                //
+                renderer->setup.window_dim.w = xi->window.width;
+                renderer->setup.window_dim.h = xi->window.height;
 
                 xiArena *temp = xi_temp_get();
                 xi_string renderer_path = xi_str_format(temp, "%s/xi_opengld.so", exe_path);
