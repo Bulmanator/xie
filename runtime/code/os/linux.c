@@ -1406,8 +1406,8 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
 
             xiRenderer *renderer = &xi->renderer;
             {
-                renderer->setup.window_dim.width  = xi->window.w;
-                renderer->setup.window_dim.height = xi->window.h;
+                renderer->setup.window_dim.w = xi->window.w;
+                renderer->setup.window_dim.h = xi->window.h;
 
                 xiArena *temp = xi_temp_get();
                 xi_string renderer_path = xi_str_format(temp, "%s/xi_opengld.so", exe_path);
