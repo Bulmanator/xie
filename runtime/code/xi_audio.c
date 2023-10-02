@@ -234,37 +234,42 @@ XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *a
         xi_f32 music_volume = player->volume * player->music.volume;
         for (xi_u32 it = 0; it < player->music.layer_count; ++it) {
             xiSound *layer = &player->music.layers[it];
-            if (layer->enabled || layer->volume > 0) {
-                layer->target_volume = layer->enabled ? 1.0f : 0.0f;
 
-                layer->volume += (layer->rate * dt);
-                layer->volume  = XI_CLAMP(layer->volume, 0.0f, 1.0f);
+            layer->target_volume = layer->enabled ? 1.0f : 0.0f;
 
-                if (layer->volume <= 0) {
-                    layer->enabled = false;
+            layer->volume += (layer->rate * dt);
+            layer->volume  = XI_CLAMP(layer->volume, 0.0f, 1.0f);
 
-                    xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
+            if (layer->enabled && layer->volume <= 0) {
+                layer->enabled = false;
+
+                xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
+                        layer->tag, true, it, layer->handle);
+            }
+
+            xiaSoundInfo *info = xi_sound_info_get(assets, layer->handle);
+            xi_s16 *data = xi_sound_data_get(assets, layer->handle);
+
+            if (info) {
+                if (layer->sample + (2 * frame_count) >= info->sample_count) {
+                    // we will loop during mixing so push a sound event
+                    //
+                    xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_LOOP_RESET,
                             layer->tag, true, it, layer->handle);
                 }
 
-                xiaSoundInfo *info = xi_sound_info_get(assets, layer->handle);
-                xi_s16 *data = xi_sound_data_get(assets, layer->handle);
-
-                if (info) {
-                    if (layer->sample + (2 * frame_count) >= info->sample_count) {
-                        // we will loop during mixing so push a sound event
+                for (xi_u32 si = 0; si < frame_count; ++si) {
+                    if (layer->enabled || (layer->volume > 0)) {
+                        // we keep layers in sync by iterating frames regardless of if they are
+                        // enabled or not, we just don't physically output the samples if they are
+                        // disabled
                         //
-                        xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_LOOP_RESET,
-                                layer->tag, true, it, layer->handle);
-                    }
-
-                    for (xi_u32 si = 0; si < frame_count; ++si) {
                         left[si]  += (music_volume * layer->volume * data[layer->sample + 0]);
                         right[si] += (music_volume * layer->volume * data[layer->sample + 1]);
-
-                        layer->sample += 2;
-                        layer->sample %= info->sample_count;
                     }
+
+                    layer->sample += 2;
+                    layer->sample %= info->sample_count;
                 }
             }
         }
