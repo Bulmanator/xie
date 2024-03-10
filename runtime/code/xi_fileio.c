@@ -1,225 +1,210 @@
-typedef struct xiDirectoryEntryBucket xiDirectoryEntryBucket;
+typedef struct DirectoryEntryBucket DirectoryEntryBucket;
+struct DirectoryEntryBucket {
+    U32 count;
+    DirectoryEntry entries[128];
 
-typedef struct xiDirectoryEntryBucket {
-    xi_u32 count;
-    xiDirectoryEntry entries[128];
+    DirectoryEntryBucket *next;
+};
 
-    xiDirectoryEntryBucket *next;
-} xiDirectoryEntryBucket;
+typedef struct DirectoryListBuilder DirectoryListBuilder;
+struct DirectoryListBuilder {
+    DirectoryEntryBucket base;
 
-typedef struct xiDirectoryListBuilder {
-    xiDirectoryEntryBucket base;
+    DirectoryEntryBucket *head;
+    DirectoryEntryBucket *tail;
 
-    xiDirectoryEntryBucket *head;
-    xiDirectoryEntryBucket *tail;
+    U32 total;
+};
 
-    xi_u32 total;
-} xiDirectoryListBuilder;
-
-// os fileio
+// :OS_FileIO
 //
-XI_INTERNAL void xi_os_directory_list_build(xiArena *arena,
-        xiDirectoryListBuilder *builder, xi_string path, xi_b32 recursive);
+FileScope void OS_DirectoryListBuild(M_Arena *arena, DirectoryListBuilder *builder, Str8 path, B32 recursive);
 
-XI_INTERNAL void xi_directory_list_builder_append(xiDirectoryListBuilder *builder, xiDirectoryEntry *entry) {
-    xiDirectoryEntryBucket *bucket = builder->tail;
+FileScope void DirectoryListBuilderAppend(DirectoryListBuilder *builder, DirectoryEntry entry) {
+    DirectoryEntryBucket *bucket = builder->tail;
 
-    XI_ASSERT(bucket != 0);
+    Assert(bucket != 0);
 
-    bucket->entries[bucket->count] = *entry;
+    bucket->entries[bucket->count] = entry;
 
     bucket->count  += 1;
     builder->total += 1;
 
-    if (bucket->count >= XI_ARRAY_SIZE(bucket->entries)) {
-        xiArena *temp = xi_temp_get();
+    if (bucket->count >= ArraySize(bucket->entries)) {
+        M_Arena *temp = M_TempGet();
 
-        xiDirectoryEntryBucket *next = xi_arena_push_type(temp, xiDirectoryEntryBucket);
+        DirectoryEntryBucket *next = M_ArenaPush(temp, DirectoryEntryBucket, 1);
 
         builder->tail->next = next;
         builder->tail = next;
     }
 }
 
-XI_INTERNAL void xi_directory_list_builder_flatten(xiArena *arena,
-        xiDirectoryList *list, xiDirectoryListBuilder *builder)
-{
-
+FileScope void DirectoryListBuilderFlatten(M_Arena *arena, DirectoryList *list, DirectoryListBuilder *builder) {
     if (builder->total > 0) {
-        list->count   = builder->total;
-        list->entries = xi_arena_push_array(arena, xiDirectoryEntry, list->count);
+        list->num_entries = builder->total;
+        list->entries     = M_ArenaPush(arena, DirectoryEntry, list->num_entries);
 
-        xi_u32 offset = 0;
+        U32 offset = 0;
 
-        xiDirectoryEntryBucket *bucket = builder->head;
+        DirectoryEntryBucket *bucket = builder->head;
         while (bucket != 0) {
-            xi_memory_copy(&list->entries[offset], bucket->entries, bucket->count * sizeof(xiDirectoryEntry));
+            MemoryCopy(&list->entries[offset], bucket->entries, bucket->count * sizeof(DirectoryEntry));
 
             offset += bucket->count;
             bucket  = bucket->next;
         }
     }
     else {
-        list->count   = 0;
-        list->entries = 0;
+        list->num_entries = 0;
+        list->entries     = 0;
     }
 }
 
-void xi_directory_list_get(xiArena *arena, xiDirectoryList *list, xi_string path, xi_b32 recursive) {
-    xiDirectoryListBuilder builder = { 0 };
+DirectoryList DirectoryListGet(M_Arena *arena, Str8 path, B32 recursive) {
+    DirectoryList result = { 0 };
 
+    DirectoryListBuilder builder = { 0 };
     builder.head  = &builder.base;
     builder.tail  = &builder.base;
 
     builder.total = 0;
 
-    xi_os_directory_list_build(arena, &builder, path, recursive);
+    OS_DirectoryListBuild(arena, &builder, path, recursive);
 
-    xi_directory_list_builder_flatten(arena, list, &builder);
+    DirectoryListBuilderFlatten(arena, &result, &builder);
+
+    return result;
 }
 
-void xi_directory_list_filter_for_files(xiArena *arena, xiDirectoryList *out, xiDirectoryList *list) {
-    xiDirectoryListBuilder builder = { 0 };
+DirectoryList DirectoryListFilterForFiles(M_Arena *arena, DirectoryList *list) {
+    DirectoryList result = { 0 };
+
+    DirectoryListBuilder builder = { 0 };
     builder.head  = &builder.base;
     builder.tail  = &builder.base;
 
     builder.total = 0;
 
-    for (xi_u32 it = 0; it < list->count; ++it) {
-        xiDirectoryEntry *entry = &list->entries[it];
-
-        if (entry->type == XI_DIRECTORY_ENTRY_TYPE_FILE) {
-            xi_directory_list_builder_append(&builder, entry);
+    for (U32 it = 0; it < list->num_entries; ++it) {
+        if (list->entries[it].type == DIRECTORY_ENTRY_TYPE_FILE) {
+            DirectoryListBuilderAppend(&builder, list->entries[it]);
         }
     }
 
-    xi_directory_list_builder_flatten(arena, out, &builder);
+    DirectoryListBuilderFlatten(arena, &result, &builder);
+
+    return result;
 }
 
-void xi_directory_list_filter_for_directories(xiArena *arena, xiDirectoryList *out, xiDirectoryList *list) {
-    xiDirectoryListBuilder builder = { 0 };
+DirectoryList DirectoryListFilterForDirectories(M_Arena *arena, DirectoryList *list) {
+    DirectoryList result = { 0 };
+
+    DirectoryListBuilder builder = { 0 };
     builder.head  = &builder.base;
     builder.tail  = &builder.base;
 
     builder.total = 0;
 
-    for (xi_u32 it = 0; it < list->count; ++it) {
-        xiDirectoryEntry *entry = &list->entries[it];
-
-        if (entry->type == XI_DIRECTORY_ENTRY_TYPE_DIRECTORY) {
-            xi_directory_list_builder_append(&builder, entry);
+    for (U32 it = 0; it < list->num_entries; ++it) {
+        if (list->entries[it].type == DIRECTORY_ENTRY_TYPE_DIRECTORY) {
+            DirectoryListBuilderAppend(&builder, list->entries[it]);
         }
     }
 
-    xi_directory_list_builder_flatten(arena, out, &builder);
+    DirectoryListBuilderFlatten(arena, &result, &builder);
+
+    return result;
 }
 
-void xi_directory_list_filter_for_prefix(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, xi_string prefix)
-{
-    xiDirectoryListBuilder builder = { 0 };
+DirectoryList DirectoryListFilterForPrefix(M_Arena *arena, DirectoryList *list, Str8 prefix) {
+    DirectoryList result = { 0 };
+
+    DirectoryListBuilder builder = { 0 };
     builder.head  = &builder.base;
     builder.tail  = &builder.base;
 
     builder.total = 0;
 
-    for (xi_u32 it = 0; it < list->count; ++it) {
-        xiDirectoryEntry *entry = &list->entries[it];
+    for (U32 it = 0; it < list->num_entries; ++it) {
+        DirectoryEntry *entry = &list->entries[it];
 
-        xi_string start = xi_str_prefix(entry->basename, prefix.count);
+        Str8 start = Str8_Prefix(entry->basename, prefix.count);
 
-        if ((entry->type == XI_DIRECTORY_ENTRY_TYPE_FILE) && xi_str_equal(prefix, start)) {
-            xi_directory_list_builder_append(&builder, entry);
+        if ((entry->type == DIRECTORY_ENTRY_TYPE_FILE) && Str8_Equal(prefix, start, 0)) {
+            DirectoryListBuilderAppend(&builder, list->entries[it]);
         }
     }
 
-    xi_directory_list_builder_flatten(arena, out, &builder);
+    DirectoryListBuilderFlatten(arena, &result, &builder);
+
+    return result;
 }
 
-void xi_directory_list_filter_for_suffix(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, xi_string suffix)
-{
-    xiDirectoryListBuilder builder = { 0 };
+DirectoryList DirectoryListFilterForSuffix(M_Arena *arena, DirectoryList *list, Str8 suffix) {
+    DirectoryList result = { 0 };
+
+    DirectoryListBuilder builder = { 0 };
     builder.head  = &builder.base;
     builder.tail  = &builder.base;
 
     builder.total = 0;
 
-    for (xi_u32 it = 0; it < list->count; ++it) {
-        xiDirectoryEntry *entry = &list->entries[it];
+    for (U32 it = 0; it < list->num_entries; ++it) {
+        DirectoryEntry *entry = &list->entries[it];
 
-        xi_string end = xi_str_suffix(entry->basename, suffix.count);
+        Str8 end = Str8_Suffix(entry->basename, suffix.count);
 
-        if ((entry->type == XI_DIRECTORY_ENTRY_TYPE_FILE) && xi_str_equal(suffix, end)) {
-            xi_directory_list_builder_append(&builder, entry);
+        if ((entry->type == DIRECTORY_ENTRY_TYPE_FILE) && Str8_Equal(suffix, end, 0)) {
+            DirectoryListBuilderAppend(&builder, list->entries[it]);
         }
     }
 
-    xi_directory_list_builder_flatten(arena, out, &builder);
+    DirectoryListBuilderFlatten(arena, &result, &builder);
+
+    return result;
 }
 
-void xi_directory_list_filter_for_extension(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, xi_string extension)
-{
-    xiDirectoryListBuilder builder = { 0 };
-    builder.head  = &builder.base;
-    builder.tail  = &builder.base;
+Str8 FileReadAll(M_Arena *arena, Str8 path) {
+    Str8 result = { 0 };
 
-    builder.total = 0;
+    M_Arena *temp = M_TempGet();
 
-    for (xi_u32 it = 0; it < list->count; ++it) {
-        xiDirectoryEntry *entry = &list->entries[it];
+    DirectoryEntry entry;
+    if (OS_DirectoryEntryGetByPath(temp, &entry, path)) {
+        if (entry.type == DIRECTORY_ENTRY_TYPE_FILE) {
+            FileHandle handle = OS_FileOpen(path, FILE_ACCESS_FLAG_READ);
 
-        xi_string ext = xi_str_suffix(entry->path, extension.count);
+            result.count = entry.size;
+            result.data  = M_ArenaPush(arena, U8, result.count);
 
-        if ((entry->type == XI_DIRECTORY_ENTRY_TYPE_FILE) && xi_str_equal(extension, ext)) {
-            xi_directory_list_builder_append(&builder, entry);
-        }
-    }
-
-    xi_directory_list_builder_flatten(arena, out, &builder);
-}
-
-xi_string xi_file_read_all(xiArena *arena, xi_string path) {
-    xi_string result = { 0 };
-
-    xiArena *temp = xi_temp_get();
-
-    xiDirectoryEntry entry;
-    if (xi_os_directory_entry_get_by_path(temp, &entry, path)) {
-        if (entry.type == XI_DIRECTORY_ENTRY_TYPE_FILE) {
-            xiFileHandle handle;
-            if (xi_os_file_open(&handle, path, XI_FILE_ACCESS_FLAG_READ)) {
-                result.count = entry.size;
-                result.data  = xi_arena_push_size(arena, result.count);
-
-                xi_os_file_read(&handle, result.data, 0, result.count);
-                xi_os_file_close(&handle);
-            }
+            OS_FileRead(&handle, result.data, 0, result.count);
+            OS_FileClose(&handle);
         }
     }
 
     return result;
 }
 
-xi_string xi_file_read_all_buffer(xi_buffer *b, xi_string path) {
-    xi_string result = { 0 };
+Str8 FileReadAllToBuffer(Buffer *buffer, Str8 path) {
+    Str8 result = { 0 };
 
-    xiArena *temp = xi_temp_get();
+    M_Arena *temp = M_TempGet();
 
-    xiDirectoryEntry entry;
-    if (xi_os_directory_entry_get_by_path(temp, &entry, path)) {
-        if (entry.type == XI_DIRECTORY_ENTRY_TYPE_FILE) {
-            xiFileHandle handle;
-            if (xi_os_file_open(&handle, path, XI_FILE_ACCESS_FLAG_READ)) {
-                result.count = XI_MIN(b->limit - b->used, entry.size);
-                result.data  = b->data + b->used;
+    DirectoryEntry entry;
+    if (OS_DirectoryEntryGetByPath(temp, &entry, path)) {
+        if (entry.type == DIRECTORY_ENTRY_TYPE_FILE) {
+            FileHandle handle = OS_FileOpen(path, FILE_ACCESS_FLAG_READ);
 
-                xi_os_file_read(&handle, result.data, 0, result.count);
-                xi_os_file_close(&handle);
+            Assert(buffer->used <= buffer->limit);
 
-                b->used += result.count;
-            }
+            result.count = Min(buffer->limit - buffer->used, cast(S64) entry.size);
+            result.data  = buffer->data + buffer->used;
+
+            OS_FileRead(&handle, result.data, 0, result.count);
+            OS_FileClose(&handle);
+
+            buffer->used += result.count;
         }
     }
 

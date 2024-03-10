@@ -1,36 +1,4 @@
-xi_u32 xi_pow2_next_u32(xi_u32 x) {
-    xi_u32 result = x;
-
-    // @todo: how do we want this to work with inputs that are already powers of 2,
-    // currently it just returns the value itself, but maybe we want to shift it up by
-    // 1 in this case
-    //
-
-    result--;
-    result |= (result >>  1);
-    result |= (result >>  2);
-    result |= (result >>  4);
-    result |= (result >>  8);
-    result |= (result >> 16);
-    result++;
-
-    return result;
-}
-
-xi_u32 xi_pow2_prev_u32(xi_u32 x) {
-    xi_u32 result = xi_pow2_next_u32(x) >> 1;
-    return result;
-}
-
-xi_u32 xi_pow2_nearest_u32(xi_u32 x) {
-    xi_u32 next = xi_pow2_next_u32(x);
-    xi_u32 prev = next >> 1;
-
-    xi_u32 result = (next - x) > (x - prev) ? prev : next;
-    return result;
-}
-
-XI_GLOBAL const xi_f32 tbl_srgb_u8_to_linear_f32[] = {
+GlobalVar const F32 tbl_srgb_u8_to_linear_f32[] = {
     // 'exact' representation table for lookup as there are only 256 possible values
     //
     0x0.000000p+0,  0x1.3e4568p-12, 0x1.3e4568p-11, 0x1.dd681ep-11, 0x1.3e4568p-10, 0x1.8dd6c2p-10,
@@ -78,18 +46,9 @@ XI_GLOBAL const xi_f32 tbl_srgb_u8_to_linear_f32[] = {
     0x1.f26772p-1,  0x1.f6e996p-1,  0x1.fb71c0p-1,  0x1.000000p+0
 };
 
-XI_STATIC_ASSERT(sizeof(tbl_srgb_u8_to_linear_f32) == 256 * sizeof(xi_f32));
-
-xi_f32 xi_srgb_unorm_to_linear_norm(xi_u8 component) {
-    // just a lookup table
-    //
-    xi_f32 result = tbl_srgb_u8_to_linear_f32[component];
-    return result;
-}
-
-// https://gist.github.com/rygorous/2203834
+// :note from https://gist.github.com/rygorous/2203834
 //
-XI_GLOBAL const xi_u32 tbl_linear_f32_to_srgb_u8[104] = {
+GlobalVar const U32 tbl_linear_f32_to_srgb_u8[104] = {
     0x0073000d, 0x007a000d, 0x0080000d, 0x0087000d, 0x008d000d, 0x0094000d, 0x009a000d, 0x00a1000d,
     0x00a7001a, 0x00b4001a, 0x00c1001a, 0x00ce001a, 0x00da001a, 0x00e7001a, 0x00f4001a, 0x0101001a,
     0x010e0033, 0x01280033, 0x01410033, 0x015b0033, 0x01750033, 0x018f0033, 0x01a80033, 0x01c20033,
@@ -102,65 +61,122 @@ XI_GLOBAL const xi_u32 tbl_linear_f32_to_srgb_u8[104] = {
     0x239f0443, 0x25c003fe, 0x27bf03c4, 0x29a10392, 0x2b6a0367, 0x2d1d0341, 0x2ebe031f, 0x304d0300,
     0x31d105b0, 0x34a80555, 0x37520507, 0x39d504c5, 0x3c37048b, 0x3e7c0458, 0x40a8042a, 0x42bd0401,
     0x44c20798, 0x488e071e, 0x4c1c06b6, 0x4f76065d, 0x52a50610, 0x55ac05cc, 0x5892058f, 0x5b590559,
-    0x5e0c0a23, 0x631c0980, 0x67db08f6, 0x6c55087f, 0x70940818, 0x74a007bd, 0x787d076c, 0x7c330723,
+    0x5e0c0a23, 0x631c0980, 0x67db08f6, 0x6c55087f, 0x70940818, 0x74a007bd, 0x787d076c, 0x7c330723
 };
 
-xi_u8 xi_linear_norm_to_srgb_unorm(xi_f32 component) {
-    xi_u8 result;
+StaticAssert(sizeof(tbl_srgb_u8_to_linear_f32) == 256 * sizeof(F32));
 
-    union f32_u32 {
-        xi_f32 f;
-        xi_u32 u;
+FileScope F32 F32_Linear1FromSRGB255(U8 component) {
+    F32 result = tbl_srgb_u8_to_linear_f32[component];
+    return result;
+}
+
+FileScope U8 U8_SRGB255FromLinear1(F32 component) {
+    U8 result;
+
+    union F32_U32 {
+        F32 f;
+        U32 u;
     };
 
-    union f32_u32 close_one = { .u = 0x3f7fffff };
-    union f32_u32 min_value = { .u = 114 << 23  };
+    union F32_U32 close_one = { .u = 0x3f7fffff };
+    union F32_U32 min_value = { .u = 114 << 23  };
 
     if (!(component > min_value.f)) { component = min_value.f; }
     if (component > close_one.f)    { component = close_one.f; }
 
-    union f32_u32 f;
+    union F32_U32 f;
     f.f = component;
 
-    xi_u32 lookup = tbl_linear_f32_to_srgb_u8[(f.u - min_value.u) >> 20];
-    xi_u32 bias   = (lookup >> 16) << 9;
-    xi_u32 scale  = lookup & 0xffff;
+    U32 lookup = tbl_linear_f32_to_srgb_u8[(f.u - min_value.u) >> 20];
+    U32 bias   = (lookup >> 16) << 9;
+    U32 scale  = lookup & 0xffff;
 
-    xi_u32 t = (f.u >> 12) & 0xff;
+    U32 t = (f.u >> 12) & 0xff;
 
-    result = (xi_u8) ((bias + (scale * t)) >> 16);
+    result = cast(U8) ((bias + (scale * t)) >> 16);
     return result;
 }
 
-xi_m4x4_inv xi_m4x4_from_camera_transform(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position) {
-    xi_m4x4_inv result;
+Vec4F V4F_Linear1FromSRGB255(Vec4F colour) {
+    Vec4F result;
 
-    result.fwd = xi_m4x4_from_rows_v3(x_axis, y_axis, z_axis);
+    // @todo: maybe we should saturate cast these
+    //
+    result.r = F32_Linear1FromSRGB255(cast(U8) colour.r);
+    result.g = F32_Linear1FromSRGB255(cast(U8) colour.g);
+    result.b = F32_Linear1FromSRGB255(cast(U8) colour.b);
+    result.a = colour.a / 255.0f;
 
-    xi_v3 txp  = xi_v3_neg(xi_m4x4_mul_v3(result.fwd, position));
-    result.fwd = xi_m4x4_translate_v3(result.fwd, txp);
+    return result;
+}
 
-    xi_v3 ix = xi_v3_mul_f32(x_axis, 1.0f / xi_v3_dot(x_axis, x_axis));
-    xi_v3 iy = xi_v3_mul_f32(y_axis, 1.0f / xi_v3_dot(y_axis, y_axis));
-    xi_v3 iz = xi_v3_mul_f32(z_axis, 1.0f / xi_v3_dot(z_axis, z_axis));
+Vec4F V4F_SRGB255FromLinear1(Vec4F colour) {
+    Vec4F result;
 
-    xi_v3 ip;
+    result.r = U8_SRGB255FromLinear1(colour.r);
+    result.g = U8_SRGB255FromLinear1(colour.g);
+    result.b = U8_SRGB255FromLinear1(colour.b);
+    result.a = (colour.a * 255.0f);
+
+    return result;
+}
+
+Vec4F V4F_Linear1FromSRGB1(Vec4F colour) {
+    Vec4F unorm  = V4F_Scale(colour, 255.0f);
+    Vec4F result = V4F_Linear1FromSRGB255(unorm);
+    return result;
+}
+
+Vec4F V4F_SRGB1FromLinear1(Vec4F colour) {
+    Vec4F result = V4F_Scale(V4F_SRGB255FromLinear1(colour), 1.0f / 255.0f);
+    return result;
+}
+
+Mat4x4FInv M4x4F_CameraViewProjection(Vec3F x, Vec3F y, Vec3F z, Vec3F position) {
+    Mat4x4FInv result;
+
+    // Construct orthonomal basis from axes
+    //
+    result.fwd = M4x4F_Rows(x, y, z);
+    Vec3F txp  = V3F_Neg(M4x4F_MulV3F(result.fwd, position));
+
+    // Translate by txp
+    //
+    result.fwd.r[0].w += txp.x;
+    result.fwd.r[1].w += txp.y;
+    result.fwd.r[2].w += txp.z;
+
+    // Calculate inverse axes
+    //
+    Vec3F ix = V3F_Scale(x, 1.0f / V3F_LengthSq(x));
+    Vec3F iy = V3F_Scale(y, 1.0f / V3F_LengthSq(y));
+    Vec3F iz = V3F_Scale(z, 1.0f / V3F_LengthSq(z));
+
+    // Calculate inverse position
+    //
+    Vec3F ip;
     ip.x = (txp.x * ix.x) + (txp.y * iy.x) + (txp.z * iz.x);
     ip.y = (txp.x * ix.y) + (txp.y * iy.y) + (txp.z * iz.y);
     ip.z = (txp.x * ix.z) + (txp.y * iy.z) + (txp.z * iz.z);
 
-    result.inv = xi_m4x4_from_columns_v3(ix, iy, iz);
-    result.inv = xi_m4x4_translate_v3(result.inv, xi_v3_neg(ip));
+    result.inv = M4x4F_Columns(ix, iy, iz);
+
+    // Translate by ip
+    //
+    result.inv.r[0].w -= ip.x;
+    result.inv.r[1].w -= ip.y;
+    result.inv.r[2].w -= ip.z;
 
     return result;
 }
 
-xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane) {
-    xi_f32 a = aspect_ratio;
-    xi_f32 b = 2.0f / (near_plane - far_plane);
-    xi_f32 c = (near_plane + far_plane) / (near_plane - far_plane);
+Mat4x4FInv M4x4F_OrthographicProjection(F32 aspect, F32 nearp, F32 farp) {
+    F32 a = aspect;
+    F32 b = 2.0f / (nearp - farp);
+    F32 c = (nearp + farp) / (nearp - farp);
 
-    xi_m4x4_inv result = {
+    Mat4x4FInv result = {
         // fwd
         {
             1, 0, 0, 0,
@@ -180,16 +196,16 @@ xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio, xi_f32 near_pla
     return result;
 }
 
-xi_m4x4_inv xi_m4x4_perspective_projection(xi_f32 focal_length,
-        xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane)
-{
-    xi_f32 a = focal_length / aspect_ratio;
-    xi_f32 b = focal_length;
+Mat4x4FInv M4x4F_PerspectiveProjection(F32 fov, F32 aspect, F32 nearp, F32 farp) {
+    F32 focal_length = 1.0f / F32_Tan(0.5f * (fov / 360.0f)); // give fov in degrees, but want in turns
 
-    xi_f32 c = -(near_plane + far_plane) / (far_plane - near_plane);
-    xi_f32 d = -(2.0f * near_plane * far_plane) / (far_plane - near_plane);
+    F32 a = focal_length;
+    F32 b = focal_length * aspect;
 
-    xi_m4x4_inv result = {
+    F32 c = -(nearp + farp) / (farp - nearp);
+    F32 d = -(2.0f * nearp * farp) / (farp - nearp);
+
+    Mat4x4FInv result = {
         // fwd
         {
             a, 0,  0, 0,
@@ -208,5 +224,3 @@ xi_m4x4_inv xi_m4x4_perspective_projection(xi_f32 focal_length,
 
     return result;
 }
-
-

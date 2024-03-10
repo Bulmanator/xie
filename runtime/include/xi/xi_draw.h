@@ -6,31 +6,15 @@
 // renderer types to be defined thus creating a cyclic dependency that the c/c++ compilers cannot work
 // out because they don't have out of order compilation
 //
-
-extern XI_API void xi_quad_draw_xy(xiRenderer *renderer, xi_v4 colour,
-        xi_v2 center, xi_v2 dimension, xi_f32 angle);
-
-
-extern XI_API void xi_line_draw_xy(xiRenderer *renderer, xi_v4 start_colour, xi_v2 start_position,
-        xi_v4 end_colour, xi_v2 end_position, xi_f32 thickness);
-
-extern XI_API void xi_quad_outline_draw_xy(xiRenderer *renderer, xi_v4 colour,
-        xi_v2 center, xi_v2 dimension, xi_f32 angle, xi_f32 thickness);
-
-// textured quads, sprites
 //
-extern XI_API void xi_sprite_draw_xy_scaled(xiRenderer *renderer, xiImageHandle image,
-        xi_v2 center, xi_f32 scale, xi_f32 angle);
+Func void QuadDraw(RendererContext *renderer, Vec4F colour, Vec2F center, Vec2F dim, F32 turns);
+Func void LineDraw(RendererContext *renderer, Vec4F start_c, Vec2F start_p, Vec4F end_c, Vec2F end_p, F32 thickness);
+Func void QuadOutlineDraw(RendererContext *renderer, Vec4F colour, Vec2F center, Vec2F dim, F32 turns, F32 thickness);
 
-extern XI_API void xi_sprite_draw_xy(xiRenderer *renderer, xiImageHandle image,
-        xi_v2 center, xi_v2 dimension, xi_f32 angle);
+Func void SpriteDrawScaled(RendererContext *renderer, ImageHandle image, Vec2F center, F32 scale, F32 turns);
+Func void SpriteDraw(RendererContext *renderer, ImageHandle image, Vec2F center, Vec2F dim, F32 turns);
 
-// coloured variants of the sprite drawing above, this will modulate the colour into the texture
-//
-extern XI_API void xi_coloured_sprite_draw_xy_scaled(xiRenderer *renderer, xiImageHandle image, xi_v4 colour,
-        xi_v2 center, xi_f32 scale, xi_f32 angle);
-
-extern XI_API void xi_coloured_sprite_draw_xy(xiRenderer *renderer, xiImageHandle image, xi_v4 colour,
-        xi_v2 center, xi_v2 dimension, xi_f32 angle);
+Func void ColouredSpriteDrawScaled(RendererContext *renderer, ImageHandle image, Vec4F colour, Vec2F center, F32 scale, F32 turns);
+Func void ColouredSpriteDraw(RendererContext *renderer, ImageHandle image, Vec4F colour, Vec2F center, Vec2F dim, F32 turns);
 
 #endif  // XI_DRAW_H_

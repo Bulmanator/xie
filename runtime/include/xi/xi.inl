@@ -7,191 +7,247 @@
 // :note implementation of xi_string.h inline functions
 //
 
-xi_string xi_str_wrap_count(xi_u8 *data, xi_uptr count) {
-    xi_string result;
+Str8 Str8_WrapCount(U8 *data, S64 count) {
+    Str8 result;
     result.count = count;
     result.data  = data;
 
     return result;
 }
 
-xi_string xi_str_wrap_range(xi_u8 *start, xi_u8 *end) {
-    xi_string result;
-
-    XI_ASSERT(start <= end);
-
-    result.count = (xi_uptr) (end - start);
+Str8 Str8_WrapRange(U8 *start, U8 *end) {
+    Str8 result;
+    result.count = cast(S64) (end - start);
     result.data  = start;
 
     return result;
 }
 
 //
-// :note implementation of xi_maths.h inline functions
+// --------------------------------------------------------------------------------
+// :Random_Number_Generator
+// --------------------------------------------------------------------------------
 //
+
 #include <math.h>
 
-// xorshift rng
-//
-void xi_rng_seed(xiRandomState *rng, xi_u64 seed) {
-    rng->state = seed;
-}
+RandomState RandomSeed(U64 seed) {
+    RandomState result;
+    result.state = seed;
 
-xi_u32 xi_rng_u32(xiRandomState *rng) {
-    xi_u32 result = (xi_u32) xi_rng_u64(rng);
     return result;
 }
 
-xi_u64 xi_rng_u64(xiRandomState *rng) {
-    xi_u64 result = rng->state;
+U32 U32_RandomNext(RandomState *rng) {
+    U32 result = cast(U32) U64_RandomNext(rng);
+    return result;
+}
+
+U64 U64_RandomNext(RandomState *rng) {
+    U64 result = rng->state;
 
     result ^= (result << 13);
     result ^= (result >>  7);
     result ^= (result << 17);
 
     rng->state = result;
+
     return result;
 }
 
-xi_f32 xi_rng_unilateral_f32(xiRandomState *rng) {
-    xi_f32 result = (xi_f32) xi_rng_unilateral_f64(rng);
+F32 F32_RandomUnilateral(RandomState *rng) {
+    F32 result = cast(F32) F64_RandomUnilateral(rng);
     return result;
 }
 
-xi_f32 xi_rng_bilateral_f32(xiRandomState *rng) {
-    xi_f32 result = -1.0f + (2.0f * xi_rng_unilateral_f32(rng));
+F64 F64_RandomUnilateral(RandomState *rng) {
+    F64 result = U64_RandomNext(rng) / cast(F64) U64_MAX;
     return result;
 }
 
-xi_f64 xi_rng_unilateral_f64(xiRandomState *rng) {
-    xi_f64 result = xi_rng_u64(rng) / (xi_f64) XI_U64_MAX;
+F32 F32_RandomBilateral(RandomState *rng) {
+    F32 result = -1.0f + (2.0f * F32_RandomUnilateral(rng));
     return result;
 }
 
-xi_f64 xi_rng_bilateral_f64(xiRandomState *rng) {
-    xi_f64 result = -1.0f + (2.0f * xi_rng_unilateral_f64(rng));
+F64 F64_RandomBilateral(RandomState *rng) {
+    F64 result = -1.0 + (2.0 * F64_RandomUnilateral(rng));
     return result;
 }
 
-xi_u32 xi_rng_range_u32(xiRandomState *rng, xi_u32 min, xi_u32 max) {
-    xi_u32 result = min + (xi_u32) ((xi_rng_unilateral_f32(rng) * (max - min)) + 0.5f);
+U32 U32_RandomRange(RandomState *rng, U32 min, U32 max) {
+    U32 result = min + cast(U32) ((F32_RandomUnilateral(rng) * (max - min)) + 0.5f);
     return result;
 }
 
-xi_f32 xi_rng_range_f32(xiRandomState *rng, xi_f32 min, xi_f32 max) {
-    xi_f32 result = min + (xi_rng_unilateral_f32(rng) * (max - min));
+S32 S32_RandomRange(RandomState *rng, S32 min, S32 max) {
+    S32 result = min + cast(S32) ((F32_RandomUnilateral(rng) * (max - min)) + 0.5f);
     return result;
 }
 
-xi_u64 xi_rng_range_u64(xiRandomState *rng, xi_u64 min, xi_u64 max) {
-    xi_u64 result = min + (xi_u64) ((xi_rng_unilateral_f64(rng) * (max - min)) + 0.5);
+U64 U64_RandomRange(RandomState *rng, U64 min, U64 max) {
+    U64 result = min + cast(U64) ((F64_RandomUnilateral(rng) * (max - min)) + 0.5);
     return result;
 }
 
-xi_f64 xi_rng_range_f64(xiRandomState *rng, xi_f64 min, xi_f64 max) {
-    xi_f64 result = min + (xi_rng_unilateral_f64(rng) * (max - min));
+S64 S64_RandomRange(RandomState *rng, S64 min, S64 max) {
+    S64 result = min + cast(S64) ((F64_RandomUnilateral(rng) * (max - min)) + 0.5);
     return result;
 }
 
-xi_u32 xi_rng_choice_u32(xiRandomState *rng, xi_u32 choice_count) {
-    xi_u32 result = xi_rng_u32(rng) % choice_count;
+F32 F32_RandomRange(RandomState *rng, F32 min, F32 max) {
+    F32 result = min + (F32_RandomUnilateral(rng) * (max - min));
     return result;
 }
 
-// xi_sqrt and xi_rsqrt_approx are implemented using simd intrinsics below
-// :simd_maths
+F64 F64_RandomRange(RandomState *rng, F64 min, F64 max) {
+    F64 result = min + (F64_RandomUnilateral(rng) * (max - min));
+    return result;
+}
+
+U32 U32_RandomChoice(RandomState *rng, U32 count) {
+    Assert(count != 0);
+
+    U32 result = U32_RandomNext(rng) % count;
+    return result;
+}
+
+U64 U64_RandomChoice(RandomState *rng, U64 count) {
+    Assert(count != 0);
+
+    U64 result = U64_RandomNext(rng) % count;
+    return result;
+}
+
 //
-xi_f32 xi_rsqrt(xi_f32 a) {
-    xi_f32 result = 1.0f / xi_sqrt(a);
-    return result;
-}
-
-// trig. functions
+// --------------------------------------------------------------------------------
+// :Basic
+// --------------------------------------------------------------------------------
 //
-// @todo: we should replace these with our own functions so we can change from radians to turns
+
+// F32Sqrt and F32InvSqrtApprox are implemented using simd intrinsics below :simd_maths
 //
-xi_f32 xi_sin(xi_f32 a) {
-    xi_f32 result = sinf(a);
+F32 F32_InvSqrt(F32 a) {
+    F32 result = 1.0f / F32_Sqrt(a);
     return result;
 }
 
-xi_f32 xi_cos(xi_f32 a) {
-    xi_f32 result = cosf(a);
+F32 F32_Sin(F32 turns) {
+    F32 result = sinf(F32_TAU * turns);
     return result;
 }
 
-xi_f32 xi_tan(xi_f32 a) {
-    xi_f32 result = tanf(a);
+F32 F32_Cos(F32 turns) {
+    F32 result = cosf(F32_TAU * turns);
     return result;
 }
 
-// lerp
+F32 F32_Tan(F32 turns) {
+    F32 result = tanf(F32_TAU * turns);
+    return result;
+}
+
+F32 F32_Lerp(F32 a, F32 b, F32 t) {
+    F32 result = a + ((b - a) * t);
+    return result;
+}
+
+F64 F64_Lerp(F64 a, F64 b, F64 t) {
+    F64 result = a + ((b - a) * t);
+    return result;
+}
+
+Vec2F V2F_Lerp(Vec2F a, Vec2F b, F32 t) {
+    Vec2F result;
+    result.x = F32_Lerp(a.x, b.x, t);
+    result.y = F32_Lerp(a.y, b.y, t);
+
+    return result;
+}
+
+Vec3F V3F_Lerp(Vec3F a, Vec3F b, F32 t) {
+    Vec3F result;
+    result.x = F32_Lerp(a.x, b.x, t);
+    result.y = F32_Lerp(a.y, b.y, t);
+    result.z = F32_Lerp(a.z, b.z, t);
+
+    return result;
+}
+
+Vec4F V4F_Lerp(Vec4F a, Vec4F b, F32 t) {
+    Vec4F result;
+    result.x = F32_Lerp(a.x, b.x, t);
+    result.y = F32_Lerp(a.y, b.y, t);
+    result.z = F32_Lerp(a.z, b.z, t);
+    result.w = F32_Lerp(a.w, b.w, t);
+
+    return result;
+}
+
+U32 U32_Pow2Next(U32 x) {
+    U32 result = x;
+
+    // @todo: how do we want this to work with inputs that are already powers of 2,
+    // currently it just returns the value itself, but maybe we want to shift it up by
+    // 1 in this case
+    //
+
+    result--;
+    result |= (result >>  1);
+    result |= (result >>  2);
+    result |= (result >>  4);
+    result |= (result >>  8);
+    result |= (result >> 16);
+    result++;
+
+    return result;
+}
+
+U32 U32_Pow2Prev(U32 x) {
+    U32 result = U32_Pow2Next(x) >> 1;
+    return result;
+}
+
+U32 U32_Pow2Nearest(U32 x) {
+    U32 next = U32_Pow2Next(x);
+    U32 prev = next >> 1;
+
+    U32 result = (next - x) > (x - prev) ? prev : next;
+    return result;
+}
+
 //
-xi_f32 xi_lerp_f32(xi_f32 a, xi_f32 b, xi_f32 t) {
-    xi_f32 result = (a * (1.0f - t)) + (b * t);
-    return result;
-}
-
-xi_f64 xi_lerp_f64(xi_f64 a, xi_f64 b, xi_f64 t) {
-    xi_f64 result = (a * (1.0 - t)) + (b * t);
-    return result;
-}
-
-xi_v2 xi_lerp_v2(xi_v2 a, xi_v2 b, xi_f32 t) {
-    xi_v2 result;
-    result.x = xi_lerp_f32(a.x, b.x, t);
-    result.y = xi_lerp_f32(a.y, b.y, t);
-
-    return result;
-}
-
-xi_v3 xi_lerp_v3(xi_v3 a, xi_v3 b, xi_f32 t) {
-    xi_v3 result;
-    result.x = xi_lerp_f32(a.x, b.x, t);
-    result.y = xi_lerp_f32(a.y, b.y, t);
-    result.z = xi_lerp_f32(a.z, b.z, t);
-
-    return result;
-}
-
-xi_v4 xi_lerp_v4(xi_v4 a, xi_v4 b, xi_f32 t) {
-    xi_v4 result;
-    result.x = xi_lerp_f32(a.x, b.x, t);
-    result.y = xi_lerp_f32(a.y, b.y, t);
-    result.z = xi_lerp_f32(a.z, b.z, t);
-    result.w = xi_lerp_f32(a.w, b.w, t);
-
-    return result;
-}
-
-// create functions
+// --------------------------------------------------------------------------------
+// :Construction
+// --------------------------------------------------------------------------------
 //
-xi_v2u xi_v2u_create(xi_u32 x, xi_u32 y) {
-    xi_v2u result;
+
+Vec2U V2U(U32 x, U32 y) {
+    Vec2U result;
     result.x = x;
     result.y = y;
 
     return result;
 }
 
-xi_v2s xi_v2s_create(xi_s32 x, xi_s32 y) {
-    xi_v2s result;
+Vec2S V2S(S32 x, S32 y) {
+    Vec2S result;
     result.x = x;
     result.y = y;
 
     return result;
 }
 
-xi_v2 xi_v2_create(xi_f32 x, xi_f32 y) {
-    xi_v2 result;
+Vec2F V2F(F32 x, F32 y) {
+    Vec2F result;
     result.x = x;
     result.y = y;
 
     return result;
 }
 
-xi_v3 xi_v3_create(xi_f32 x, xi_f32 y, xi_f32 z) {
-    xi_v3 result;
+Vec3F V3F(F32 x, F32 y, F32 z) {
+    Vec3F result;
     result.x = x;
     result.y = y;
     result.z = z;
@@ -199,300 +255,422 @@ xi_v3 xi_v3_create(xi_f32 x, xi_f32 y, xi_f32 z) {
     return result;
 }
 
-xi_v4 xi_v4_create(xi_f32 x, xi_f32 y, xi_f32 z, xi_f32 w) {
-    xi_v4 result;
+Vec4F V4F(F32 x, F32 y, F32 z, F32 w) {
+    Vec4F result;
     result.x = x;
     result.y = y;
-    result.z = z;
-    result.w = w;
-
-    return result;
-}
-
-// conversion functions
-//
-xi_v2u xi_v2u_from_v2s(xi_v2s xy) {
-    xi_v2u result;
-    result.x = (xi_u32) xy.x;
-    result.y = (xi_u32) xy.y;
-
-    return result;
-}
-
-xi_v2u xi_v2u_from_v2(xi_v2 xy) {
-    xi_v2u result;
-    result.x = (xi_u32) xy.x;
-    result.y = (xi_u32) xy.y;
-
-    return result;
-}
-
-xi_v2s xi_v2s_from_v2u(xi_v2u xy) {
-    xi_v2s result;
-    result.x = (xi_s32) xy.x;
-    result.y = (xi_s32) xy.y;
-
-    return result;
-}
-
-xi_v2s xi_v2s_from_v2(xi_v2 xy) {
-    xi_v2s result;
-    result.x = (xi_s32) xy.x;
-    result.y = (xi_s32) xy.y;
-
-    return result;
-}
-
-xi_v2 xi_v2_from_v2u(xi_v2u xy) {
-    xi_v2 result;
-    result.x = (xi_f32) xy.x;
-    result.y = (xi_f32) xy.y;
-
-    return result;
-}
-
-xi_v2 xi_v2_from_v2s(xi_v2s xy) {
-    xi_v2 result;
-    result.x = (xi_f32) xy.x;
-    result.y = (xi_f32) xy.y;
-
-    return result;
-}
-
-xi_v3 xi_v3_from_v2(xi_v2 xy, xi_f32 z) {
-    xi_v3 result;
-    result.x = xy.x;
-    result.y = xy.y;
-    result.z = z;
-
-    return result;
-}
-
-xi_v4 xi_v4_from_v2(xi_v2 xy, xi_f32 z, xi_f32 w) {
-    xi_v4 result;
-    result.x = xy.x;
-    result.y = xy.y;
     result.z = z;
     result.w = w;
 
     return result;
 }
 
-xi_v4 xi_v4_from_v3(xi_v3 xyz, xi_f32 w) {
-    xi_v4 result;
-    result.x = xyz.x;
-    result.y = xyz.y;
-    result.z = xyz.z;
-    result.w = w;
+Vec2F V2F_UnitArm(F32 turn) {
+    Vec2F result;
+    result.x = F32_Cos(turn);
+    result.y = F32_Sin(turn);
 
     return result;
 }
 
-xi_m2x2 xi_m2x2_from_radians(xi_f32 angle) {
-    xi_m2x2 result;
-
-    xi_f32 s = xi_sin(angle);
-    xi_f32 c = xi_cos(angle);
-
-    result.m[0][0] =  c;
-    result.m[0][1] = -s;
-    result.m[1][0] =  s;
-    result.m[1][1] =  c;
-
-    return result;
-}
-
-xi_m4x4 xi_m4x4_from_rows_v3(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis) {
-    xi_m4x4 result = {
-        x_axis.x, x_axis.y, x_axis.z, 0,
-        y_axis.x, y_axis.y, y_axis.z, 0,
-        z_axis.x, z_axis.y, z_axis.z, 0,
-        0,        0,        0,        1
+Mat4x4F M4x4F(F32 diagonal) {
+    Mat4x4F result = {
+        diagonal, 0, 0, 0,
+        0, diagonal, 0, 0,
+        0, 0, diagonal, 0,
+        0, 0, 0, diagonal
     };
 
     return result;
 }
 
-xi_m4x4 xi_m4x4_from_columns_v3(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis) {
-    xi_m4x4 result = {
-        x_axis.x, y_axis.x, z_axis.x, 0,
-        x_axis.y, y_axis.y, z_axis.y, 0,
-        x_axis.z, y_axis.z, z_axis.z, 0,
-        0,        0,        0,        1
+Mat4x4F M4x4F_Rows(Vec3F x, Vec3F y, Vec3F z) {
+    Mat4x4F result = {
+        x.x, x.y, x.z, 0,
+        y.x, y.y, y.z, 0,
+        z.x, z.y, z.z, 0,
+        0,   0,   0,   1
     };
 
     return result;
 }
 
-// dot
+Mat4x4F M4x4F_Columns(Vec3F x, Vec3F y, Vec3F z) {
+    Mat4x4F result = {
+        x.x, y.x, z.x, 0,
+        x.y, y.y, z.y, 0,
+        x.z, y.z, z.z, 0,
+        0,   0,   0,   1
+    };
+
+    return result;
+}
+
+Mat4x4F M4x4F_RotationX(F32 turns) {
+    F32 c = F32_Cos(turns);
+    F32 s = F32_Sin(turns);
+
+    Mat4x4F result = {
+        1, 0,  0, 0,
+        0, c, -s, 0,
+        0, s,  c, 0,
+        0, 0,  0, 1
+    };
+
+    return result;
+}
+
+Mat4x4F M4x4F_RotationY(F32 turns) {
+    F32 c = F32_Cos(turns);
+    F32 s = F32_Sin(turns);
+
+    Mat4x4F result = {
+         c, 0, s, 0,
+         0, 1, 0, 0,
+        -s, 0, c, 0,
+         0, 0, 0, 1
+    };
+
+    return result;
+}
+
+Mat4x4F M4x4F_RotationZ(F32 turns) {
+    F32 c = F32_Cos(turns);
+    F32 s = F32_Sin(turns);
+
+    Mat4x4F result = {
+        c, -s, 0, 0,
+        s,  c, 0, 0,
+        0,  0, 1, 0,
+        0,  0, 0, 1
+    };
+
+    return result;
+}
+
 //
-xi_f32 xi_v2_dot(xi_v2 a, xi_v2 b) {
-    xi_f32 result = (a.x * b.x) + (a.y * b.y);
-    return result;
-}
-
-xi_f32 xi_v3_dot(xi_v3 a, xi_v3 b) {
-    xi_f32 result = (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
-    return result;
-}
-
-xi_f32 xi_v4_dot(xi_v4 a, xi_v4 b) {
-    xi_f32 result = (a.x * b.x) + (a.y * b.y) + (a.z * b.z) + (a.w * b.w);
-    return result;
-}
-
-// length
+// --------------------------------------------------------------------------------
+// :Conversion
+// --------------------------------------------------------------------------------
 //
-xi_f32 xi_v2_length(xi_v2 a) {
-    xi_f32 result = xi_sqrt(xi_v2_dot(a, a));
+
+Vec2F V2F_FromV2U(Vec2U a) {
+    Vec2F result;
+    result.x = cast(F32) a.x;
+    result.y = cast(F32) a.y;
+
     return result;
 }
 
-xi_f32 xi_v3_length(xi_v3 a) {
-    xi_f32 result = xi_sqrt(xi_v3_dot(a, a));
+Vec2F V2F_FromV2S(Vec2S a) {
+    Vec2F result;
+    result.x = cast(F32) a.x;
+    result.y = cast(F32) a.y;
+
     return result;
 }
 
-xi_f32 xi_v4_length(xi_v4 a) {
-    xi_f32 result = xi_sqrt(xi_v4_dot(a, a));
+Vec2S V2S_FromV2U(Vec2U a) {
+    Vec2S result;
+    result.x = cast(S32) a.x;
+    result.y = cast(S32) a.y;
+
     return result;
 }
 
-// normalize or zero vector if len = 0
+Vec2S V2S_FromV2F(Vec2F a) {
+    Vec2S result;
+    result.x = cast(S32) a.x;
+    result.y = cast(S32) a.y;
+
+    return result;
+}
+
+Vec2U V2U_FromV2S(Vec2S a) {
+    Vec2U result;
+    result.x = cast(U32) a.x;
+    result.y = cast(U32) a.y;
+
+    return result;
+}
+
+Vec2U V2U_FromV2F(Vec2F a) {
+    Vec2U result;
+    result.x = cast(U32) a.x;
+    result.y = cast(U32) a.y;
+
+    return result;
+}
+
+Vec3F V3F_FromV2F(Vec2F xy,  F32 z) {
+    Vec3F result;
+    result.xy = xy;
+    result.z  = z;
+
+    return result;
+}
+
+Vec4F V4F_FromV2F(Vec2F xy,  F32 z, F32 w) {
+    Vec4F result;
+    result.xy = xy;
+    result.z  = z;
+    result.w  = w;
+
+    return result;
+}
+
+Vec4F V4F_FromV3F(Vec3F xyz, F32 w) {
+    Vec4F result;
+    result.xyz = xyz;
+    result.w   = w;
+
+    return result;
+}
+
+Vec4F M4x4F_RowExtract(Mat4x4F a, U32 row) {
+    Assert(row < 4);
+
+    Vec4F result = a.r[row];
+    return result;
+}
+
+Vec4F M4x4F_ColumnExtract(Mat4x4F a, U32 column) {
+    Assert(column < 4);
+
+    Vec4F result = V4F(a.m[0][column], a.m[1][column], a.m[2][column], a.m[3][column]);
+    return result;
+}
+
+U32 V4F_ColourPackABGR(Vec4F colour) {
+    U32 result =
+        (((U32) (255.0f * colour.a) & 0xFF) << 24) |
+        (((U32) (255.0f * colour.b) & 0xFF) << 16) |
+        (((U32) (255.0f * colour.g) & 0xFF) <<  8) |
+        (((U32) (255.0f * colour.r) & 0xFF) <<  0);
+
+    return result;
+}
+
+Vec4F U32_ColourUnpackARGB(U32 colour) {
+    Vec4F result;
+    result.a = ((colour >> 24) & 0xFF) / 255.0f;
+    result.r = ((colour >> 16) & 0xFF) / 255.0f;
+    result.g = ((colour >>  8) & 0xFF) / 255.0f;
+    result.b = ((colour >>  0) & 0xFF) / 255.0f;
+
+    return result;
+}
+
+Vec4F U32_ColourUnpackABGR(U32 colour) {
+    Vec4F result;
+    result.a = ((colour >> 24) & 0xFF) / 255.0f;
+    result.b = ((colour >> 16) & 0xFF) / 255.0f;
+    result.g = ((colour >>  8) & 0xFF) / 255.0f;
+    result.r = ((colour >>  0) & 0xFF) / 255.0f;
+
+    return result;
+}
+
 //
-xi_v2 xi_v2_noz(xi_v2 a) {
-    xi_v2 result = { 0 };
+// --------------------------------------------------------------------------------
+// :Vector_Basic
+// --------------------------------------------------------------------------------
+//
 
-    xi_f32 len_sq = xi_v2_dot(a, a);
-    if (len_sq > (XI_EPSILON_F32 * XI_EPSILON_F32)) {
-        result = xi_v2_mul_f32(a, 1.0f / xi_sqrt(len_sq));
+F32 V2F_Dot(Vec2F a, Vec2F b) {
+    F32 result = (a.x * b.x) + (a.y * b.y);
+    return result;
+}
+
+F32 V3F_Dot(Vec3F a, Vec3F b) {
+    F32 result = (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
+    return result;
+}
+
+F32 V4F_Dot(Vec4F a, Vec4F b) {
+    F32 result = (a.x * b.x) + (a.y * b.y) + (a.z * b.z) + (a.w * b.w);
+    return result;
+}
+
+F32 V2F_LengthSq(Vec2F a) {
+    F32 result = V2F_Dot(a, a);
+    return result;
+}
+
+F32 V3F_LengthSq(Vec3F a) {
+    F32 result = V3F_Dot(a, a);
+    return result;
+}
+
+F32 V4F_LengthSq(Vec4F a) {
+    F32 result = V4F_Dot(a, a);
+    return result;
+}
+
+F32 V2F_Length(Vec2F a) {
+    F32 result = F32_Sqrt(V2F_Dot(a, a));
+    return result;
+}
+
+F32 V3F_Length(Vec3F a) {
+    F32 result = F32_Sqrt(V3F_Dot(a, a));
+    return result;
+}
+
+F32 V4F_Length(Vec4F a) {
+    F32 result = F32_Sqrt(V4F_Dot(a, a));
+    return result;
+}
+
+Vec2F V2F_Normalise(Vec2F a) {
+    Vec2F result = V2F(0, 0);
+
+    F32 len = V2F_Length(a);
+    if (len != 0.0) {
+        result = V2F_Scale(a, 1.0f / len);
     }
 
     return result;
 }
 
-xi_v3 xi_v3_noz(xi_v3 a) {
-    xi_v3 result = { 0 };
+Vec3F V3F_Normalise(Vec3F a) {
+    Vec3F result = V3F(0, 0, 0);
 
-    xi_f32 len_sq = xi_v3_dot(a, a);
-    if (len_sq > (XI_EPSILON_F32 * XI_EPSILON_F32)) {
-        result = xi_v3_mul_f32(a, 1.0f / xi_sqrt(len_sq));
+    F32 len = V3F_Length(a);
+    if (len != 0.0) {
+        result = V3F_Scale(a, 1.0f / len);
     }
 
     return result;
 }
 
-xi_v4 xi_v4_noz(xi_v4 a) {
-    xi_v4 result = { 0 };
+Vec4F V4F_Normalise(Vec4F a) {
+    Vec4F result = V4F(0, 0, 0, 0);
 
-    xi_f32 len_sq = xi_v4_dot(a, a);
-    if (len_sq > (XI_EPSILON_F32 * XI_EPSILON_F32)) {
-        result = xi_v4_mul_f32(a, 1.0f / xi_sqrt(len_sq));
+    F32 len = V4F_Length(a);
+    if (len != 0.0) {
+        result = V4F_Scale(a, 1.0f / len);
     }
 
     return result;
 }
 
-// min and max for vectors
-//
-xi_v2 xi_v2_min(xi_v2 a, xi_v2 b) {
-    xi_v2 result;
-    result.x = XI_MIN(a.x, b.x);
-    result.y = XI_MIN(a.y, b.y);
+Vec2F V2F_Min(Vec2F a, Vec2F b) {
+    Vec2F result;
+    result.x = Min(a.x, b.x);
+    result.y = Min(a.y, b.y);
 
     return result;
 }
 
-xi_v3 xi_v3_min(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
-    result.x = XI_MIN(a.x, b.x);
-    result.y = XI_MIN(a.y, b.y);
-    result.z = XI_MIN(a.z, b.z);
+Vec3F V3F_Min(Vec3F a, Vec3F b) {
+    Vec3F result;
+    result.x = Min(a.x, b.x);
+    result.y = Min(a.y, b.y);
+    result.z = Min(a.z, b.z);
 
     return result;
 }
 
-xi_v4 xi_v4_min(xi_v4 a, xi_v4 b) {
-    xi_v4 result;
-    result.x = XI_MIN(a.x, b.x);
-    result.y = XI_MIN(a.y, b.y);
-    result.z = XI_MIN(a.z, b.z);
-    result.w = XI_MIN(a.w, b.w);
+Vec4F V4F_Min(Vec4F a, Vec4F b) {
+    Vec4F result;
+    result.x = Min(a.x, b.x);
+    result.y = Min(a.y, b.y);
+    result.z = Min(a.z, b.z);
+    result.w = Min(a.w, b.w);
 
     return result;
 }
 
-xi_v2 xi_v2_max(xi_v2 a, xi_v2 b) {
-    xi_v2 result;
-    result.x = XI_MAX(a.x, b.x);
-    result.y = XI_MAX(a.y, b.y);
+Vec2F V2F_Max(Vec2F a, Vec2F b) {
+    Vec2F result;
+    result.x = Max(a.x, b.x);
+    result.y = Max(a.y, b.y);
 
     return result;
 }
 
-xi_v3 xi_v3_max(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
-    result.x = XI_MAX(a.x, b.x);
-    result.y = XI_MAX(a.y, b.y);
-    result.z = XI_MAX(a.z, b.z);
+Vec3F V3F_Max(Vec3F a, Vec3F b) {
+    Vec3F result;
+    result.x = Max(a.x, b.x);
+    result.y = Max(a.y, b.y);
+    result.z = Max(a.z, b.z);
 
     return result;
 }
 
-xi_v4 xi_v4_max(xi_v4 a, xi_v4 b) {
-    xi_v4 result;
-    result.x = XI_MAX(a.x, b.x);
-    result.y = XI_MAX(a.y, b.y);
-    result.z = XI_MAX(a.z, b.z);
-    result.w = XI_MAX(a.w, b.w);
+Vec4F V4F_Max(Vec4F a, Vec4F b) {
+    Vec4F result;
+    result.x = Max(a.x, b.x);
+    result.y = Max(a.y, b.y);
+    result.z = Max(a.z, b.z);
+    result.w = Max(a.w, b.w);
 
     return result;
 }
 
-// misc vector functions
-//
-xi_v2 xi_v2_perp(xi_v2 a) {
-    xi_v2 result = xi_v2_create(-a.y, a.x);
+Vec2F V2F_Perp(Vec2F a) {
+    Vec2F result;
+    result.x = -a.y;
+    result.y =  a.x;
+
     return result;
 }
 
-xi_v3 xi_v3_cross(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
+Vec2F V2F_Rotate(Vec2F arm, Vec2F v) {
+    Vec2F result;
+    result.x = (arm.x * v.x) - (arm.y * v.y);
+    result.y = (arm.y * v.x) + (arm.x * v.y);
+
+    return result;
+}
+
+F32 V2F_Cross(Vec2F a, Vec2F b) {
+    F32 result = (a.x * b.y) - (a.y * b.x);
+    return result;
+}
+
+Vec3F V3F_Cross(Vec3F a, Vec3F b) {
+    Vec3F result;
     result.x = (a.y * b.z) - (a.z * b.y);
-    result.y = (a.z * b.x) - (a.z * b.x);
+    result.y = (a.z * b.x) - (a.x * b.z);
     result.z = (a.x * b.y) - (a.y * b.x);
 
     return result;
 }
 
-// operators
 //
-xi_v2u xi_v2u_add(xi_v2u a, xi_v2u b) {
-    xi_v2u result;
+// --------------------------------------------------------------------------------
+// :Operators
+// --------------------------------------------------------------------------------
+//
+
+Vec2U V2U_Add(Vec2U a, Vec2U b) {
+    Vec2U result;
     result.x = (a.x + b.x);
     result.y = (a.y + b.y);
 
     return result;
 }
 
-xi_v2s xi_v2s_add(xi_v2s a, xi_v2s b) {
-    xi_v2s result;
+Vec2S V2S_Add(Vec2S a, Vec2S b) {
+    Vec2S result;
     result.x = (a.x + b.x);
     result.y = (a.y + b.y);
 
     return result;
 }
 
-xi_v2 xi_v2_add(xi_v2 a, xi_v2 b) {
-    xi_v2 result;
+Vec2F V2F_Add(Vec2F a, Vec2F b) {
+    Vec2F result;
     result.x = (a.x + b.x);
     result.y = (a.y + b.y);
 
     return result;
 }
 
-xi_v3 xi_v3_add(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
+Vec3F V3F_Add(Vec3F a, Vec3F b) {
+    Vec3F result;
     result.x = (a.x + b.x);
     result.y = (a.y + b.y);
     result.z = (a.z + b.z);
@@ -500,8 +678,8 @@ xi_v3 xi_v3_add(xi_v3 a, xi_v3 b) {
     return result;
 }
 
-xi_v4 xi_v4_add(xi_v4 a, xi_v4 b) {
-    xi_v4 result;
+Vec4F V4F_Add(Vec4F a, Vec4F b) {
+    Vec4F result;
     result.x = (a.x + b.x);
     result.y = (a.y + b.y);
     result.z = (a.z + b.z);
@@ -510,24 +688,24 @@ xi_v4 xi_v4_add(xi_v4 a, xi_v4 b) {
     return result;
 }
 
-xi_v2s xi_v2s_neg(xi_v2s a) {
-    xi_v2s result;
+Vec2S V2S_Neg(Vec2S a) {
+    Vec2S result;
     result.x = -a.x;
     result.y = -a.y;
 
     return result;
 }
 
-xi_v2  xi_v2_neg(xi_v2 a) {
-    xi_v2 result;
+Vec2F V2F_Neg(Vec2F a) {
+    Vec2F result;
     result.x = -a.x;
     result.y = -a.y;
 
     return result;
 }
 
-xi_v3  xi_v3_neg(xi_v3 a) {
-    xi_v3 result;
+Vec3F V3F_Neg(Vec3F a) {
+    Vec3F result;
     result.x = -a.x;
     result.y = -a.y;
     result.z = -a.z;
@@ -535,8 +713,8 @@ xi_v3  xi_v3_neg(xi_v3 a) {
     return result;
 }
 
-xi_v4  xi_v4_neg(xi_v4 a) {
-    xi_v4 result;
+Vec4F V4F_Neg(Vec4F a) {
+    Vec4F result;
     result.x = -a.x;
     result.y = -a.y;
     result.z = -a.z;
@@ -545,32 +723,41 @@ xi_v4  xi_v4_neg(xi_v4 a) {
     return result;
 }
 
-xi_v2u xi_v2u_sub(xi_v2u a, xi_v2u b) {
-    xi_v2u result;
+Vec2U V2U_Sub(Vec2U a, Vec2U b) {
+    Vec2U result;
     result.x = (a.x - b.x);
     result.y = (a.y - b.y);
 
     return result;
 }
 
-xi_v2s xi_v2s_sub(xi_v2s a, xi_v2s b) {
-    xi_v2s result;
+Vec2S V2S_Sub(Vec2S a, Vec2S b) {
+    Vec2S result;
     result.x = (a.x - b.x);
     result.y = (a.y - b.y);
 
     return result;
 }
 
-xi_v2 xi_v2_sub(xi_v2 a, xi_v2 b) {
-    xi_v2 result;
+Vec2F V2F_Sub(Vec2F a, Vec2F b) {
+    Vec2F result;
     result.x = (a.x - b.x);
     result.y = (a.y - b.y);
 
     return result;
 }
 
-xi_v3 xi_v3_sub(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
+Vec3F V3F_Sub(Vec3F a, Vec3F b) {
+    Vec3F result;
+    result.x = (a.x - b.x);
+    result.y = (a.y - b.y);
+    result.z = (a.z - b.z);
+
+    return result;
+}
+
+Vec4F V4F_Sub(Vec4F a, Vec4F b) {
+    Vec4F result;
     result.x = (a.x - b.x);
     result.y = (a.y - b.y);
     result.z = (a.z - b.z);
@@ -578,26 +765,16 @@ xi_v3 xi_v3_sub(xi_v3 a, xi_v3 b) {
     return result;
 }
 
-xi_v4 xi_v4_sub(xi_v4 a, xi_v4 b) {
-    xi_v4 result;
-    result.x = (a.x - b.x);
-    result.y = (a.y - b.y);
-    result.z = (a.z - b.z);
-    result.w = (a.w - b.w);
-
-    return result;
-}
-
-xi_v2 xi_v2_mul(xi_v2 a, xi_v2 b) {
-    xi_v2 result;
+Vec2F V2F_Hadamard(Vec2F a, Vec2F b) {
+    Vec2F result;
     result.x = (a.x * b.x);
     result.y = (a.y * b.y);
 
     return result;
 }
 
-xi_v3 xi_v3_mul(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
+Vec3F V3F_Hadamard(Vec3F a, Vec3F b) {
+    Vec3F result;
     result.x = (a.x * b.x);
     result.y = (a.y * b.y);
     result.z = (a.z * b.z);
@@ -605,8 +782,8 @@ xi_v3 xi_v3_mul(xi_v3 a, xi_v3 b) {
     return result;
 }
 
-xi_v4 xi_v4_mul(xi_v4 a, xi_v4 b) {
-    xi_v4 result;
+Vec4F V4F_Hadamard(Vec4F a, Vec4F b) {
+    Vec4F result;
     result.x = (a.x * b.x);
     result.y = (a.y * b.y);
     result.z = (a.z * b.z);
@@ -615,23 +792,14 @@ xi_v4 xi_v4_mul(xi_v4 a, xi_v4 b) {
     return result;
 }
 
-xi_m2x2 xi_m2x2_mul(xi_m2x2 a, xi_m2x2 b) {
-    xi_m2x2 result;
-    result.m[0][0] = (a.m[0][0] * b.m[0][0]) + (a.m[0][1] * b.m[1][0]);
-    result.m[0][1] = (a.m[0][0] * b.m[0][1]) + (a.m[0][1] * b.m[1][1]);
-    result.m[1][0] = (a.m[1][0] * b.m[0][0]) + (a.m[1][1] * b.m[1][0]);
-    result.m[1][1] = (a.m[1][0] * b.m[0][1]) + (a.m[0][1] * b.m[1][1]);
+Mat4x4F M4x4F_Mul(Mat4x4F a, Mat4x4F b) {
+    Mat4x4F result;
 
-    return result;
-}
-
-xi_m4x4 xi_m4x4_mul(xi_m4x4 a, xi_m4x4 b) {
     // @todo: simd
     //
-    xi_m4x4 result;
 
-    for (xi_u32 r = 0; r < 4; ++r) {
-        for (xi_u32 c = 0; c < 4; ++c) {
+    for (U32 r = 0; r < 4; ++r) {
+        for (U32 c = 0; c < 4; ++c) {
             result.m[r][c] =
                 (a.m[r][0] * b.m[0][c]) + (a.m[r][1] * b.m[1][c]) +
                 (a.m[r][2] * b.m[2][c]) + (a.m[r][3] * b.m[3][c]);
@@ -641,16 +809,31 @@ xi_m4x4 xi_m4x4_mul(xi_m4x4 a, xi_m4x4 b) {
     return result;
 }
 
-xi_v2 xi_v2_mul_f32(xi_v2 a, xi_f32 b) {
-    xi_v2 result;
+Vec3F M4x4F_MulV3F(Mat4x4F a, Vec3F b) {
+    Vec3F result = M4x4F_MulV4F(a, V4F_FromV3F(b, 1.0f)).xyz;
+    return result;
+}
+
+Vec4F M4x4F_MulV4F(Mat4x4F a, Vec4F b) {
+    Vec4F result;
+    result.x = V4F_Dot(a.r[0], b);
+    result.y = V4F_Dot(a.r[1], b);
+    result.z = V4F_Dot(a.r[2], b);
+    result.w = V4F_Dot(a.r[3], b);
+
+    return result;
+}
+
+Vec2F V2F_Scale(Vec2F a, F32 b) {
+    Vec2F result;
     result.x = (a.x * b);
     result.y = (a.y * b);
 
     return result;
 }
 
-xi_v3 xi_v3_mul_f32(xi_v3 a, xi_f32 b) {
-    xi_v3 result;
+Vec3F V3F_Scale(Vec3F a, F32 b) {
+    Vec3F result;
     result.x = (a.x * b);
     result.y = (a.y * b);
     result.z = (a.z * b);
@@ -658,8 +841,8 @@ xi_v3 xi_v3_mul_f32(xi_v3 a, xi_f32 b) {
     return result;
 }
 
-xi_v4 xi_v4_mul_f32(xi_v4 a, xi_f32 b) {
-    xi_v4 result;
+Vec4F V4F_Scale(Vec4F a, F32 b) {
+    Vec4F result;
     result.x = (a.x * b);
     result.y = (a.y * b);
     result.z = (a.z * b);
@@ -668,41 +851,16 @@ xi_v4 xi_v4_mul_f32(xi_v4 a, xi_f32 b) {
     return result;
 }
 
-xi_v2 xi_m2x2_mul_v2(xi_m2x2 a, xi_v2 b) {
-    xi_v2 result;
-    result.x = (a.m[0][0] * b.x) + (a.m[0][1] * b.y);
-    result.y = (a.m[1][0] * b.x) + (a.m[1][1] * b.y);
-
-    return result;
-}
-
-xi_v3 xi_m4x4_mul_v3(xi_m4x4 a, xi_v3 b) {
-    xi_v3 result = xi_m4x4_mul_v4(a, xi_v4_from_v3(b, 1.0f)).xyz;
-    return result;
-}
-
-xi_v4 xi_m4x4_mul_v4(xi_m4x4 a, xi_v4 b) {
-    // @todo: simd?
-    //
-    xi_v4 result;
-    result.x = xi_v4_dot(a.r[0], b);
-    result.y = xi_v4_dot(a.r[1], b);
-    result.z = xi_v4_dot(a.r[2], b);
-    result.w = xi_v4_dot(a.r[3], b);
-
-    return result;
-}
-
-xi_v2 xi_v2_div(xi_v2 a, xi_v2 b) {
-    xi_v2 result;
+Vec2F V2F_Div(Vec2F a, Vec2F b) {
+    Vec2F result;
     result.x = (a.x / b.x);
     result.y = (a.y / b.y);
 
     return result;
 }
 
-xi_v3 xi_v3_div(xi_v3 a, xi_v3 b) {
-    xi_v3 result;
+Vec3F V3F_Div(Vec3F a, Vec3F b) {
+    Vec3F result;
     result.x = (a.x / b.x);
     result.y = (a.y / b.y);
     result.z = (a.z / b.z);
@@ -710,8 +868,8 @@ xi_v3 xi_v3_div(xi_v3 a, xi_v3 b) {
     return result;
 }
 
-xi_v4 xi_v4_div(xi_v4 a, xi_v4 b) {
-    xi_v4 result;
+Vec4F V4F_Div(Vec4F a, Vec4F b) {
+    Vec4F result;
     result.x = (a.x / b.x);
     result.y = (a.y / b.y);
     result.z = (a.z / b.z);
@@ -720,159 +878,25 @@ xi_v4 xi_v4_div(xi_v4 a, xi_v4 b) {
     return result;
 }
 
-xi_v2 xi_v2_div_f32(xi_v2 a, xi_f32 b) {
-    xi_v2 result;
-    result.x = (a.x / b);
-    result.y = (a.y / b);
-
-    return result;
-}
-
-xi_v3 xi_v3_div_f32(xi_v3 a, xi_f32 b) {
-    xi_v3 result;
-    result.x = (a.x / b);
-    result.y = (a.y / b);
-    result.z = (a.z / b);
-
-    return result;
-}
-
-xi_v4 xi_v4_div_f32(xi_v4 a, xi_f32 b) {
-    xi_v4 result;
-    result.x = (a.x / b);
-    result.y = (a.y / b);
-    result.z = (a.z / b);
-    result.w = (a.w / b);
-
-    return result;
-}
-
-xi_v4 xi_m4x4_row_get(xi_m4x4 m, xi_u32 row) {
-    XI_ASSERT(row < 4);
-
-    xi_v4 result = m.r[row];
-    return result;
-}
-
-xi_v4 xi_m4x4_column_get(xi_m4x4 m, xi_u32 column) {
-    XI_ASSERT(column < 4);
-
-    xi_v4 result = xi_v4_create(m.m[0][column], m.m[1][column], m.m[2][column], m.m[3][column]);
-    return result;
-}
-
-xi_m4x4 xi_m4x4_translate_v3(xi_m4x4 m, xi_v3 t) {
-    xi_m4x4 result = m;
-    result.m[0][3] += t.x;
-    result.m[1][3] += t.y;
-    result.m[2][3] += t.z;
-
-    return result;
-}
-
-xi_m4x4 xi_m4x4_x_axis_rotation(xi_f32 radians) {
-    xi_f32 s = xi_sin(radians);
-    xi_f32 c = xi_cos(radians);
-
-    xi_m4x4 result = {
-        1, 0,  0, 0,
-        0, c, -s, 0,
-        0, s,  c, 0,
-        0, 0,  0, 0
-    };
-
-    return result;
-}
-
-xi_m4x4 xi_m4x4_y_axis_rotation(xi_f32 radians) {
-    xi_f32 s = xi_sin(radians);
-    xi_f32 c = xi_cos(radians);
-
-    xi_m4x4 result = {
-         c, 0, s, 0,
-         0, 1, 0, 0,
-        -s, 0, c, 0,
-         0, 0, 0, 0
-    };
-
-    return result;
-}
-
-xi_m4x4 xi_m4x4_z_axis_rotation(xi_f32 radians) {
-    xi_f32 s = xi_sin(radians);
-    xi_f32 c = xi_cos(radians);
-
-    xi_m4x4 result = {
-        c, -s, 0, 0,
-        s,  c, 0, 0,
-        0,  0, 1, 0,
-        0,  0, 0, 0
-    };
-
-    return result;
-}
-
-// colour packing
-//
-xi_u32 xi_v4_colour_abgr_pack_norm(xi_v4 v) {
-    xi_u32 result =
-        (((xi_u32) (255.0f * v.a) & 0xFF) << 24) |
-        (((xi_u32) (255.0f * v.b) & 0xFF) << 16) |
-        (((xi_u32) (255.0f * v.g) & 0xFF) <<  8) |
-        (((xi_u32) (255.0f * v.r) & 0xFF) <<  0);
-
-    return result;
-}
-
-xi_u32 xi_v4_colour_abgr_pack_unorm(xi_v4 v) {
-    xi_u32 result =
-        (((xi_u32) v.a & 0xFF) << 24) |
-        (((xi_u32) v.b & 0xFF) << 16) |
-        (((xi_u32) v.g & 0xFF) <<  8) |
-        (((xi_u32) v.r & 0xFF) <<  0);
-
-    return result;
-}
-
-xi_v4 xi_u32_colour_unpack_argb_norm(xi_u32 c) {
-    xi_v4 result;
-    result.a = ((c >> 24) & 0xFF) / 255.0f;
-    result.r = ((c >> 16) & 0xFF) / 255.0f;
-    result.g = ((c >>  8) & 0xFF) / 255.0f;
-    result.b = ((c >>  0) & 0xFF) / 255.0f;
-
-    return result;
-}
-
-xi_v4 xi_u32_colour_unpack_abgr_norm(xi_u32 c) {
-    xi_v4 result;
-    result.a = ((c >> 24) & 0xFF) / 255.0f;
-    result.b = ((c >> 16) & 0xFF) / 255.0f;
-    result.g = ((c >>  8) & 0xFF) / 255.0f;
-    result.r = ((c >>  0) & 0xFF) / 255.0f;
-
-    return result;
-}
-
 // :simd_maths
 //
-#if XI_ARCH_AMD64
+#if ARCH_AMD64
 
-xi_f32 xi_sqrt(xi_f32 a) {
-    xi_f32 result = _mm_cvtss_f32(_mm_sqrt_ps(_mm_set1_ps(a)));
+F32 F32_Sqrt(F32 a) {
+    F32 result = _mm_cvtss_f32(_mm_sqrt_ps(_mm_set1_ps(a)));
     return result;
 }
 
-xi_f32 xi_rsqrt_approx(xi_f32 a) {
-    xi_f32 result = _mm_cvtss_f32(_mm_rsqrt_ps(_mm_set1_ps(a)));
+F32 F32_InvSqrtApprox(F32 a) {
+    F32 result = _mm_cvtss_f32(_mm_rsqrt_ps(_mm_set1_ps(a)));
     return result;
 }
 
-#elif XI_ARCH_AARCH64
+#elif ARCH_AARCH64
     #error "incomplete implementation"
 #endif
 
-// for linux we bootstrap load the xie_run function directly from the .so file
+// for linux we bootstrap load the EngineRun function directly from the .so file
 // rather than linking with it becasue linking with shared objects on linux comes
 // with a whole host of problems
 //
@@ -885,7 +909,9 @@ xi_f32 xi_rsqrt_approx(xi_f32 a) {
 
 #include <stdio.h>
 
-int xie_run(xiGameCode *code) {
+StaticAssert(!"ERROR NOT COMPLETE!");
+
+int EngineRun(GameCode *code) {
     int result = 1;
 
     int (*__xie_bootstrap_run)(xiGameCode *);
@@ -923,6 +949,84 @@ int xie_run(xiGameCode *code) {
         printf("[internal error] :: failed to load libxid.so (%s)\n", dlerror());
     }
 
+    return result;
+}
+
+#endif
+
+// :Compiler_Intrinsics
+//
+#if COMPILER_CL
+
+U32 U32AtomicIncrement(volatile U32 *dst) {
+    U32 result = _InterlockedIncrement((volatile long *) dst);
+    return result;
+}
+
+U32 U32AtomicDecrement(volatile U32 *dst) {
+    U32 result = _InterlockedDecrement((volatile long *) dst);
+    return result;
+}
+
+U32 U32AtomicExchange(volatile U32 *dst, U32 value) {
+    U32 result = _InterlockedExchange((volatile long *) dst, value);
+    return result;
+}
+
+B32 U32AtomicCompareExchange(volatile U32 *dst, U32 value, U32 compare) {
+    B32 result = _InterlockedCompareExchange((volatile long *) dst, value, compare) == (long) compare;
+    return result;
+}
+
+U64 U64AtomicAdd(volatile U64 *dst, U64 amount) {
+    U64 result = _InterlockedExchangeAdd64((volatile __int64 *) dst, (__int64) amount);
+    return result;
+}
+
+U64 U64AtomicExchange(volatile U64 *dst, U64 value) {
+    U64 result = _InterlockedExchange64((volatile __int64 *) dst, (__int64) value);
+    return result;
+}
+
+B32 U64AtomicCompareExchange(volatile U64 *dst, U64 value, U64 compare) {
+    B32 result = _InterlockedCompareExchange64((__int64 volatile *) dst, value, compare) == (__int64) compare;
+    return result;
+}
+
+#elif (COMPILER_CLANG || COMPILER_GCC)
+
+U32 U32AtomicIncrement(volatile U32 *dst) {
+    U32 result = __atomic_add_fetch(dst, 1, __ATOMIC_SEQ_CST);
+    return result;
+}
+
+U32 U32AtomicDecrement(volatile U32 *dst) {
+    U32 result = __atomic_sub_fetch(dst, 1, __ATOMIC_SEQ_CST);
+    return result;
+}
+
+U32 U32AtomicExchange(volatile U32 *dst, U32 value) {
+    U32 result = __atomic_exchange_n(dst, value, __ATOMIC_SEQ_CST);
+    return result;
+}
+
+B32 U32AtomicCompareExchange(volatile U32 *dst, U32 value, U32 compare) {
+    B32 result = __atomic_compare_exchange_n(dst, &compare, value, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return result;
+}
+
+U64 U64AtomicAdd(volatile U64 *dst, U64 amount) {
+    U64 result = __atomic_fetch_add(dst, amount, __ATOMIC_SEQ_CST);
+    return result;
+}
+
+U64 U64AtomicExchange(volatile U64 *dst, U64 value) {
+    U64 result = __atomic_exchange_n(dst, value, __ATOMIC_SEQ_CST);
+    return result;
+}
+
+B32 U64AtomicCompareExchange(volatile U64 *dst, U64 value, U64 compare) {
+    B32 result = __atomic_compare_exchange_n(dst, &compare, value, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     return result;
 }
 

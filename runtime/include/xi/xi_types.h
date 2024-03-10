@@ -6,344 +6,358 @@ extern "C" {
 #endif
 
 //
-// :note compiler detection
+// --------------------------------------------------------------------------------
+// :Platform_Macros
+// --------------------------------------------------------------------------------
 //
 
-#define XI_COMPILER_CLANG 0
-#define XI_COMPILER_CL    0
-#define XI_COMPILER_GCC   0
+#define COMPILER_CLANG 0
+#define COMPILER_CL    0
+#define COMPILER_GCC   0
 
 #if defined(__clang__)
-    #undef  XI_COMPILER_CLANG
-    #define XI_COMPILER_CLANG 1
+    #undef  COMPILER_CLANG
+    #define COMPILER_CLANG 1
 #elif defined(_MSC_VER)
-    #undef  XI_COMPILER_CL
-    #define XI_COMPILER_CL 1
+    #undef  COMPILER_CL
+    #define COMPILER_CL 1
 #elif defined(__GNUC__)
-    #undef  XI_COMPILER_GCC
-    #define XI_COMPILER_GCC 1
+    #undef  COMPILER_GCC
+    #define COMPILER_GCC 1
 #else
     #error "unsupported compiler."
 #endif
 
-//
-// :note architecture detection
-//
-
-#define XI_ARCH_AMD64   0
-#define XI_ARCH_AARCH64 0
+#define ARCH_AMD64   0
+#define ARCH_AARCH64 0
 
 #if defined(__amd64__) || defined(_M_AMD64)
-    #undef  XI_ARCH_AMD64
-    #define XI_ARCH_AMD64 1
+    #undef  ARCH_AMD64
+    #define ARCH_AMD64 1
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    #undef  XI_ARCH_AARCH64
-    #define XI_ARCH_AARCH64 1
+    #undef  ARCH_AARCH64
+    #define ARCH_AARCH64 1
 #else
     #error "unsupported architecture."
 #endif
 
-//
-// :note operating system detection
-//
-#define XI_OS_WIN32 0
-#define XI_OS_LINUX 0
+#define OS_WIN32 0
+#define OS_LINUX 0
 
 #if defined(_WIN32)
-    #undef  XI_OS_WIN32
-    #define XI_OS_WIN32 1
+    #undef  OS_WIN32
+    #define OS_WIN32 1
 
     #pragma warning(disable : 4201) // nonstandard extension used : nameless struct/union
 #elif defined(__linux__)
-    #undef  XI_OS_LINUX
-    #define XI_OS_LINUX 1
+    #undef  OS_LINUX
+    #define OS_LINUX 1
 #endif
 
-//
-// :note intrinsic includes
-//
-#if XI_COMPILER_CL
+#if COMPILER_CL
     // architecture specific includes are dealt with internally
     //
     #include <intrin.h>
-#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #if XI_ARCH_AMD64
+#elif (COMPILER_CLANG || COMPILER_GCC)
+    #if ARCH_AMD64
         #include <x86intrin.h>
-    #elif XI_ARCH_AARCH64
+    #elif ARCH_AARCH64
         #include <arm_neon.h>
     #endif
 #endif
 
 //
-// :note core types
+// --------------------------------------------------------------------------------
+// :Core_Types
+// --------------------------------------------------------------------------------
 //
 
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdbool.h>
 
-typedef uint8_t  xi_u8;
-typedef uint16_t xi_u16;
-typedef uint32_t xi_u32;
-typedef uint64_t xi_u64;
+typedef uint8_t  U8;
+typedef uint16_t U16;
+typedef uint32_t U32;
+typedef uint64_t U64;
 
-typedef int8_t  xi_s8;
-typedef int16_t xi_s16;
-typedef int32_t xi_s32;
-typedef int64_t xi_s64;
+typedef int8_t  S8;
+typedef int16_t S16;
+typedef int32_t S32;
+typedef int64_t S64;
 
-typedef int8_t  xi_b8;
-typedef int16_t xi_b16;
-typedef int32_t xi_b32;
-typedef int64_t xi_b64;
+typedef int8_t  B8;
+typedef int16_t B16;
+typedef int32_t B32;
+typedef int64_t B64;
 
-typedef uintptr_t xi_uptr;
-typedef intptr_t  xi_sptr;
+typedef float  F32;
+typedef double F64;
 
-typedef float  xi_f32;
-typedef double xi_f64;
+typedef struct Str8 Str8;
+struct Str8 {
+    S64 count; // in bytes
+    U8  *data;
+};
 
-typedef struct xi_string {
-    xi_uptr count; // in bytes
-    xi_u8  *data;
-} xi_string;
-
-typedef struct xi_buffer {
+typedef struct Buffer Buffer;
+struct Buffer {
     union {
         struct {
-            xi_uptr used;
-            xi_u8  *data;
+            S64 used;
+            U8  *data;
         };
 
-        xi_string str;
+        Str8 str;
     };
 
-    xi_uptr limit;
-} xi_buffer;
+    S64 limit;
+};
 
-//
-// :note math types
-//
-
-typedef union xi_v2u {
+typedef union Vec2U Vec2U;
+union Vec2U {
     struct {
-        xi_u32 x, y;
+        U32 x, y;
     };
 
     struct {
-        xi_u32 w, h;
+        U32 w, h;
     };
 
-    xi_u32 e[2];
-} xi_v2u;
+    U32 e[2];
+} ;
 
 
-typedef union xi_v2s {
+typedef union Vec2S Vec2S;
+union Vec2S {
     struct {
-        xi_s32 x, y;
-    };
-
-    struct {
-        xi_s32 w, h;
-    };
-
-    xi_s32 e[2];
-} xi_v2s;
-
-typedef union xi_v2 {
-    struct {
-        xi_f32 x, y;
+        S32 x, y;
     };
 
     struct {
-        xi_f32 u, v;
+        S32 w, h;
+    };
+
+    S32 e[2];
+};
+
+typedef union Vec2F Vec2F;
+union Vec2F {
+    struct {
+        F32 x, y;
     };
 
     struct {
-        xi_f32 w, h;
-    };
-
-    xi_f32 e[2];
-} xi_v2;
-
-typedef union xi_v3 {
-    struct {
-        xi_f32 x, y, z;
+        F32 u, v;
     };
 
     struct {
-        xi_f32 r, g, b;
+        F32 w, h;
+    };
+
+    F32 e[2];
+};
+
+typedef union Vec3F Vec3F;
+union Vec3F {
+    struct {
+        F32 x, y, z;
     };
 
     struct {
-        xi_f32 w, h, d;
+        F32 r, g, b;
     };
 
     struct {
-        xi_v2  xy;
-        xi_f32 _z;
-    };
-
-    xi_f32 e[3];
-} xi_v3;
-
-typedef union xi_v4 {
-    struct {
-        xi_f32 x, y, z;
-        xi_f32 w;
+        F32 w, h, d;
     };
 
     struct {
-        xi_f32 r, g, b;
-        xi_f32 a;
+        Vec2F xy;
+        F32   _z;
+    };
+
+    F32 e[3];
+};
+
+typedef union Vec4F Vec4F;
+union Vec4F {
+    struct {
+        F32 x, y, z;
+        F32 w;
     };
 
     struct {
-        xi_v3  xyz;
-        xi_f32 _w;
+        F32 r, g, b;
+        F32 a;
     };
 
     struct {
-        xi_v3  rgb;
-        xi_f32 _a;
+        Vec3F xyz;
+        F32   _w;
     };
 
-    xi_f32 e[4];
-} xi_v4;
+    struct {
+        Vec3F rgb;
+        F32   _a;
+    };
 
-typedef struct xi_rect2 {
-    xi_v2 min;
-    xi_v2 max;
-} xi_rect2;
+    struct {
+        Vec2F xy;
+        Vec2F zw;
+    };
 
-typedef struct xi_rect3 {
-    xi_v3 min;
-    xi_v3 max;
-} xi_rect3;
+    F32 e[4];
+};
+
+typedef struct Rect2F Rect2F;
+struct Rect2F {
+    Vec2F min;
+    Vec2F max;
+};
+
+typedef struct Rect3F Rect3F;
+struct Rect3F {
+    Vec3F min;
+    Vec3F max;
+};
 
 // :note all matrices are assumed to be in row-major order
 //
 
-typedef union xi_m2x2 {
-    xi_f32 m[2][2];
-    xi_f32 e[4];
-    xi_v2  r[2];
-} xi_m2x2;
+typedef union Mat4x4F Mat4x4F;
+union Mat4x4F {
+    F32   m[4][4];
+    F32   e[16];
+    Vec4F r[4];
+};
 
-typedef union xi_m4x4 {
-    xi_f32 m[4][4];
-    xi_f32 e[16];
-    xi_v4  r[4];
-} xi_m4x4;
+typedef struct Mat4x4FInv Mat4x4FInv;
+struct Mat4x4FInv {
+    Mat4x4F fwd;
+    Mat4x4F inv;
+};
 
-typedef struct xi_m4x4_inv {
-    xi_m4x4 fwd;
-    xi_m4x4 inv;
-} xi_m4x4_inv;
-
-// :note vertex type
-//
-typedef struct xi_vert3 {
-    xi_v3 p;
-    xi_v3 uv; // @todo: does this need to be full precision?
-    xi_u32 c;
-} xi_vert3; // 24 bytes
+typedef struct Vertex3 Vertex3;
+struct Vertex3 {
+    Vec3F p;
+    Vec3F uv; // @todo: does this need to be full precision?
+    U32   c;
+};
 
 //
-// :note utility macros
+// --------------------------------------------------------------------------------
+// :Utility_Macros
+// --------------------------------------------------------------------------------
 //
-#if XI_COMPILER_CL
+
+#define C_LINKAGE
+
+#if defined(__cplusplus)
+    #undef  C_LINKAGE
+    #define C_LINKAGE "C"
+#endif
+
+#if COMPILER_CL
     #if defined(XI_RUNTIME_BUILD)
-        #define XI_API __declspec(dllexport)
+        #define Func extern C_LINKAGE __declspec(dllexport)
     #else
-        #define XI_API __declspec(dllimport)
+        #define Func extern C_LINKAGE __declspec(dllimport)
     #endif
-#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #define XI_API
+#elif (COMPILER_CLANG || COMPILER_GCC)
+    #define Func extern C_LINKAGE
 #endif
 
-#if XI_COMPILER_CL
-    #define XI_EXPORT __declspec(dllexport)
-#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #define XI_EXPORT
+#if COMPILER_CL
+    #define ExportFunc extern C_LINKAGE __declspec(dllexport)
+#else
+    #define ExportFunc extern C_LINKAGE
 #endif
 
-#if XI_COMPILER_CL
-    #define XI_THREAD_VAR __declspec(thread)
-#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #define XI_THREAD_VAR __thread
+#if COMPILER_CL
+    #define ThreadVar __declspec(thread)
+#elif (COMPILER_CLANG || COMPILER_GCC)
+    #define ThreadVar __thread
 #endif
 
-#define XI_INTERNAL static
-#define XI_GLOBAL   static
+#define Inline inline
 
-#define XI_STRINGIFY(x) #x
+#define FileScope    static
+#define GlobalVar    static
+#define LocalPersist static
 
-#define XI_FOURCC(a, b, c, d) \
-    (((xi_u32) (d) << 24) | ((xi_u32) (c) << 16) | ((xi_u32) (b) << 8) | ((xi_u32) (a) << 0))
+#define InternalGlue(a, b)   a##b
+#define InternalStringify(x) #x
 
-#define XI_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#define XI_OFFSET_OF(t, m) ((xi_uptr) &(((t *) 0)->m))
+#define Glue(a, b)   InternalGlue(a, b)
+#define Stringify(x) InternalStringify(x)
 
-#define XI_ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
-#define XI_ALIGN_DOWN(x, a) ((x) & ~((a) - 1))
+#define FourCC(a, b, c, d) (((U32) (d) << 24) | ((U32) (c) << 16) | ((U32) (b) << 8) | ((U32) (a) << 0))
 
-#define XI_ALIGN4(x) (((x) + 3) & ~3)
-#define XI_ALIGN8(x) (((x) + 7) & ~7)
-#define XI_ALIGN16(x) (((x) + 15) & ~15)
+#define cast(x) (x)
 
-#define XI_KB(x) (((xi_uptr) (x)) << 10ULL)
-#define XI_MB(x) (((xi_uptr) (x)) << 20ULL)
-#define XI_GB(x) (((xi_uptr) (x)) << 30ULL)
-#define XI_TB(x) (((xi_uptr) (x)) << 40ULL)
+#define ArraySize(x)   (sizeof(x) / sizeof((x)[0]))
+#define OffsetTo(T, m) ((U64) &(((T *) 0)->m))
 
-#define XI_MIN(a, b) ((a) < (b) ? (a) : (b))
-#define XI_MAX(a, b) ((a) > (b) ? (a) : (b))
+#if defined(__cplusplus)
+    #define AlignOf(T) alignof(T)
+#else
+    #define AlignOf(T) _Alignof(T)
+#endif
 
-#define XI_CLAMP(a, min, max) (XI_MIN(XI_MAX(a, min), max))
+#define AlignUp(x, a)   (((x) + ((a) - 1)) & ~((a) - 1))
+#define AlignDown(x, a) ((x) & ~((a) - 1))
+
+#define AlignUp4(x)  (((x) + 3)  & ~3)
+#define AlignUp8(x)  (((x) + 7)  & ~7)
+#define AlignUp16(x) (((x) + 15) & ~15)
+
+#define KB(x) (((U64) (x)) << 10ULL)
+#define MB(x) (((U64) (x)) << 20ULL)
+#define GB(x) (((U64) (x)) << 30ULL)
+#define TB(x) (((U64) (x)) << 40ULL)
+
+#define Min(a, b) ((a) < (b) ? (a) : (b))
+#define Max(a, b) ((a) > (b) ? (a) : (b))
+
+#define Clamp(min, a, max) (Min(Max(a, min), max))
+#define Clamp01(a) Clamp(0, a, 1)
+
+#define StaticAssert(exp) static_assert(exp, #exp)
 
 #if !defined(XI_NO_ASSERT)
     #include <assert.h>
-    #define XI_ASSERT(exp) assert(exp)
-    #define XI_STATIC_ASSERT(exp) static_assert(exp, #exp)
+    #define Assert(exp) assert(exp)
 #else
-    #define XI_ASSERT(exp) (void) (exp)
-    #define XI_STATIC_ASSERT(exp)
+    #define Assert(exp) (void) (exp)
 #endif
 
 //
-// :note type limits
+// --------------------------------------------------------------------------------
+// :Type_Limits
+// --------------------------------------------------------------------------------
 //
 
-#define XI_U8_MAX  ((xi_u8)  0xFF)
-#define XI_U16_MAX ((xi_u16) 0xFFFF)
-#define XI_U32_MAX ((xi_u32) 0xFFFFFFFF)
-#define XI_U64_MAX ((xi_u64) 0xFFFFFFFFFFFFFFFF)
+#define U8_MAX  ((U8)  0xFF)
+#define U16_MAX ((U16) 0xFFFF)
+#define U32_MAX ((U32) 0xFFFFFFFF)
+#define U64_MAX ((U64) 0xFFFFFFFFFFFFFFFF)
 
-#define XI_S8_MAX  ((xi_s8)  0x7F)
-#define XI_S16_MAX ((xi_s16) 0x7FFF)
-#define XI_S32_MAX ((xi_s32) 0x7FFFFFFF)
-#define XI_S64_MAX ((xi_s64) 0x7FFFFFFFFFFFFFFF)
+#define S8_MIN  ((S8)  0x80)
+#define S16_MIN ((S16) 0x8000)
+#define S32_MIN ((S32) 0x80000000)
+#define S64_MIN ((S64) 0x8000000000000000)
 
-#define XI_UPTR_MAX ((xi_uptr) UINTPTR_MAX)
-#define XI_SPTR_MAX ((xi_sptr) INTPTR_MAX)
+#define S8_MAX  ((S8)  0x7F)
+#define S16_MAX ((S16) 0x7FFF)
+#define S32_MAX ((S32) 0x7FFFFFFF)
+#define S64_MAX ((S64) 0x7FFFFFFFFFFFFFFF)
 
-// @todo: remove float.h dep
-//
-#include <float.h>
+#define F32_MIN ((F32) 1.17549435082228750796873653722224568e-038F)
+#define F64_MIN ((F64) 2.22507385850720138309023271733240406e-308L)
 
-#define XI_F32_MAX ((xi_f32) FLT_MAX)
-#define XI_F64_MAX ((xi_f64) DBL_MAX)
-
-#define XI_S8_MIN  ((xi_s8)  0x80)
-#define XI_S16_MIN ((xi_s16) 0x8000)
-#define XI_S32_MIN ((xi_s32) 0x80000000)
-#define XI_S64_MIN ((xi_s64) 0x8000000000000000)
-
-#define XI_SPTR_MIN ((xi_sptr) INTPTR_MIN)
-
-#define XI_F32_MIN ((xi_f32) FLT_MIN)
-#define XI_F64_MIN ((xi_f64) DBL_MIN)
+#define F32_MAX ((F32) 3.40282346638528859811704183484516925e+038F)
+#define F64_MAX ((F64) 1.79769313486231570814527423731704357e+308L)
 
 #if defined(__cplusplus)
 }

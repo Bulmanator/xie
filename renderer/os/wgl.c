@@ -2,7 +2,7 @@
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "opengl32.lib")
 
-#define WGL_LOAD_FUNCTION(prefix, x) (prefix)->x = (xiOpenGL_##prefix##x *) wglGetProcAddress(XI_STRINGIFY(prefix##x)); XI_ASSERT((prefix)->x)
+#define WGL_LOAD_FUNCTION(prefix, x) (prefix)->x = (GL_##prefix##x *) wglGetProcAddress(Stringify(prefix##x)); Assert((prefix)->x)
 
 // from WGL_ARB_pixel_format
 //
@@ -59,9 +59,9 @@
 #define WGL_TYPE_RGBA_ARB            0x202B
 #define WGL_TYPE_COLORINDEX_ARB      0x202C
 
-typedef BOOL xiOpenGL_wglGetPixelFormatAttribivARB(HDC, int, int, UINT, const int *, int *);
-typedef BOOL xiOpenGL_wglGetPixelFormatAttribfvARB(HDC, int, int, UINT, const int *, FLOAT *);
-typedef BOOL xiOpenGL_wglChoosePixelFormatARB(HDC, const int *, const FLOAT *, UINT, int *, UINT *);
+typedef BOOL GL_wglGetPixelFormatAttribivARB(HDC, int, int, UINT, const int *, int *);
+typedef BOOL GL_wglGetPixelFormatAttribfvARB(HDC, int, int, UINT, const int *, FLOAT *);
+typedef BOOL GL_wglChoosePixelFormatARB(HDC, const int *, const FLOAT *, UINT, int *, UINT *);
 
 // from EXT_framebuffer_sRGB
 //
@@ -69,7 +69,7 @@ typedef BOOL xiOpenGL_wglChoosePixelFormatARB(HDC, const int *, const FLOAT *, U
 
 // from EXT_extensions_string
 //
-typedef const char *xiOpenGL_wglGetExtensionsStringEXT(void);
+typedef const char *GL_wglGetExtensionsStringEXT(void);
 
 // from WGL_ARB_create_context
 //      WGL_ARB_create_context_profile
@@ -89,43 +89,45 @@ typedef const char *xiOpenGL_wglGetExtensionsStringEXT(void);
 #define ERROR_INVALID_VERSION_ARB 0x2095
 #define ERROR_INVALID_PROFILE_ARB 0x2096
 
-typedef HGLRC xiOpenGL_wglCreateContextAttribsARB(HDC, HGLRC, const int *);
+typedef HGLRC GL_wglCreateContextAttribsARB(HDC, HGLRC, const int *);
 
 // from EXT_swap_control
 //
-typedef BOOL xiOpenGL_wglSwapIntervalEXT(int);
-typedef int  xiOpenGL_wglGetSwapIntervalEXT(void);
+typedef BOOL GL_wglSwapIntervalEXT(int);
+typedef int  GL_wglGetSwapIntervalEXT(void);
 
 // platform data required by wgl
 //
-typedef struct xiWin32WindowData {
+typedef struct Win32_WindowData Win32_WindowData;
+struct Win32_WindowData {
     // this needs to be the same as the win32-side structure
     // :renderer_core
     //
     HINSTANCE hInstance;
     HWND hwnd;
-} xiWin32WindowData;
+};
 
-#define WGL_FUNCTION_POINTER(name) xiOpenGL_wgl##name *name
+#define WGL_FUNCTION_POINTER(name) GL_wgl##name *name
 
 // main wgl context, this houses the win32 specific stuff
 //
-typedef struct xiWin32OpenGLContext {
-    xiOpenGLContext gl;
+typedef struct WGL_Context WGL_Context;
+struct WGL_Context {
+    GL_Context gl;
 
-    xi_b32 valid;
+    B32 valid;
 
     HDC   hdc;
     HGLRC hglrc;
 
     // extension support
     //
-    xi_b32 WGL_EXT_framebuffer_sRGB;
-    xi_b32 WGL_ARB_framebuffer_sRGB;
-    xi_b32 WGL_ARB_pixel_format;
-    xi_b32 WGL_ARB_create_context;
-    xi_b32 WGL_ARB_multisample;
-    xi_b32 WGL_EXT_swap_control;
+    B32 WGL_EXT_framebuffer_sRGB;
+    B32 WGL_ARB_framebuffer_sRGB;
+    B32 WGL_ARB_pixel_format;
+    B32 WGL_ARB_create_context;
+    B32 WGL_ARB_multisample;
+    B32 WGL_EXT_swap_control;
 
     WGL_FUNCTION_POINTER(GetExtensionsStringEXT);
 
@@ -134,23 +136,22 @@ typedef struct xiWin32OpenGLContext {
 
     WGL_FUNCTION_POINTER(SwapIntervalEXT);
     WGL_FUNCTION_POINTER(GetSwapIntervalEXT);
-} xiWin32OpenGLContext;
+};
 
 #undef WGL_FUNCTION_POINTER
 
-static XI_RENDERER_SUBMIT(wgl_renderer_submit);
+FileScope RENDERER_SUBMIT(WGL_RendererSubmit);
 
-xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
+GL_Context *GL_ContextCreate(RendererContext *renderer, void *platform) {
     // @todo: configure renderer
     // @todo: error checking!
     //
-    xiArena arena = { 0 };
-    xi_arena_init_virtual(&arena, XI_GB(8));
+    M_Arena *arena = M_ArenaAlloc(GB(8), 0);
 
-    xiWin32WindowData *window = (xiWin32WindowData *) platform;
+    Win32_WindowData *window = cast(Win32_WindowData *) platform;
 
-    xiWin32OpenGLContext *wgl = xi_arena_push_type(&arena, xiWin32OpenGLContext);
-    xiOpenGLContext *gl = &wgl->gl;
+    WGL_Context *wgl = M_ArenaPush(arena, WGL_Context);
+    GL_Context  *gl  = &wgl->gl;
 
     gl->arena = arena;
 
@@ -162,12 +163,16 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
         WNDCLASSA wnd_class = { 0 };
         wnd_class.lpfnWndProc   = DefWindowProcA;
         wnd_class.hInstance     = window->hInstance;
-        wnd_class.lpszClassName = "xie_dummy_opengl";
+        wnd_class.lpszClassName = "XIE_DUMMY_WGL";
 
         RegisterClassA(&wnd_class);
 
-        HWND hwnd = CreateWindowA(wnd_class.lpszClassName, "xie_wgl", WS_OVERLAPPEDWINDOW,
-                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wnd_class.hInstance, 0);
+        DWORD dwStyle = WS_OVERLAPPEDWINDOW;
+
+        int X      = CW_USEDEFAULT, Y       = CW_USEDEFAULT;
+        int nWidth = CW_USEDEFAULT, nHeight = CW_USEDEFAULT;
+
+        HWND hwnd = CreateWindowA(wnd_class.lpszClassName, "XIE_WGL", dwStyle, X, Y, nWidth, nHeight, 0, 0, wnd_class.hInstance, 0);
 
         HDC hdc = GetDC(hwnd);
 
@@ -192,35 +197,33 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
         WGL_LOAD_FUNCTION(wgl, GetExtensionsStringEXT);
 
         if (wgl->GetExtensionsStringEXT) {
-            const char *ext_str  = wgl->GetExtensionsStringEXT();
-            xi_string extensions = xi_str_wrap_cstr(ext_str);
+            const char *ext_str = wgl->GetExtensionsStringEXT();
+            Str8 extensions     = Str8_WrapNullTerminated(ext_str);
 
-#define WGL_CHECK_EXTENSION(name) if (xi_str_equal(extension, xi_str_wrap_const(#name))) { wgl->name = true; }
+#define WGL_CHECK_EXTENSION(name) (Str8_Equal(extension, Str8_Literal(#name), 0)) { wgl->name = true; }
+            S64 next_space = 0;
+            if (Str8_FindFirst(extensions, &next_space, ' ')) {
+                Str8 extension = Str8_Prefix(extensions, next_space);
 
-            xi_uptr next_space = 0;
-            if (xi_str_find_first(extensions, &next_space, ' ')) {
-                xi_string extension = xi_str_prefix(extensions, next_space);
+                while (extensions.count) {
+                    if      WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
+                    else if WGL_CHECK_EXTENSION(WGL_ARB_framebuffer_sRGB)
+                    else if WGL_CHECK_EXTENSION(WGL_ARB_multisample)
+                    else if WGL_CHECK_EXTENSION(WGL_ARB_pixel_format)
+                    else if WGL_CHECK_EXTENSION(WGL_ARB_create_context)
+                    else if WGL_CHECK_EXTENSION(WGL_EXT_swap_control)
 
-                while (xi_str_is_valid(extension)) {
-                    WGL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
-                    else WGL_CHECK_EXTENSION(WGL_ARB_framebuffer_sRGB)
-                    else WGL_CHECK_EXTENSION(WGL_ARB_multisample)
-                    else WGL_CHECK_EXTENSION(WGL_ARB_pixel_format)
-                    else WGL_CHECK_EXTENSION(WGL_ARB_create_context)
-                    else WGL_CHECK_EXTENSION(WGL_EXT_swap_control)
-
-                    extensions = xi_str_advance(extensions, next_space + 1);
+                    extensions = Str8_Advance(extensions, next_space + 1);
 
                     next_space = 0;
-                    if (xi_str_find_first(extensions, &next_space, ' ')) {
-                        extension = xi_str_prefix(extensions, next_space);
+                    if (Str8_FindFirst(extensions, &next_space, ' ')) {
+                        extension = Str8_Prefix(extensions, next_space);
                     }
                     else {
                         break;
                     }
                 }
             }
-
 #undef WGL_CHECK_EXTENSION
         }
 
@@ -281,7 +284,7 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
             attribs[num_attribs++] = GL_TRUE;
         }
 
-        XI_ASSERT(num_attribs <= 32);
+        Assert(num_attribs < 32);
 
         // end off the list with GL_NONE
         //
@@ -319,6 +322,9 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
         if (wgl->hglrc) {
             if (wglMakeCurrent(wgl->hdc, wgl->hglrc)) {
                 gl->info.srgb        = wgl->WGL_EXT_framebuffer_sRGB || wgl->WGL_ARB_framebuffer_sRGB;
+
+                // @todo: why is this being forced off?
+                //
                 gl->info.multisample = wgl->WGL_ARB_multisample && false; // this will check if it was enabled
 
                 // load opengl extension functions
@@ -359,8 +365,8 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
                 WGL_LOAD_FUNCTION(gl, ActiveTexture);
                 WGL_LOAD_FUNCTION(gl, BindBufferRange);
 
-                renderer->init   = xi_opengl_init;
-                renderer->submit = wgl_renderer_submit;
+                renderer->Init   = GL_Init;
+                renderer->Submit = WGL_RendererSubmit;
 
                 wgl->valid = true;
             }
@@ -374,7 +380,8 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
     }
 
     if (!wgl->valid) {
-        xi_arena_deinit(&arena);
+        M_ArenaRelease(arena);
+
         wgl = 0;
         gl  = 0;
     }
@@ -382,8 +389,8 @@ xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
     return gl;
 }
 
-void gl_os_context_delete(xiOpenGLContext *gl) {
-    xiWin32OpenGLContext *wgl = (xiWin32OpenGLContext *) gl;
+void GL_ContextDelete(GL_Context *gl) {
+    WGL_Context *wgl = cast(WGL_Context *) gl;
 
     wglMakeCurrent(0, 0);
     wglDeleteContext(wgl->hglrc);
@@ -391,20 +398,19 @@ void gl_os_context_delete(xiOpenGLContext *gl) {
     HWND hwnd = WindowFromDC(wgl->hdc);
     ReleaseDC(hwnd, wgl->hdc);
 
-    xiArena arena = gl->arena;
-    xi_arena_deinit(&arena);
+    M_Arena *arena = gl->arena;
+    M_ArenaRelease(arena);
 }
 
-XI_RENDERER_SUBMIT(wgl_renderer_submit) {
-    xiWin32OpenGLContext *wgl = (xiWin32OpenGLContext *) renderer->backend;
+RENDERER_SUBMIT(WGL_RendererSubmit) {
+    WGL_Context *wgl = cast(WGL_Context *) renderer->backend;
 
-    XI_ASSERT((wgl != 0) && wgl->valid);
+    Assert(wgl != 0 && wgl->valid);
 
     if (wgl->WGL_EXT_swap_control) {
         wgl->SwapIntervalEXT(renderer->setup.vsync ? 1 : 0);
     }
 
-    xi_opengl_submit(renderer);
-
+    GL_Submit(renderer);
     SwapBuffers(wgl->hdc);
 }

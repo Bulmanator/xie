@@ -7,156 +7,160 @@
 // excluding ordering produced by using the ascii literals, these are roughly laid out in the order they
 // are defined by the hid keyboard scancode specification
 //
-enum xiKeyboardKey {
-    XI_KEYBOARD_KEY_UNKNOWN = 0,
+typedef U32 KeyboardKey;
+enum KeyboardKey {
+    KEYBOARD_KEY_UNKNOWN = 0,
 
-    XI_KEYBOARD_KEY_RETURN,
-    XI_KEYBOARD_KEY_ESCAPE,
-    XI_KEYBOARD_KEY_BACKSPACE,
-    XI_KEYBOARD_KEY_TAB,
+    KEYBOARD_KEY_RETURN,
+    KEYBOARD_KEY_ESCAPE,
+    KEYBOARD_KEY_BACKSPACE,
+    KEYBOARD_KEY_TAB,
 
-    XI_KEYBOARD_KEY_HOME,
-    XI_KEYBOARD_KEY_PAGEUP,
-    XI_KEYBOARD_KEY_DELETE,
-    XI_KEYBOARD_KEY_END,
-    XI_KEYBOARD_KEY_PAGEDOWN,
+    KEYBOARD_KEY_HOME,
+    KEYBOARD_KEY_PAGEUP,
+    KEYBOARD_KEY_DELETE,
+    KEYBOARD_KEY_END,
+    KEYBOARD_KEY_PAGEDOWN,
 
-    XI_KEYBOARD_KEY_RIGHT,
-    XI_KEYBOARD_KEY_LEFT,
-    XI_KEYBOARD_KEY_DOWN,
-    XI_KEYBOARD_KEY_UP,
+    KEYBOARD_KEY_RIGHT,
+    KEYBOARD_KEY_LEFT,
+    KEYBOARD_KEY_DOWN,
+    KEYBOARD_KEY_UP,
 
-    XI_KEYBOARD_KEY_F1,
-    XI_KEYBOARD_KEY_F2,
-    XI_KEYBOARD_KEY_F3,
-    XI_KEYBOARD_KEY_F4,
-    XI_KEYBOARD_KEY_F5,
-    XI_KEYBOARD_KEY_F6,
-    XI_KEYBOARD_KEY_F7,
-    XI_KEYBOARD_KEY_F8,
-    XI_KEYBOARD_KEY_F9,
-    XI_KEYBOARD_KEY_F10,
-    XI_KEYBOARD_KEY_F11,
-    XI_KEYBOARD_KEY_F12,
+    KEYBOARD_KEY_F1,
+    KEYBOARD_KEY_F2,
+    KEYBOARD_KEY_F3,
+    KEYBOARD_KEY_F4,
+    KEYBOARD_KEY_F5,
+    KEYBOARD_KEY_F6,
+    KEYBOARD_KEY_F7,
+    KEYBOARD_KEY_F8,
+    KEYBOARD_KEY_F9,
+    KEYBOARD_KEY_F10,
+    KEYBOARD_KEY_F11,
+    KEYBOARD_KEY_F12,
 
-    XI_KEYBOARD_KEY_INSERT,
+    KEYBOARD_KEY_INSERT,
 
-    XI_KEYBOARD_KEY_SPACE  = ' ',
+    KEYBOARD_KEY_SPACE  = ' ',
 
-    XI_KEYBOARD_KEY_QUOTE  = '\'',
-    XI_KEYBOARD_KEY_COMMA  = ',',
-    XI_KEYBOARD_KEY_MINUS  = '-',
-    XI_KEYBOARD_KEY_PERIOD = '.',
-    XI_KEYBOARD_KEY_SLASH  = '/',
+    KEYBOARD_KEY_QUOTE  = '\'',
+    KEYBOARD_KEY_COMMA  = ',',
+    KEYBOARD_KEY_MINUS  = '-',
+    KEYBOARD_KEY_PERIOD = '.',
+    KEYBOARD_KEY_SLASH  = '/',
 
-    XI_KEYBOARD_KEY_0 = '0',
-    XI_KEYBOARD_KEY_1 = '1',
-    XI_KEYBOARD_KEY_2 = '2',
-    XI_KEYBOARD_KEY_3 = '3',
-    XI_KEYBOARD_KEY_4 = '4',
-    XI_KEYBOARD_KEY_5 = '5',
-    XI_KEYBOARD_KEY_6 = '6',
-    XI_KEYBOARD_KEY_7 = '7',
-    XI_KEYBOARD_KEY_8 = '8',
-    XI_KEYBOARD_KEY_9 = '9', // 57
+    KEYBOARD_KEY_0 = '0',
+    KEYBOARD_KEY_1 = '1',
+    KEYBOARD_KEY_2 = '2',
+    KEYBOARD_KEY_3 = '3',
+    KEYBOARD_KEY_4 = '4',
+    KEYBOARD_KEY_5 = '5',
+    KEYBOARD_KEY_6 = '6',
+    KEYBOARD_KEY_7 = '7',
+    KEYBOARD_KEY_8 = '8',
+    KEYBOARD_KEY_9 = '9', // 57
 
-    XI_KEYBOARD_KEY_SEMICOLON = ';',
-    XI_KEYBOARD_KEY_EQUALS    = '=', // 61
+    KEYBOARD_KEY_SEMICOLON = ';',
+    KEYBOARD_KEY_EQUALS    = '=', // 61
 
     // these use the capital letter ascii range as lookups for letters should be done with lowercase character
     // literals or the enum constant itself
     //
-    XI_KEYBOARD_KEY_LSHIFT,
-    XI_KEYBOARD_KEY_LCTRL,
-    XI_KEYBOARD_KEY_LALT,
+    KEYBOARD_KEY_LSHIFT,
+    KEYBOARD_KEY_LCTRL,
+    KEYBOARD_KEY_LALT,
 
-    XI_KEYBOARD_KEY_RSHIFT,
-    XI_KEYBOARD_KEY_RCTRL,
-    XI_KEYBOARD_KEY_RALT,
+    KEYBOARD_KEY_RSHIFT,
+    KEYBOARD_KEY_RCTRL,
+    KEYBOARD_KEY_RALT,
 
-    XI_KEYBOARD_KEY_LBRACKET  = '[',
-    XI_KEYBOARD_KEY_BACKSLASH = '\\',
-    XI_KEYBOARD_KEY_RBRACKET  = ']',
-    XI_KEYBOARD_KEY_GRAVE     = '`',
+    KEYBOARD_KEY_LBRACKET  = '[',
+    KEYBOARD_KEY_BACKSLASH = '\\',
+    KEYBOARD_KEY_RBRACKET  = ']',
+    KEYBOARD_KEY_GRAVE     = '`',
 
-    XI_KEYBOARD_KEY_A = 'a', // 97
-    XI_KEYBOARD_KEY_B = 'b',
-    XI_KEYBOARD_KEY_C = 'c',
-    XI_KEYBOARD_KEY_D = 'd',
-    XI_KEYBOARD_KEY_E = 'e',
-    XI_KEYBOARD_KEY_F = 'f',
-    XI_KEYBOARD_KEY_G = 'g',
-    XI_KEYBOARD_KEY_H = 'h',
-    XI_KEYBOARD_KEY_I = 'i',
-    XI_KEYBOARD_KEY_J = 'j',
-    XI_KEYBOARD_KEY_K = 'k',
-    XI_KEYBOARD_KEY_L = 'l',
-    XI_KEYBOARD_KEY_M = 'm',
-    XI_KEYBOARD_KEY_N = 'n',
-    XI_KEYBOARD_KEY_O = 'o',
-    XI_KEYBOARD_KEY_P = 'p',
-    XI_KEYBOARD_KEY_Q = 'q',
-    XI_KEYBOARD_KEY_R = 'r',
-    XI_KEYBOARD_KEY_S = 's',
-    XI_KEYBOARD_KEY_T = 't',
-    XI_KEYBOARD_KEY_U = 'u',
-    XI_KEYBOARD_KEY_V = 'v',
-    XI_KEYBOARD_KEY_W = 'w',
-    XI_KEYBOARD_KEY_X = 'x',
-    XI_KEYBOARD_KEY_Y = 'y',
-    XI_KEYBOARD_KEY_Z = 'z',
+    KEYBOARD_KEY_A = 'a', // 97
+    KEYBOARD_KEY_B = 'b',
+    KEYBOARD_KEY_C = 'c',
+    KEYBOARD_KEY_D = 'd',
+    KEYBOARD_KEY_E = 'e',
+    KEYBOARD_KEY_F = 'f',
+    KEYBOARD_KEY_G = 'g',
+    KEYBOARD_KEY_H = 'h',
+    KEYBOARD_KEY_I = 'i',
+    KEYBOARD_KEY_J = 'j',
+    KEYBOARD_KEY_K = 'k',
+    KEYBOARD_KEY_L = 'l',
+    KEYBOARD_KEY_M = 'm',
+    KEYBOARD_KEY_N = 'n',
+    KEYBOARD_KEY_O = 'o',
+    KEYBOARD_KEY_P = 'p',
+    KEYBOARD_KEY_Q = 'q',
+    KEYBOARD_KEY_R = 'r',
+    KEYBOARD_KEY_S = 's',
+    KEYBOARD_KEY_T = 't',
+    KEYBOARD_KEY_U = 'u',
+    KEYBOARD_KEY_V = 'v',
+    KEYBOARD_KEY_W = 'w',
+    KEYBOARD_KEY_X = 'x',
+    KEYBOARD_KEY_Y = 'y',
+    KEYBOARD_KEY_Z = 'z',
 
-    XI_KEYBOARD_KEY_COUNT
-} xiKeyboardKey;
+    KEYBOARD_KEY_COUNT
+};
 
 // make sure we haven't encroached on the ascii ranges
 //
-XI_STATIC_ASSERT(XI_KEYBOARD_KEY_INSERT < XI_KEYBOARD_KEY_SPACE);
-XI_STATIC_ASSERT(XI_KEYBOARD_KEY_RALT   < XI_KEYBOARD_KEY_RBRACKET);
+StaticAssert(KEYBOARD_KEY_INSERT < KEYBOARD_KEY_SPACE);
+StaticAssert(KEYBOARD_KEY_RALT   < KEYBOARD_KEY_RBRACKET);
 
-typedef struct xiInputButton {
-    xi_b32 down;   // currently down
-    xi_u32 repeat; // number of repeat events, mouse buttons don't get repeats
+typedef struct InputButton InputButton;
+struct InputButton {
+    B32 down;   // currently down
+    U32 repeat; // number of repeat events, mouse buttons don't get repeats
 
-    xi_b32 pressed;  // was pressed this frame
-    xi_b32 released; // was released this frame
-} xiInputButton;
+    B32 pressed;  // was pressed this frame
+    B32 released; // was released this frame
+};
 
-typedef struct xiInputKeyboard {
-    xi_b32 connected; // true if there is a keyboard connected :input_connected
-    xi_b32 active;    // true if any key was pressed within the last frame :input_active
+typedef struct InputKeyboard InputKeyboard;
+struct InputKeyboard {
+    B32 connected; // true if there is a keyboard connected :input_connected
+    B32 active;    // true if any key was pressed within the last frame :input_active
 
     // these are here for convenience, will be set to 'true' if either left/right modifiers
     // are down on the current frame
     //
-    xi_b32 alt;
-    xi_b32 ctrl;
-    xi_b32 shift;
+    B32 alt;
+    B32 ctrl;
+    B32 shift;
 
-    xiInputButton keys[XI_KEYBOARD_KEY_COUNT];
-} xiInputKeyboard;
+    InputButton keys[KEYBOARD_KEY_COUNT];
+};
 
-typedef struct xiInputMouse {
-    xi_b32 connected; // :input_connected
-    xi_b32 active;    // :input_active
+typedef struct InputMouse InputMouse;
+struct InputMouse {
+    B32 connected; // :input_connected
+    B32 active;    // :input_active
 
-    xiInputButton left;
-    xiInputButton middle;
-    xiInputButton right;
-    xiInputButton x0;
-    xiInputButton x1;
+    InputButton left;
+    InputButton middle;
+    InputButton right;
+    InputButton x0;
+    InputButton x1;
 
     struct {
-        xi_v2s screen; // signed just incase. we don't need the range anyway
-        xi_v2  clip;
-        xi_v2  wheel;
+        Vec2S screen; // signed just incase. we don't need the range anyway
+        Vec2F  clip;
+        Vec2F  wheel;
     } position;
 
     struct {
-        xi_v2s screen;
-        xi_v2  clip;
-        xi_v2  wheel; // .x is horizontal scroll, .y is vertical scroll
+        Vec2S screen;
+        Vec2F clip;
+        Vec2F wheel; // .x is horizontal scroll, .y is vertical scroll
     } delta;
-} xiInputMouse;
+};
 
 #endif  // XI_INPUT_H_

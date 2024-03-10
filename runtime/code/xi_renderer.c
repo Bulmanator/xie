@@ -1,17 +1,17 @@
-#define xi_render_command_push(renderer, type) \
-    xi_render_command_push_size(renderer, XI_RENDER_COMMAND_##type, sizeof(type))
+#define RenderCommandPush(renderer, type) \
+    RenderCommandPushSize(renderer, RENDER_COMMAND_##type, sizeof(type))
 
-XI_INTERNAL void *xi_render_command_push_size(xiRenderer *renderer, xi_u32 type, xi_uptr size) {
+FileScope void *RenderCommandPushSize(RendererContext *renderer, U32 type, U64 size) {
     void *result = 0;
 
-    xi_buffer *command_buffer = &renderer->command_buffer;
+    Buffer *command_buffer = &renderer->command_buffer;
 
-    xi_uptr total = size + sizeof(xi_u32);
+    S64 total = size + sizeof(U32);
     if ((command_buffer->used + total) <= command_buffer->limit) {
-        xi_u32 *header = (xi_u32 *) (command_buffer->data + command_buffer->used);
+        U32 *header = cast(U32 *) (command_buffer->data + command_buffer->used);
 
         header[0] = type;
-        result    = (void *) (header + 1);
+        result    = cast(void *) (header + 1);
 
         command_buffer->used += total;
     }
@@ -19,33 +19,30 @@ XI_INTERNAL void *xi_render_command_push_size(xiRenderer *renderer, xi_u32 type,
     return result;
 }
 
-XI_INTERNAL xi_b32 xi_renderer_textures_equal(xiRendererTexture a, xiRendererTexture b) {
-    xi_b32 result = a.value == b.value;
+FileScope B32 RendererTextureEqual(RendererTexture a, RendererTexture b) {
+    B32 result = a.value == b.value;
     return result;
 }
 
-XI_INTERNAL xi_b32 xi_draw_call_restart(xiRenderer *renderer, xiRendererTexture texture) {
-    xi_b32 result = false;
+FileScope B32 DrawCallShouldRestart(RendererContext *renderer, RendererTexture texture) {
+    B32 result = false;
 
-    XI_ASSERT(renderer->draw_call != 0); // we check this externally, just incase it gets called elsewhere
+    Assert(renderer->draw_call != 0); // we check this externally, just incase it gets called elsewhere
 
-    xiRenderCommandDraw *draw = renderer->draw_call;
+    RenderCommandDraw *draw = renderer->draw_call;
 
-    xi_b32 is_current_sprite = xi_renderer_texture_is_sprite(renderer, draw->texture);
-    xi_b32 is_new_sprite     = xi_renderer_texture_is_sprite(renderer, texture);
+    B32 is_current_sprite = RendererTextureIsSprite(renderer, draw->texture);
+    B32 is_new_sprite     = RendererTextureIsSprite(renderer, texture);
 
-    result =
-        !((is_current_sprite && is_new_sprite) ||
-           xi_renderer_textures_equal(draw->texture, texture));
-
+    result = !((is_current_sprite && is_new_sprite) || RendererTextureEqual(draw->texture, texture));
     return result;
 }
 
-XI_INTERNAL xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *renderer, xiRendererTexture texture) {
-    xiRenderCommandDraw *result = renderer->draw_call;
+FileScope RenderCommandDraw *RendererDrawCallIssue(RendererContext *renderer, RendererTexture texture) {
+    RenderCommandDraw *result = renderer->draw_call;
 
-    if (!result || xi_draw_call_restart(renderer, texture)) {
-        result = xi_render_command_push(renderer, xiRenderCommandDraw);
+    if (!result || DrawCallShouldRestart(renderer, texture)) {
+        result = RenderCommandPush(renderer, RenderCommandDraw);
         if (result) {
             result->texture       = texture;
             result->ubo_offset    = renderer->camera.ubo_offset;
@@ -62,53 +59,52 @@ XI_INTERNAL xiRenderCommandDraw *xi_renderer_draw_call_issue(xiRenderer *rendere
     return result;
 }
 
-xi_b32 xi_renderer_texture_is_sprite(xiRenderer *renderer, xiRendererTexture texture) {
-    xi_b32 result = (texture.width  <= renderer->sprite_array.dimension) &&
+B32 RendererTextureIsSprite(RendererContext *renderer, RendererTexture texture) {
+    B32 result = (texture.width  <= renderer->sprite_array.dimension) &&
                     (texture.height <= renderer->sprite_array.dimension);
 
     return result;
 }
 
-xiRendererTransferTask *xi_renderer_transfer_queue_enqueue_size(xiRendererTransferQueue *transfer_queue,
-        void **data, xi_uptr size) // data will contain a pointer to write data to transfer to
-{
-    xiRendererTransferTask *result = 0;
+// data will contain a pointer to write data to transfer to
+//
+RendererTransferTask *RendererTransferQueueEnqueueSize(RendererTransferQueue *queue, void **data, U64 size) {
+    RendererTransferTask *result = 0;
 
-    XI_ASSERT(size <= transfer_queue->limit);
+    Assert(size <= queue->limit);
 
-    if (transfer_queue->task_count < transfer_queue->max_tasks) {
-        xi_u32 mask  = (transfer_queue->max_tasks - 1);
-        xi_u32 index = (transfer_queue->first_task + transfer_queue->task_count) & mask;
+    if (queue->task_count < queue->task_limit) {
+        U32 mask  = (queue->task_limit - 1);
+        U32 index = (queue->first_task + queue->task_count) & mask;
 
-        result = &transfer_queue->tasks[index];
+        result = &queue->tasks[index];
 
         // acquire the memory
         //
-        if (transfer_queue->write_offset == transfer_queue->read_offset) {
+        if (queue->write_offset == queue->read_offset) {
             // rowo[-----------------------]
             //
             // in this case there is nothing on the queue so the entire buffer is available to us
             //
-            if (transfer_queue->task_count == 0) {
+            if (queue->task_count == 0) {
                 // the transfer ring is empty so we can just enqueue from the start
                 //
-                transfer_queue->write_offset = 0;
-                transfer_queue->read_offset  = 0;
+                queue->write_offset = 0;
+                queue->read_offset  = 0;
             }
         }
-        else if (transfer_queue->write_offset < transfer_queue->read_offset) {
+        else if (queue->write_offset < queue->read_offset) {
             // [xxxx]wo[------]ro[xxxxx]
             //
             // this case there is a chunk of unused memory between the two offset pointers so
             // we check if it is big enough to hold our size and use that
             //
-            xi_uptr size_middle = transfer_queue->read_offset - transfer_queue->write_offset;
+            U64 size_middle = queue->read_offset - queue->write_offset;
             if (size_middle < size) {
                 result = 0;
             }
-
         }
-        else /*if (transfer_queue->read_offset < transfer_queue->write_offset)*/ {
+        else /*if (queue->read_offset < queue->write_offset)*/ {
             // [----]ro[xxxxxx]wo[-----]
             //
             // in this case there are two chunks of unused memory at the beginning and end of
@@ -119,161 +115,147 @@ xiRendererTransferTask *xi_renderer_transfer_queue_enqueue_size(xiRendererTransf
             // if the one at the beginning is big enough, if neither can fit the size we need the
             // ring isn't modified and the size isn't enqueued
             //
-            xi_uptr size_end = transfer_queue->limit - transfer_queue->write_offset;
+            U64 size_end = queue->limit - queue->write_offset;
             if (size_end < size) {
-                xi_uptr size_begin = transfer_queue->read_offset;
+                U64 size_begin = queue->read_offset;
                 if (size_begin < size) {
                     result = 0;
                 }
                 else {
                     // we have to go from the beginning in this case
                     //
-                    transfer_queue->write_offset = 0;
+                    queue->write_offset = 0;
                 }
             }
         }
 
         if (result) {
-            result->state  = XI_RENDERER_TRANSFER_TASK_STATE_PENDING;
-            result->offset = transfer_queue->write_offset;
+            result->state  = RENDERER_TRANSFER_TASK_STATE_PENDING;
+            result->offset = queue->write_offset;
             result->size   = size;
 
-            transfer_queue->write_offset += size;
-            transfer_queue->task_count += 1;
+            queue->write_offset += size;
+            queue->task_count   += 1;
 
-            *data = (void *) (transfer_queue->base + result->offset);
+            // @todo: this should just be stored on the resulting RendererTransferTask structure
+            //
+            *data = cast(void *) (queue->base + result->offset);
         }
     }
 
     return result;
 }
 
-void xi_camera_transform_set(xiRenderer *renderer,
-        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position,
-        xi_u32 flags, xi_f32 near_plane, xi_f32 far_plane, xi_f32 focal_length)
-{
-    xiCameraTransform *tx = &renderer->camera;
+void CameraTransformSet(RendererContext *renderer, Vec3F x, Vec3F y, Vec3F z, Vec3F p, U32 flags, F32 nearp, F32 farp, F32 fov) {
+    CameraTransform *tx = &renderer->camera;
 
-    tx->x_axis   = x_axis;
-    tx->y_axis   = y_axis;
-    tx->z_axis   = z_axis;
+    tx->x = x;
+    tx->y = y;
+    tx->z = z;
 
-    tx->position = position;
+    tx->p = p;
 
-    XI_ASSERT(renderer->setup.window_dim.w > 0);
-    XI_ASSERT(renderer->setup.window_dim.h > 0);
+    Assert(renderer->setup.window_dim.w > 0);
+    Assert(renderer->setup.window_dim.h > 0);
 
-    xi_m4x4_inv projection;
+    Mat4x4FInv projection;
 
-    xi_f32 aspect_ratio = (xi_f32) renderer->setup.window_dim.w / (xi_f32) renderer->setup.window_dim.h;
-    if (flags & XI_CAMERA_TRANSFORM_FLAG_ORTHOGRAPHIC) {
-        projection = xi_m4x4_orthographic_projection(aspect_ratio, near_plane, far_plane);
+    F32 aspect_ratio = cast(F32) renderer->setup.window_dim.w / cast(F32) renderer->setup.window_dim.h;
+    if (flags & CAMERA_TRANSFORM_FLAG_ORTHOGRAPHIC) {
+        projection = M4x4F_OrthographicProjection(aspect_ratio, nearp, farp);
     }
     else {
-        projection = xi_m4x4_perspective_projection(focal_length, aspect_ratio, near_plane, far_plane);
+        projection = M4x4F_PerspectiveProjection(fov, aspect_ratio, nearp, farp);
     }
 
-    xi_m4x4_inv camera = xi_m4x4_from_camera_transform(x_axis, y_axis, z_axis, position);
+    Mat4x4FInv camera = M4x4F_CameraViewProjection(x, y, z, p);
 
-    tx->transform.fwd = xi_m4x4_mul(projection.fwd, camera.fwd);
-    tx->transform.inv = xi_m4x4_mul(camera.inv, projection.inv);
+    tx->transform.fwd = M4x4F_Mul(projection.fwd, camera.fwd);
+    tx->transform.inv = M4x4F_Mul(camera.inv, projection.inv);
 
     // push onto the uniforms arena for binding later
     //
-    tx->ubo_offset = xi_arena_offset_get(&renderer->uniforms);
+    tx->ubo_offset = renderer->uniforms.used;
 
-    xiShaderGlobals *globals = xi_arena_push_type(&renderer->uniforms, xiShaderGlobals);
+    ShaderGlobals *globals = cast(ShaderGlobals *) (renderer->uniforms.data + tx->ubo_offset);
+    renderer->uniforms.used += renderer->ubo_globals_size;
 
     // @important: do not read from this memory
     //
     globals->transform       = tx->transform.fwd;
-    globals->camera_position = xi_v4_from_v3(tx->position, 1.0);
+    globals->camera_position = V4F_FromV3F(tx->p, 1.0);
 
-    globals->time    = 0; // @todo: get time
-    globals->dt      = 0; // @todo: get dt
-    globals->unused0 = 0;
-    globals->unused1 = 0;
+    globals->time       = 0; // @todo: get time
+    globals->dt         = 0; // @todo: get dt
+    globals->window_dim = renderer->setup.window_dim;
 
     renderer->draw_call = 0;
 }
 
-void xi_camera_transform_set_from_axes(xiRenderer *renderer,
-        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags)
-{
-    xi_f32 focal_length = 1.5696855771174903493f; // ~65 degree fov
-    xi_camera_transform_set(renderer, x_axis, y_axis, z_axis, position, flags, 0.001f, 10000.0f, focal_length);
+void CameraTransformSetFromAxes(RendererContext *renderer, Vec3F x, Vec3F y, Vec3F z, Vec3F p, U32 flags) {
+    CameraTransformSet(renderer, x, y, z, p, flags, 0.001f, 10000.0f, 65.0f);
 }
 
-void xi_camera_transform_get(xiCameraTransform *camera, xi_f32 aspect_ratio,
-        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position,
-        xi_u32 flags, xi_f32 near_plane, xi_f32 far_plane, xi_f32 focal_length)
-{
-    camera->x_axis   = x_axis;
-    camera->y_axis   = y_axis;
-    camera->z_axis   = z_axis;
+void CameraTransformGet(CameraTransform *camera, F32 aspect, Vec3F x, Vec3F y, Vec3F z, Vec3F p, U32 flags, F32 nearp, F32 farp, F32 fov) {
+    camera->x = x;
+    camera->y = y;
+    camera->z = z;
+    camera->p = p;
 
-    camera->position = position;
+    Mat4x4FInv projection;
 
-    xi_m4x4_inv projection;
-
-    if (flags & XI_CAMERA_TRANSFORM_FLAG_ORTHOGRAPHIC) {
-        projection = xi_m4x4_orthographic_projection(aspect_ratio, near_plane, far_plane);
+    if (flags & CAMERA_TRANSFORM_FLAG_ORTHOGRAPHIC) {
+        projection = M4x4F_OrthographicProjection(aspect, nearp, farp);
     }
     else {
-        projection = xi_m4x4_perspective_projection(focal_length, aspect_ratio, near_plane, far_plane);
+        projection = M4x4F_PerspectiveProjection(fov, aspect, nearp, farp);
     }
 
-    xi_m4x4_inv tx = xi_m4x4_from_camera_transform(x_axis, y_axis, z_axis, position);
+    Mat4x4FInv tx = M4x4F_CameraViewProjection(x, y, z, p);
 
-    camera->transform.fwd = xi_m4x4_mul(projection.fwd, tx.fwd);
-    camera->transform.inv = xi_m4x4_mul(tx.inv, projection.inv);
+    camera->transform.fwd = M4x4F_Mul(projection.fwd, tx.fwd);
+    camera->transform.inv = M4x4F_Mul(tx.inv, projection.inv);
 }
 
-void xi_camera_transform_get_from_axes(xiCameraTransform *camera, xi_f32 aspect_ratio,
-        xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position, xi_u32 flags)
-{
-    xi_f32 focal_length = 1.5696855771174903493f; // ~65 degree fov
-    xi_camera_transform_get(camera, aspect_ratio, x_axis, y_axis, z_axis,
-            position, flags, 0.001f, 10000.0f, focal_length);
+void CameraTransformGetFromAxes(CameraTransform *camera, F32 aspect, Vec3F x, Vec3F y, Vec3F z, Vec3F p, U32 flags) {
+    CameraTransformGet(camera, aspect, x, y, z, p, flags, 0.001f, 10000.0f, 70.0f);
 }
 
-xi_v3 xi_unproject_xy(xiCameraTransform *camera, xi_v2 clip) {
-    xi_v3 result = xi_unproject_xyz(camera, clip, camera->position.z);
+Vec3F V2FUnproject(CameraTransform *camera, Vec2F clip) {
+    Vec3F result = V2FUnprojectAt(camera, clip, camera->p.z);
     return result;
 }
 
-extern XI_API xi_v3 xi_unproject_xyz(xiCameraTransform *camera, xi_v2 clip, xi_f32 z) {
-    xi_v3 result;
+Vec3F V2FUnprojectAt(CameraTransform *camera, Vec2F clip, F32 z) {
+    Vec3F result;
 
-    xi_v4 z_dist = xi_v4_from_v3(xi_v3_sub(camera->position, xi_v3_mul_f32(camera->z_axis, z)), 1.0f);
-    xi_v4 persp  = xi_m4x4_mul_v4(camera->transform.fwd, z_dist);
+    Vec4F z_dist = V4F_FromV3F(V3F_Sub(camera->p, V3F_Scale(camera->z, z)), 1.0f);
+    Vec4F persp  = M4x4F_MulV4F(camera->transform.fwd, z_dist);
 
-    clip = xi_v2_mul_f32(clip, persp.w);
+    clip = V2F_Scale(clip, persp.w);
 
-    xi_v4 world = xi_m4x4_mul_v4(camera->transform.inv, xi_v4_create(clip.x, clip.y, persp.z, persp.w));
+    Vec4F world = M4x4F_MulV4F(camera->transform.inv, V4F(clip.x, clip.y, persp.z, persp.w));
 
     result = world.xyz;
     return result;
 }
 
-extern XI_API xi_rect3 xi_camera_bounds_get(xiCameraTransform *camera) {
-    xi_rect3 result;
-    result.min = xi_unproject_xy(camera, xi_v2_create(-1, -1));
-    result.max = xi_unproject_xy(camera, xi_v2_create( 1,  1));
+Rect3F CameraBoundsGet(CameraTransform *camera) {
+    Rect3F result;
+    result.min = V2FUnproject(camera, V2F(-1, -1));
+    result.max = V2FUnproject(camera, V2F( 1,  1));
 
     return result;
 }
 
-extern XI_API xi_rect3 xi_camera_bounds_get_at_z(xiCameraTransform *camera, xi_f32 z) {
-    xi_rect3 result;
-    result.min = xi_unproject_xyz(camera, xi_v2_create(-1, -1), z);
-    result.max = xi_unproject_xyz(camera, xi_v2_create( 1,  1), z);
+Rect3F CameraBoundsGetAt(CameraTransform *camera, F32 z) {
+    Rect3F result;
+    result.min = V2FUnprojectAt(camera, V2F(-1, -1), z);
+    result.max = V2FUnprojectAt(camera, V2F( 1,  1), z);
 
     return result;
 }
 
-
-
-void xi_renderer_layer_push(xiRenderer *renderer) {
+void RendererLayerPush(RendererContext *renderer) {
     renderer->layer += renderer->layer_offset;
 }

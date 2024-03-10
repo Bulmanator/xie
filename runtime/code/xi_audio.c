@@ -1,4 +1,4 @@
-XI_INTERNAL void xi_audio_player_init(xiArena *arena, xiAudioPlayer *player) {
+FileScope void AudioPlayerInit(M_Arena *arena, AudioPlayer *player) {
     switch (player->sample_rate) {
         case 8000:
         case 11025:
@@ -16,19 +16,23 @@ XI_INTERNAL void xi_audio_player_init(xiArena *arena, xiAudioPlayer *player) {
     if (player->frame_count == 0) {
         // 50ms
         //
-        player->frame_count = (xi_u32) ((0.05f * player->sample_rate) + 0.5f);
+        player->frame_count = cast(U32) ((0.05f * player->sample_rate) + 0.5f);
     }
 
     if (player->music.layer_limit == 0) { player->music.layer_limit = 4;  }
     if (player->sfx.limit         == 0) { player->sfx.limit         = 32; }
 
-    xi_u32 event_limit = player->music.layer_limit + player->sfx.limit;
+    U32 event_limit = player->music.layer_limit + player->sfx.limit;
 
-    player->music.layers = xi_arena_push_array(arena, xiSound, player->music.layer_limit);
-    player->sfx.sounds   = xi_arena_push_array(arena, xiSound, player->sfx.limit);
-    player->events       = xi_arena_push_array(arena, xiAudioEvent, event_limit);
+    // @todo: this is also bad the whole audio system is kinda bad implementation wise, just use
+    // linked lists instead of fixed arrays
+    //
 
-    for (xi_u32 it = 0; it < player->sfx.limit - 1; ++it) {
+    player->music.layers = M_ArenaPush(arena, PlayingSound, player->music.layer_limit);
+    player->sfx.sounds   = M_ArenaPush(arena, PlayingSound, player->sfx.limit);
+    player->events       = M_ArenaPush(arena, AudioEvent,   event_limit);
+
+    for (U32 it = 0; it < player->sfx.limit - 1; ++it) {
         player->sfx.sounds[it].next = it + 1;
     }
 
@@ -37,13 +41,11 @@ XI_INTERNAL void xi_audio_player_init(xiArena *arena, xiAudioPlayer *player) {
     player->sfx.next_free     = 0;
 }
 
-XI_INTERNAL void xi_audio_event_push(xiAudioPlayer *player,
-        xi_u32 type, xi_u32 tag, xi_b32 from_music, xi_u32 index, xiSoundHandle handle)
-{
-    xi_u32 event_limit = (player->music.layer_limit + player->sfx.limit);
-    XI_ASSERT(player->event_count < event_limit);
+FileScope void AudioEventPush(AudioPlayer *player, U32 type, U32 tag, B32 from_music, U32 index, SoundHandle handle) {
+    U32 event_limit = (player->music.layer_limit + player->sfx.limit);
+    Assert(player->event_count < event_limit);
 
-    xiAudioEvent *event = &player->events[player->event_count];
+    AudioEvent *event    = &player->events[player->event_count];
     player->event_count += 1;
 
     event->type       = type;
@@ -53,9 +55,9 @@ XI_INTERNAL void xi_audio_event_push(xiAudioPlayer *player,
     event->handle     = handle;
 }
 
-void xi_sound_effect_play(xiAudioPlayer *player, xiSoundHandle handle, xi_u32 tag, xi_f32 volume) {
+void SoundEffectPlay(AudioPlayer *player, SoundHandle handle, U32 tag, F32 volume) {
     if (player->sfx.count < player->sfx.limit) {
-        xiSound *sound = &player->sfx.sounds[player->sfx.next_free];
+        PlayingSound *sound   = &player->sfx.sounds[player->sfx.next_free];
         player->sfx.next_free = sound->next;
 
         sound->enabled = true;
@@ -66,16 +68,16 @@ void xi_sound_effect_play(xiAudioPlayer *player, xiSoundHandle handle, xi_u32 ta
         sound->volume = volume;
         sound->target_volume = 0; // @todo: maybe we should use this for effects as well
 
-        xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STARTED, tag, false, 0, handle);
+        AudioEventPush(player, AUDIO_EVENT_TYPE_STARTED, tag, false, 0, handle);
     }
 }
 
-xi_u32 xi_music_layer_add(xiAudioPlayer *player, xiSoundHandle handle, xi_u32 tag) {
-    xi_u32 result = XI_U32_MAX;
+U32 MusicLayerAdd(AudioPlayer *player, SoundHandle handle, U32 tag) {
+    U32 result = U32_MAX;
 
     if (player->music.layer_count < player->music.layer_limit) {
         result = player->music.layer_count;
-        xiSound *layer = &player->music.layers[result];
+        PlayingSound *layer = &player->music.layers[result];
 
         layer->enabled = false;
         layer->handle  = handle;
@@ -89,51 +91,26 @@ xi_u32 xi_music_layer_add(xiAudioPlayer *player, xiSoundHandle handle, xi_u32 ta
     return result;
 }
 
-void xi_music_layer_enable_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 effect, xi_f32 rate) {
+void MusicLayerEnableByIndex(AudioPlayer *player, U32 index, MusicLayerEffect effect, F32 rate) {
     if (index < player->music.layer_count) {
-        xiSound *sound = &player->music.layers[index];
+        PlayingSound *sound = &player->music.layers[index];
 
         if (rate <= 0) { rate = 1; }
 
         if (!sound->enabled) {
             sound->enabled       = true;
-            sound->volume        = (effect == XI_MUSIC_LAYER_EFFECT_FADE) ? 0.0f : 1.0f;
+            sound->volume        = (effect == MUSIC_LAYER_EFFECT_FADE) ? 0.0f : 1.0f;
             sound->target_volume = 1.0f;
             sound->rate          = rate;
 
-            xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STARTED, sound->tag, true, index, sound->handle);
+            AudioEventPush(player, AUDIO_EVENT_TYPE_STARTED, sound->tag, true, index, sound->handle);
         }
     }
 }
 
-void xi_music_layer_disable_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 effect, xi_f32 rate) {
+void MusicLayerToggleByIndex(AudioPlayer *player, U32 index, MusicLayerEffect effect, F32 rate) {
     if (index < player->music.layer_count) {
-        xiSound *layer = &player->music.layers[index];
-
-        if (layer->enabled) {
-            if (rate <= 0) { rate = 1; }
-
-            layer->enabled       = false;
-            layer->target_volume = 0.0f;
-            layer->rate          = -rate;
-
-            if (effect == XI_MUSIC_LAYER_EFFECT_INSTANT) {
-                layer->volume  = 0.0f;
-
-                // instant will push a sound effect because the audio turns of right away,
-                // if the fade effect is used instead, it will push an audio event when the
-                // music volume actually reaches zero
-                //
-                xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
-                        layer->tag, true, index, layer->handle);
-            }
-        }
-    }
-}
-
-void xi_music_layer_toggle_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 effect, xi_f32 rate) {
-    if (index < player->music.layer_count) {
-        xiSound *sound = &player->music.layers[index];
+        PlayingSound *sound = &player->music.layers[index];
 
         if (rate <= 0) { rate = 1; }
 
@@ -142,28 +119,51 @@ void xi_music_layer_toggle_by_index(xiAudioPlayer *player, xi_u32 index, xi_u32 
             sound->target_volume = 0.0f;
             sound->rate          = -rate;
 
-            if (effect == XI_MUSIC_LAYER_EFFECT_INSTANT) { sound->volume = 0.0f; }
+            if (effect == MUSIC_LAYER_EFFECT_INSTANT) { sound->volume = 0.0f; }
         }
         else {
             sound->enabled       = true;
-            sound->volume        = (effect == XI_MUSIC_LAYER_EFFECT_FADE) ? 0.0f : 1.0f;
+            sound->volume        = (effect == MUSIC_LAYER_EFFECT_FADE) ? 0.0f : 1.0f;
             sound->target_volume = 1.0f;
             sound->rate          = rate;
         }
 
-        if (sound->enabled || (effect == XI_MUSIC_LAYER_EFFECT_INSTANT)) {
-            xi_u32 type = (sound->enabled ? XI_AUDIO_EVENT_TYPE_STARTED : XI_AUDIO_EVENT_TYPE_STOPPED);
-            xi_audio_event_push(player, type, sound->tag, true, index, sound->handle);
+        if (sound->enabled || (effect == MUSIC_LAYER_EFFECT_INSTANT)) {
+            U32 type = (sound->enabled ? AUDIO_EVENT_TYPE_STARTED : AUDIO_EVENT_TYPE_STOPPED);
+            AudioEventPush(player, type, sound->tag, true, index, sound->handle);
         }
     }
 }
 
-void xi_music_layer_enable_by_tag(xiAudioPlayer *player, xi_u32 tag, xi_u32 effect, xi_f32 rate) {
-     for (xi_u32 it = 0; it < player->music.layer_count; ++it) {
-        xiSound *layer = &player->music.layers[it];
+void MusicLayerDisableByIndex(AudioPlayer *player, U32 index, MusicLayerEffect effect, F32 rate) {
+    if (index < player->music.layer_count) {
+        PlayingSound *layer = &player->music.layers[index];
+
+        if (layer->enabled) {
+            if (rate <= 0) { rate = 1; }
+
+            layer->enabled       = false;
+            layer->target_volume = 0.0f;
+            layer->rate          = -rate;
+
+            if (effect == MUSIC_LAYER_EFFECT_INSTANT) {
+                layer->volume = 0.0f;
+
+                // instant will push a sound effect because the audio turns of right away,
+                // if the fade effect is used instead, it will push an audio event when the
+                // music volume actually reaches zero
+                //
+                AudioEventPush(player, AUDIO_EVENT_TYPE_STOPPED, layer->tag, true, index, layer->handle);
+            }
+        }
+    }
+}
+void MusicLayerEnableByTag(AudioPlayer *player, U32 tag, MusicLayerEffect effect, F32 rate) {
+     for (U32 it = 0; it < player->music.layer_count; ++it) {
+        PlayingSound *layer = &player->music.layers[it];
         if (layer->tag == tag) {
             if (!layer->enabled) {
-                xi_music_layer_enable_by_index(player, it, effect, rate);
+                MusicLayerEnableByIndex(player, it, effect, rate);
             }
 
             break;
@@ -171,12 +171,22 @@ void xi_music_layer_enable_by_tag(xiAudioPlayer *player, xi_u32 tag, xi_u32 effe
     }
 }
 
-void xi_music_layer_disable_by_tag(xiAudioPlayer *player, xi_u32 tag, xi_u32 effect, xi_f32 rate) {
-    for (xi_u32 it = 0; it < player->music.layer_count; ++it) {
-        xiSound *layer = &player->music.layers[it];
+void MusicLayerToggleByTag(AudioPlayer *player, U32 tag, MusicLayerEffect effect, F32 rate) {
+    for (U32 it = 0; it < player->music.layer_count; ++it) {
+        PlayingSound *layer = &player->music.layers[it];
+        if (layer->tag == tag) {
+            MusicLayerToggleByIndex(player, it, effect, rate);
+            break;
+        }
+    }
+}
+
+void MusicLayerDisableByTag(AudioPlayer *player, U32 tag, MusicLayerEffect effect, F32 rate) {
+    for (U32 it = 0; it < player->music.layer_count; ++it) {
+        PlayingSound *layer = &player->music.layers[it];
         if (layer->tag == tag) {
             if (layer->enabled) {
-                xi_music_layer_disable_by_index(player, it, effect, rate);
+                MusicLayerDisableByIndex(player, it, effect, rate);
             }
 
             break;
@@ -184,22 +194,12 @@ void xi_music_layer_disable_by_tag(xiAudioPlayer *player, xi_u32 tag, xi_u32 eff
     }
 }
 
-void xi_music_layer_toggle_by_tag(xiAudioPlayer *player, xi_u32 tag, xi_u32 effect, xi_f32 rate) {
-    for (xi_u32 it = 0; it < player->music.layer_count; ++it) {
-        xiSound *layer = &player->music.layers[it];
-        if (layer->tag == tag) {
-            xi_music_layer_toggle_by_index(player, it, effect, rate);
-            break;
-        }
-    }
-}
-
-void xi_music_layers_clear(xiAudioPlayer *player) {
+void MusicLayerClearAll(AudioPlayer *player) {
     player->music.layer_count = 0;
 }
 
-XI_INTERNAL void xi_sound_effect_remove(xiAudioPlayer *player, xiSound *sound, xi_u32 index) {
-    xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED, sound->tag, false, 0, sound->handle);
+FileScope void SoundEffectRemove(AudioPlayer *player, PlayingSound *sound, U32 index) {
+    AudioEventPush(player, AUDIO_EVENT_TYPE_STOPPED, sound->tag, false, 0, sound->handle);
 
     sound->enabled = false;
 
@@ -210,55 +210,50 @@ XI_INTERNAL void xi_sound_effect_remove(xiAudioPlayer *player, xiSound *sound, x
 
     sound->next = player->sfx.next_free;
     player->sfx.next_free = index;
-
 }
 
-XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *assets,
-        xi_s16 *samples, xi_u32 frame_count, xi_f32 dt)
-{
+FileScope void AudioPlayerUpdate(AudioPlayer *player, AssetManager *assets, S16 *samples, U32 frame_count, F32 dt) {
     player->event_count = 0; // reset events :multiple_updates
 
-    xiArena *temp = xi_temp_get();
+    M_Arena *temp = M_TempGet();
 
     // mix in 32-bit float space to prevent clipping and for easier volume control
     //
     // @todo: this is probably really easy to put in simd because it is just some for loops
     // and additions as long as we align the number of samples to 8 we should be good
     //
-    xi_f32 *left  = xi_arena_push_array(temp, xi_f32, frame_count);
-    xi_f32 *right = xi_arena_push_array(temp, xi_f32, frame_count);
+    F32 *left  = M_ArenaPush(temp, F32, frame_count);
+    F32 *right = M_ArenaPush(temp, F32, frame_count);
 
     if (player->music.playing) {
         // mix music
         //
-        xi_f32 music_volume = player->volume * player->music.volume;
-        for (xi_u32 it = 0; it < player->music.layer_count; ++it) {
-            xiSound *layer = &player->music.layers[it];
+        F32 music_volume = player->volume * player->music.volume;
+        for (U32 it = 0; it < player->music.layer_count; ++it) {
+            PlayingSound *layer = &player->music.layers[it];
 
             layer->target_volume = layer->enabled ? 1.0f : 0.0f;
 
             layer->volume += (layer->rate * dt);
-            layer->volume  = XI_CLAMP(layer->volume, 0.0f, 1.0f);
+            layer->volume  = Clamp01(layer->volume);
 
             if (layer->enabled && layer->volume <= 0) {
                 layer->enabled = false;
 
-                xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_STOPPED,
-                        layer->tag, true, it, layer->handle);
+                AudioEventPush(player, AUDIO_EVENT_TYPE_STOPPED, layer->tag, true, it, layer->handle);
             }
 
-            xiaSoundInfo *info = xi_sound_info_get(assets, layer->handle);
-            xi_s16 *data = xi_sound_data_get(assets, layer->handle);
+            Xia_SoundInfo *info = SoundInfoGet(assets, layer->handle);
+            S16           *data = SoundDataGet(assets, layer->handle);
 
-            if (info) {
-                if (layer->sample + (2 * frame_count) >= info->sample_count) {
+            if (info && data) {
+                if (layer->sample + (2 * frame_count) >= info->num_samples) {
                     // we will loop during mixing so push a sound event
                     //
-                    xi_audio_event_push(player, XI_AUDIO_EVENT_TYPE_LOOP_RESET,
-                            layer->tag, true, it, layer->handle);
+                    AudioEventPush(player, AUDIO_EVENT_TYPE_LOOP_RESET, layer->tag, true, it, layer->handle);
                 }
 
-                for (xi_u32 si = 0; si < frame_count; ++si) {
+                for (U32 si = 0; si < frame_count; ++si) {
                     if (layer->enabled || (layer->volume > 0)) {
                         // we keep layers in sync by iterating frames regardless of if they are
                         // enabled or not, we just don't physically output the samples if they are
@@ -269,7 +264,7 @@ XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *a
                     }
 
                     layer->sample += 2;
-                    layer->sample %= info->sample_count;
+                    layer->sample %= info->num_samples;
                 }
             }
         }
@@ -280,26 +275,27 @@ XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *a
     // @todo: this could easily be an indexed linked list for playing sounds rather than looping
     // over all sounds and seeing if they're enabled, doesn't really matter
     //
-    xi_f32 sfx_volume = player->volume * player->sfx.volume;
-    for (xi_u32 it = 0; it < player->sfx.limit; ++it) {
-        xiSound *sound = &player->sfx.sounds[it];
+    F32 sfx_volume = player->volume * player->sfx.volume;
+    for (U32 it = 0; it < player->sfx.limit; ++it) {
+        PlayingSound *sound = &player->sfx.sounds[it];
         if (sound->enabled) {
-            xiaSoundInfo *info = xi_sound_info_get(assets, sound->handle);
-            xi_s16 *data = xi_sound_data_get(assets, sound->handle);
+            Xia_SoundInfo *info = SoundInfoGet(assets, sound->handle);
+            S16           *data = SoundDataGet(assets, sound->handle);
+
             if (info && data) {
                 data += sound->sample;
 
-                xi_u32 count  = XI_MIN(frame_count, (info->sample_count - sound->sample) >> 1);
-                for (xi_u32 si = 0; si < count; ++si) {
+                U32 count = Min(frame_count, (info->num_samples - sound->sample) >> 1);
+                for (U32 si = 0; si < count; ++si) {
                     left[si]  += (sfx_volume * sound->volume * (*data++));
                     right[si] += (sfx_volume * sound->volume * (*data++));
                 }
 
                 sound->sample += (2 * count);
-                XI_ASSERT(sound->sample <= info->sample_count); // sanity checking
+                Assert(sound->sample <= info->num_samples); // sanity checking
 
-                if (sound->sample == info->sample_count) {
-                    xi_sound_effect_remove(player, sound, it);
+                if (sound->sample == info->num_samples) {
+                    SoundEffectRemove(player, sound, it);
                 }
             }
         }
@@ -307,10 +303,10 @@ XI_INTERNAL void xi_audio_player_update(xiAudioPlayer *player, xiAssetManager *a
 
     // downsample to s16 for our sample format
     //
-    xi_s16 *out = samples;
-    for (xi_u32 it = 0; it < frame_count; ++it) {
-        *out++ = (xi_s16) (left[it]  + 0.5f);
-        *out++ = (xi_s16) (right[it] + 0.5f);
+    S16 *out = samples;
+    for (U32 it = 0; it < frame_count; ++it) {
+        *out++ = cast(S16) (left[it]  + 0.5f);
+        *out++ = cast(S16) (right[it] + 0.5f);
     }
 }
 

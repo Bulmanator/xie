@@ -1,223 +1,204 @@
 #if !defined(XI_MATHS_H_)
 #define XI_MATHS_H_
 
-#if !defined(XI_EPSILON_F32)
-    #define XI_EPSILON_F32 0.00001f
+#if !defined(EPSILON_F32)
+    #define EPSILON_F32 0.00001f
 #endif
 
-typedef struct xiRandomState {
-    xi_u64 state;
-} xiRandomState;
+#define F32_PI  (3.141592653589793238462643383279502884197169f)
+#define F32_TAU (2.0f * F32_PI)
 
-// rng xorshift
 //
-inline void xi_rng_seed(xiRandomState *rng, xi_u64 seed);
-
-inline xi_u32 xi_rng_u32(xiRandomState *rng);
-inline xi_u64 xi_rng_u64(xiRandomState *rng);
-
-inline xi_f32 xi_rng_unilateral_f32(xiRandomState *rng); //  0 to 1
-inline xi_f32 xi_rng_bilateral_f32(xiRandomState *rng);  // -1 to 1
-
-inline xi_f64 xi_rng_unilateral_f64(xiRandomState *rng); //  0 to 1
-inline xi_f64 xi_rng_bilateral_f64(xiRandomState *rng);  // -1 to 1
-
-inline xi_u32 xi_rng_range_u32(xiRandomState *rng, xi_u32 min, xi_u32 max);
-inline xi_f32 xi_rng_range_f32(xiRandomState *rng, xi_f32 min, xi_f32 max);
-
-inline xi_u64 xi_rng_range_u64(xiRandomState *rng, xi_u64 min, xi_u64 max);
-inline xi_f64 xi_rng_range_f64(xiRandomState *rng, xi_f64 min, xi_f64 max);
-
-inline xi_u32 xi_rng_choice_u32(xiRandomState *rng, xi_u32 choice_count);
-
-// sqrt
+// --------------------------------------------------------------------------------
+// :Random_Number_Generator
+// --------------------------------------------------------------------------------
 //
-inline xi_f32 xi_sqrt(xi_f32 a);
-inline xi_f32 xi_rsqrt(xi_f32 a);
-inline xi_f32 xi_rsqrt_approx(xi_f32 a);
 
-// trig. functions
+typedef struct RandomState RandomState;
+struct RandomState {
+    U64 state;
+};
+
+Inline RandomState RandomSeed(U64 seed);
+
+Inline U32 U32_RandomNext(RandomState *rng);
+Inline U64 U64_RandomNext(RandomState *rng);
+
+Inline F32 F32_RandomUnilateral(RandomState *rng);
+Inline F64 F64_RandomUnilateral(RandomState *rng);
+
+Inline F32 F32_RandomBilateral(RandomState *rng);
+Inline F64 F64_RandomBilateral(RandomState *rng);
+
+Inline U32 U32_RandomRange(RandomState *rng, U32 min, U32 max);
+Inline S32 S32_RandomRange(RandomState *rng, S32 min, S32 max);
+Inline U64 U64_RandomRange(RandomState *rng, U64 min, U64 max);
+Inline S64 S64_RandomRange(RandomState *rng, S64 min, S64 max);
+Inline F32 F32_RandomRange(RandomState *rng, F32 min, F32 max);
+Inline F64 F64_RandomRange(RandomState *rng, F64 min, F64 max);
+
+Inline U32 U32_RandomChoice(RandomState *rng, U32 count);
+Inline U64 U64_RandomChoice(RandomState *rng, U64 count);
+
 //
-inline xi_f32 xi_sin(xi_f32 a);
-inline xi_f32 xi_cos(xi_f32 a);
-inline xi_f32 xi_tan(xi_f32 a);
-
-// lerp
+// --------------------------------------------------------------------------------
+// :Basic
+// --------------------------------------------------------------------------------
 //
-inline xi_f32 xi_lerp_f32(xi_f32 a, xi_f32 b, xi_f32 t);
-inline xi_f64 xi_lerp_f64(xi_f64 a, xi_f64 b, xi_f64 t);
 
-inline xi_v2 xi_lerp_v2(xi_v2 a, xi_v2 b, xi_f32 t);
-inline xi_v3 xi_lerp_v3(xi_v3 a, xi_v3 b, xi_f32 t);
-inline xi_v4 xi_lerp_v4(xi_v4 a, xi_v4 b, xi_f32 t);
+Inline F32 F32_Sqrt(F32 a);
+Inline F32 F32_InvSqrt(F32 a);
+Inline F32 F32_InvSqrtApprox(F32 a);
 
-// create functions
+Inline F32 F32_Sin(F32 turns);
+Inline F32 F32_Cos(F32 turns);
+Inline F32 F32_Tan(F32 turns);
+
+Inline F32 F32_Lerp(F32 a, F32 b, F32 t);
+Inline F64 F64_Lerp(F64 a, F64 b, F64 t);
+
+Inline Vec2F V2F_Lerp(Vec2F a, Vec2F b, F32 t);
+Inline Vec3F V3F_Lerp(Vec3F a, Vec3F b, F32 t);
+Inline Vec4F V4F_Lerp(Vec4F a, Vec4F b, F32 t);
+
+Inline U32 U32_Pow2Next(U32 x);
+Inline U32 U32_Pow2Prev(U32 x);
+Inline U32 U32_Pow2Nearest(U32 x);
+
 //
-inline xi_v2u xi_v2u_create(xi_u32 x, xi_u32 y);
-inline xi_v2s xi_v2s_create(xi_s32 x, xi_s32 y);
-
-inline xi_v2 xi_v2_create(xi_f32 x, xi_f32 y);
-inline xi_v3 xi_v3_create(xi_f32 x, xi_f32 y, xi_f32 z);
-inline xi_v4 xi_v4_create(xi_f32 x, xi_f32 y, xi_f32 z, xi_f32 w);
-
-// conversion functions
+// --------------------------------------------------------------------------------
+// :Construction
+// --------------------------------------------------------------------------------
 //
-// :note conversion functions that are not here can be retrieved directly from the struct via the union
-// setup, i.e. v4 -> v3 conversion can be done via v4.xyz, v3 -> v2 conversion can be done via v3.xy
+
+Inline Vec2U V2U(U32 x, U32 y);
+Inline Vec2S V2S(S32 x, S32 y);
+
+Inline Vec2F V2F(F32 x, F32 y);
+Inline Vec3F V3F(F32 x, F32 y, F32 z);
+Inline Vec4F V4F(F32 x, F32 y, F32 z, F32 w);
+
+Inline Vec2F V2F_UnitArm(F32 turn);
+
+Inline Mat4x4F M4x4F(F32 diagonal);
+
+Inline Mat4x4F M4x4F_Rows(Vec3F x, Vec3F y, Vec3F z);
+Inline Mat4x4F M4x4F_Columns(Vec3F x, Vec3F y, Vec3F z);
+
+Inline Mat4x4F M4x4F_RotationX(F32 turns);
+Inline Mat4x4F M4x4F_RotationY(F32 turns);
+Inline Mat4x4F M4x4F_RotationZ(F32 turns);
+
+Func Mat4x4FInv M4x4F_PerspectiveProjection(F32 fov, F32 aspect, F32 nearp, F32 farp);
+Func Mat4x4FInv M4x4F_OrthographicProjection(F32 aspect, F32 nearp, F32 farp);
+Func Mat4x4FInv M4x4F_CameraViewProjection(Vec3F x, Vec3F y, Vec3F z, Vec3F position);
+
 //
-// float to integer vector conversion will truncate
+// --------------------------------------------------------------------------------
+// :Conversion
+// --------------------------------------------------------------------------------
 //
-inline xi_v2u xi_v2u_from_v2s(xi_v2s xy);
-inline xi_v2u xi_v2u_from_v2(xi_v2 xy);
 
-inline xi_v2s xi_v2s_from_v2u(xi_v2u xy);
-inline xi_v2s xi_v2s_from_v2(xi_v2 xy);
+Inline Vec2F V2F_FromV2U(Vec2U a);
+Inline Vec2F V2F_FromV2S(Vec2S a);
 
-inline xi_v2 xi_v2_from_v2u(xi_v2u xy);
-inline xi_v2 xi_v2_from_v2s(xi_v2s xy);
+Inline Vec2S V2S_FromV2U(Vec2U a);
+Inline Vec2S V2S_FromV2F(Vec2F a);
 
-inline xi_v3 xi_v3_from_v2(xi_v2  xy, xi_f32 z);
+Inline Vec2U V2U_FromV2S(Vec2S a);
+Inline Vec2U V2U_FromV2F(Vec2F a);
 
-inline xi_v4 xi_v4_from_v2(xi_v2 xy, xi_f32 z, xi_f32 w);
-inline xi_v4 xi_v4_from_v3(xi_v3 xyz, xi_f32 w);
+Inline Vec3F V3F_FromV2F(Vec2F xy,  F32 z);
+Inline Vec4F V4F_FromV2F(Vec2F xy,  F32 z, F32 w);
+Inline Vec4F V4F_FromV3F(Vec3F xyz, F32 w);
 
-// creates a 2x2 rotation matrix from the angle provided
+Inline Vec4F M4x4F_RowExtract(Mat4x4F a, U32 row);
+Inline Vec4F M4x4F_ColumnExtract(Mat4x4F a, U32 column);
+
+Inline U32 V4F_ColourPackABGR(Vec4F colour);
+
+Inline Vec4F U32_ColourUnpackARGB(U32 colour);
+Inline Vec4F U32_ColourUnpackABGR(U32 colour);
+
+Func Vec4F V4F_Linear1FromSRGB255(Vec4F colour);
+Func Vec4F V4F_SRGB255FromLinear1(Vec4F colour);
+
+Func Vec4F V4F_Linear1FromSRGB1(Vec4F colour);
+Func Vec4F V4F_SRGB1FromLinear1(Vec4F colour);
+
 //
-inline xi_m2x2 xi_m2x2_from_radians(xi_f32 angle);
-
-// creates a 4x4 matrix using the supplied axes as the first three rows/columns
+// --------------------------------------------------------------------------------
+// :Vector_Basic
+// --------------------------------------------------------------------------------
 //
-inline xi_m4x4 xi_m4x4_from_rows_v3(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis);
-inline xi_m4x4 xi_m4x4_from_columns_v3(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis);
 
-// creates a 4x4 matrix camera trasform from the xyz axes and places it at the position specified
+Inline F32 V2F_Dot(Vec2F a, Vec2F b);
+Inline F32 V3F_Dot(Vec3F a, Vec3F b);
+Inline F32 V4F_Dot(Vec4F a, Vec4F b);
+
+Inline F32 V2F_LengthSq(Vec2F a);
+Inline F32 V3F_LengthSq(Vec3F a);
+Inline F32 V4F_LengthSq(Vec4F a);
+
+Inline F32 V2F_Length(Vec2F a);
+Inline F32 V3F_Length(Vec3F a);
+Inline F32 V4F_Length(Vec4F a);
+
+Inline Vec2F V2F_Normalise(Vec2F a);
+Inline Vec3F V3F_Normalise(Vec3F a);
+Inline Vec4F V4F_Normalise(Vec4F a);
+
+Inline Vec2F V2F_Min(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Min(Vec3F a, Vec3F b);
+Inline Vec4F V4F_Min(Vec4F a, Vec4F b);
+
+Inline Vec2F V2F_Max(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Max(Vec3F a, Vec3F b);
+Inline Vec4F V4F_Max(Vec4F a, Vec4F b);
+
+Inline Vec2F V2F_Perp(Vec2F a);
+Inline Vec2F V2F_Rotate(Vec2F arm, Vec2F v);
+Inline F32   V2F_Cross(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Cross(Vec3F a, Vec3F b);
+
 //
-extern XI_API xi_m4x4_inv xi_m4x4_from_camera_transform(xi_v3 x_axis, xi_v3 y_axis, xi_v3 z_axis, xi_v3 position);
-
-// dot
+// --------------------------------------------------------------------------------
+// :Operators
+// --------------------------------------------------------------------------------
 //
-inline xi_f32 xi_v2_dot(xi_v2 a, xi_v2 b);
-inline xi_f32 xi_v3_dot(xi_v3 a, xi_v3 b);
-inline xi_f32 xi_v4_dot(xi_v4 a, xi_v4 b);
 
-// length
-//
-inline xi_f32 xi_v2_length(xi_v2 a);
-inline xi_f32 xi_v3_length(xi_v3 a);
-inline xi_f32 xi_v4_length(xi_v4 a);
+Inline Vec2U V2U_Add(Vec2U a, Vec2U b);
+Inline Vec2S V2S_Add(Vec2S a, Vec2S b);
+Inline Vec2F V2F_Add(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Add(Vec3F a, Vec3F b);
+Inline Vec4F V4F_Add(Vec4F a, Vec4F b);
 
-// normalize or zero vector if len == 0
-//
-inline xi_v2 xi_v2_noz(xi_v2 a);
-inline xi_v3 xi_v3_noz(xi_v3 a);
-inline xi_v4 xi_v4_noz(xi_v4 a);
+Inline Vec2S V2S_Neg(Vec2S a);
+Inline Vec2F V2F_Neg(Vec2F a);
+Inline Vec3F V3F_Neg(Vec3F a);
+Inline Vec4F V4F_Neg(Vec4F a);
 
-// min and max for vectors
-//
-inline xi_v2 xi_v2_min(xi_v2 a, xi_v2 b);
-inline xi_v3 xi_v3_min(xi_v3 a, xi_v3 b);
-inline xi_v4 xi_v4_min(xi_v4 a, xi_v4 b);
+Inline Vec2U V2U_Sub(Vec2U a, Vec2U b);
+Inline Vec2S V2S_Sub(Vec2S a, Vec2S b);
+Inline Vec2F V2F_Sub(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Sub(Vec3F a, Vec3F b);
+Inline Vec4F V4F_Sub(Vec4F a, Vec4F b);
 
-inline xi_v2 xi_v2_max(xi_v2 a, xi_v2 b);
-inline xi_v3 xi_v3_max(xi_v3 a, xi_v3 b);
-inline xi_v4 xi_v4_max(xi_v4 a, xi_v4 b);
+Inline Vec2F V2F_Hadamard(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Hadamard(Vec3F a, Vec3F b);
+Inline Vec4F V4F_Hadamard(Vec4F a, Vec4F b);
 
-// misc vector functions
-//
-inline xi_v2 xi_v2_perp(xi_v2 a);
+Inline Mat4x4F M4x4F_Mul(Mat4x4F a, Mat4x4F b);
 
-inline xi_v3 xi_v3_cross(xi_v3 a, xi_v3 b);
+Inline Vec3F M4x4F_MulV3F(Mat4x4F a, Vec3F b);
+Inline Vec4F M4x4F_MulV4F(Mat4x4F a, Vec4F b);
 
-// operators
-//
-inline xi_v2u xi_v2u_add(xi_v2u a, xi_v2u b);
-inline xi_v2s xi_v2s_add(xi_v2s a, xi_v2s b);
+Inline Vec2F V2F_Scale(Vec2F a, F32 b);
+Inline Vec3F V3F_Scale(Vec3F a, F32 b);
+Inline Vec4F V4F_Scale(Vec4F a, F32 b);
 
-inline xi_v2 xi_v2_add(xi_v2 a, xi_v2 b);
-inline xi_v3 xi_v3_add(xi_v3 a, xi_v3 b);
-inline xi_v4 xi_v4_add(xi_v4 a, xi_v4 b);
-
-inline xi_v2s xi_v2s_neg(xi_v2s a);
-
-inline xi_v2  xi_v2_neg(xi_v2 a);
-inline xi_v3  xi_v3_neg(xi_v3 a);
-inline xi_v4  xi_v4_neg(xi_v4 a);
-
-inline xi_v2u xi_v2u_sub(xi_v2u a, xi_v2u b);
-inline xi_v2s xi_v2s_sub(xi_v2s a, xi_v2s b);
-
-inline xi_v2 xi_v2_sub(xi_v2 a, xi_v2 b);
-inline xi_v3 xi_v3_sub(xi_v3 a, xi_v3 b);
-inline xi_v4 xi_v4_sub(xi_v4 a, xi_v4 b);
-
-inline xi_v2 xi_v2_mul(xi_v2 a, xi_v2 b);
-inline xi_v3 xi_v3_mul(xi_v3 a, xi_v3 b);
-inline xi_v4 xi_v4_mul(xi_v4 a, xi_v4 b);
-
-inline xi_m2x2 xi_m2x2_mul(xi_m2x2 a, xi_m2x2 b);
-inline xi_m4x4 xi_m4x4_mul(xi_m4x4 a, xi_m4x4 b);
-
-inline xi_v2 xi_v2_mul_f32(xi_v2 a, xi_f32 b);
-inline xi_v3 xi_v3_mul_f32(xi_v3 a, xi_f32 b);
-inline xi_v4 xi_v4_mul_f32(xi_v4 a, xi_f32 b);
-
-inline xi_v2 xi_m2x2_mul_v2(xi_m2x2 a, xi_v2 b);
-inline xi_v3 xi_m4x4_mul_v3(xi_m4x4 a, xi_v3 b);
-inline xi_v4 xi_m4x4_mul_v4(xi_m4x4 a, xi_v4 b);
-
-inline xi_v2 xi_v2_div(xi_v2 a, xi_v2 b);
-inline xi_v3 xi_v3_div(xi_v3 a, xi_v3 b);
-inline xi_v4 xi_v4_div(xi_v4 a, xi_v4 b);
-
-inline xi_v2 xi_v2_div_f32(xi_v2 a, xi_f32 b);
-inline xi_v3 xi_v3_div_f32(xi_v3 a, xi_f32 b);
-inline xi_v4 xi_v4_div_f32(xi_v4 a, xi_f32 b);
-
-// retrieve a single row/column from a matrix as a vector
-//
-inline xi_v4 xi_m4x4_row_get(xi_m4x4 m, xi_u32 row);
-inline xi_v4 xi_m4x4_column_get(xi_m4x4 m, xi_u32 column);
-
-// projection matrices
-//
-extern XI_API xi_m4x4_inv xi_m4x4_orthographic_projection(xi_f32 aspect_ratio,
-        xi_f32 near_plane, xi_f32 far_plane);
-
-extern XI_API xi_m4x4_inv xi_m4x4_perspective_projection(xi_f32 focal_length,
-        xi_f32 aspect_ratio, xi_f32 near_plane, xi_f32 far_plane);
-
-// transforms for m4x4
-//
-inline xi_m4x4 xi_m4x4_translate_v3(xi_m4x4 m, xi_v3 t);
-
-inline xi_m4x4 xi_m4x4_x_axis_rotation(xi_f32 radians);
-inline xi_m4x4 xi_m4x4_y_axis_rotation(xi_f32 radians);
-inline xi_m4x4 xi_m4x4_z_axis_rotation(xi_f32 radians);
-
-// pow2 functions
-//
-extern XI_API xi_u32 xi_pow2_next_u32(xi_u32 x);
-extern XI_API xi_u32 xi_pow2_prev_u32(xi_u32 x);
-
-extern XI_API xi_u32 xi_pow2_nearest_u32(xi_u32 x);
-
-// packs v4 f32 colour into abgr order 8-bit per component u32, norm variant assumes [0-1] normalised
-// range, unorm variant assumes unormalised [0-255] range
-//
-inline xi_u32 xi_v4_colour_abgr_pack_norm(xi_v4 c);
-inline xi_u32 xi_v4_colour_abgr_pack_unorm(xi_v4 c);
-
-// unpacks a packed 32-bit integer to normalised floating-point v4
-//
-inline xi_v4 xi_u32_colour_unpack_argb_norm(xi_u32 c);
-inline xi_v4 xi_u32_colour_unpack_abgr_norm(xi_u32 c);
-
-// converts a single colour component from srgb byte unorm to normalised light-linear float
-//
-extern XI_API xi_f32 xi_srgb_unorm_to_linear_norm(xi_u8 component);
-
-// converts a single colour component from normalised light-linear float to srgb byte unorm
-//
-extern XI_API xi_u8 xi_linear_norm_to_srgb_unorm(xi_f32 component);
+Inline Vec2F V2F_Div(Vec2F a, Vec2F b);
+Inline Vec3F V3F_Div(Vec3F a, Vec3F b);
+Inline Vec4F V4F_Div(Vec4F a, Vec4F b);
 
 #endif  // XI_MATHS_H_

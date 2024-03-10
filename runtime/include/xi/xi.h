@@ -77,33 +77,36 @@ extern "C" {
 
 #include "xi_input.h"
 
-#define XI_VERSION_MAJOR 0
-#define XI_VERSION_MINOR 10
-#define XI_VERSION_PATCH 7
+#define XI_VERSION_MAJOR 2
+#define XI_VERSION_MINOR 1
+#define XI_VERSION_PATCH 2
 
-#define XI_MAX_DISPLAYS 8
+typedef struct DisplayInfo DisplayInfo;
+struct DisplayInfo {
+    U32 width;
+    U32 height;
 
-typedef struct xiDisplay {
-    xi_u32 width;
-    xi_u32 height;
+    Str8 name;
 
-    xi_f32 refresh_rate;
-    xi_f32 scale; // windows are dpi aware, for informational purposes
+    F32 scale; // windows are dpi aware, for informational purposes
+    F32 refresh_rate;
 
-    xi_string name;
+    B32 primary;
 
     // @todo: maybe we want to have supported modes here
     //
-} xiDisplay;
-
-enum xiWindowState {
-    XI_WINDOW_STATE_WINDOWED = 0,
-    XI_WINDOW_STATE_WINDOWED_RESIZABLE,
-    XI_WINDOW_STATE_WINDOWED_BORDERLESS,
-    XI_WINDOW_STATE_FULLSCREEN
 };
 
-typedef struct xiContext {
+typedef U32 WindowState;
+enum {
+    WINDOW_STATE_WINDOWED = 0,
+    WINDOW_STATE_WINDOWED_RESIZABLE,
+    WINDOW_STATE_WINDOWED_BORDERLESS,
+    WINDOW_STATE_FULLSCREEN
+};
+
+typedef struct Xi_Engine Xi_Engine;
+struct Xi_Engine {
     struct {
         // @important: do not move this from the beginning of the structure
         //
@@ -115,9 +118,9 @@ typedef struct xiContext {
         // if the 'minor' or 'major' version numbers do not match this structure could've changed and
         // updated headers should be used. this also extends to the .inl implementation file
         //
-        xi_u32 major;
-        xi_u32 minor;
-        xi_u32 patch;
+        U32 major;
+        U32 minor;
+        U32 patch;
     } version;
 
     // this user pointer can be set to anything, thus can be used to carry game
@@ -135,93 +138,94 @@ typedef struct xiContext {
     // if this is passed to the game code as 'true' the user has requested that the game close
     // (i.e. closing the window etc.) and should be handled appropriatley (saving game state if desired etc.)
     //
-    xi_b32 quit;
+    B32 quit;
 
     struct {
-        xi_u32 width;
-        xi_u32 height;
+        WindowState state;
 
-        xi_u32 display; // index from zero < system.display_count
-        xi_u32 state;
+        U32 width;
+        U32 height;
 
-        xi_string title; // it is valid to use temporary memory to change the title
+        U32 display; // index into display array
+
+        Str8 title;  // it is valid to use temporary memory to change the title
     } window;
 
-    xiAssetManager assets;
-
-    xiThreadPool thread_pool;
+    AssetManager assets;
+    ThreadPool   thread_pool;
 
     // drawing
     //
-    xiRenderer renderer;
+    RendererContext renderer;
 
     // input
     //
-    xiInputKeyboard keyboard;
-    xiInputMouse    mouse;
+    InputKeyboard keyboard;
+    InputMouse    mouse;
 
     // time
     //
     struct {
-        xi_u64 ticks;
+        U64 ticks;
 
         struct {
-            xi_u64 ns;
-            xi_u64 us;
-            xi_u64 ms;
-            xi_f64 s;
+            U64 ns;
+            U64 us;
+            U64 ms;
+            F64 s;
         } total;
 
         struct {
-            xi_u64 ns;
-            xi_u64 us;
-            xi_u64 ms;
-            xi_f64 s;
+            U64 ns;
+            U64 us;
+            U64 ms;
+            F64 s;
 
-            xi_u32 fixed_hz; // fixed step rate in hz
-            xi_f32 clamp_s;  // max delta time in seconds
+            U32 fixed_hz; // fixed step rate in hz
+            F32 clamp_s;  // max delta time in seconds
         } delta;
     } time;
 
     // audio
     //
-    xiAudioPlayer audio_player;
+    AudioPlayer audio_player;
 
     // :note any members of the system struct can be considered valid _at all times_ this includes
     // in the XI_ENGINE_CONFIGURE call even though other engine services have not yet been initialised
     //
     struct {
-        xi_u32 display_count;
-        xiDisplay displays[XI_MAX_DISPLAYS];
+        U32 num_displays;
+        DisplayInfo *displays; // array of display info
 
-        xi_u32 processor_count;
+        U32 num_cpus;
 
         // :note encoded in utf-8
         // these paths do not end with a terminating forward slash and are not guaranteed to be
         // null-terminated
         //
-        xi_string working_path;
-        xi_string executable_path;
-        xi_string user_path;
-        xi_string temp_path;
+        Str8 working_path;
+        Str8 executable_path;
+        Str8 user_path;
+        Str8 temp_path;
 
         // setting this to true will open a console window to log stdout/stderr to, only really valid on
         // windows
         //
-        xi_b32 console_open;
+        B32 use_console;
 
         // these can be used to create loggers that output to the console, if the console is not open when
         // XI_ENGINE_CONFIGURE init is called, these may change after if the above 'console_open' was
         // set to true
         //
-        xiFileHandle out; // console stdout
-        xiFileHandle err; // console stderr
+        FileHandle out; // console stdout
+        FileHandle err; // console stderr
     } system;
-} xiContext;
+};
 
 // these function prototypes below are the functions your game dll should export
 //
-enum xiGameInitType {
+typedef U32 Xi_InitType;
+enum {
     // the first call to the game code 'init' function will be provided with this value. this occurs
     // before any of the engine systems have been initialised and thus can be used to configure them
     // to the games preferences.
@@ -251,28 +255,31 @@ enum xiGameInitType {
 // parameters can be declared in these macros as if it were a normal function declaration, this
 // is purely for documentational/redability purposes
 //
-#define XI_GAME_INIT(...)     void __xi_game_init(xiContext *xi, xi_u32 type)
-#define XI_GAME_SIMULATE(...) void __xi_game_simulate(xiContext *xi)
-#define XI_GAME_RENDER(...)   void __xi_game_render(xiContext *xi, xiRenderer *renderer)
+#define GAME_INIT(...)     void __xi_game_init(Xi_Engine *xi, Xi_InitType type)
+#define GAME_SIMULATE(...) void __xi_game_simulate(Xi_Engine *xi)
+#define GAME_RENDER(...)   void __xi_game_render(Xi_Engine *xi, RendererContext *renderer)
 
-typedef void (xiGameInit)    (xiContext *xi, xi_u32 type);
-typedef void (xiGameSimulate)(xiContext *);
-typedef void (xiGameRender)  (xiContext *, xiRenderer *);
+typedef void (Xi_GameInitProc)    (Xi_Engine *xi, Xi_InitType type);
+typedef void (Xi_GameSimulateProc)(Xi_Engine *xi);
+typedef void (Xi_GameRenderProc)  (Xi_Engine *xi, RendererContext *renderer);
 
-typedef struct xiGameCode {
-    xi_b32 dynamic;
+typedef struct Xi_GameCode Xi_GameCode;
+struct Xi_GameCode {
+    B32 reloadable;
 
-    // these can be left null if 'dynamic' is set to true
+    // these can be left null if 'reloadable' is set to true
     //
-    xiGameInit     *init;     // direct pointer to the init function to call
-    xiGameSimulate *simulate; // direct pointer to the simulate function to call
-    xiGameRender   *render;   // direct pointer to the render function to call
-} xiGameCode;
+    // @todo: collapse 'simulate' and 'render' to a single call
+    //
+    Xi_GameInitProc     *Init;     // direct pointer to the init function to call
+    Xi_GameSimulateProc *Simulate; // direct pointer to the simulate function to call
+    Xi_GameRenderProc   *Render;   // direct pointer to the render function to call
+};
 
 // this will execute the main loop of the engine. game code can either be supplied directly via
 // function pointers or via names to the functions and executable to load dynamically.
 //
-extern XI_API int xie_run(xiGameCode *code);
+Func S32 Xi_EngineRun(Xi_GameCode *code);
 
 #include "xi.inl"
 

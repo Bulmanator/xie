@@ -5,46 +5,47 @@
 extern "C" {
 #endif
 
-extern XI_API void xi_memory_zero(void *base, xi_uptr size);
-extern XI_API void xi_memory_set(void *base, xi_u8 value, xi_uptr size);
-extern XI_API void xi_memory_copy(void *dst, void *src, xi_uptr size);
+Func void MemoryZero(void *base, U64 size);
+Func void MemoryCopy(void *dst, void *src, U64 size);
+Func void MemorySet(void *base, U8 value, U64 size);
 
-extern XI_API xi_u8 xi_char_to_lowercase(xi_u8 c);
-extern XI_API xi_u8 xi_char_to_uppercase(xi_u8 c);
+Func U8 U8CharToLowercase(U8 c);
+Func U8 U8CharToUppercase(U8 c);
 
-extern XI_API xi_u32 xi_djb2_str_hash_u32(xi_string str);
-extern XI_API xi_u32 xi_fnv1a_str_hash_u32(xi_string str);
+Func U32 Str8Djb2HashU32(Str8 str);
+Func U32 Str8Fnv1aHashU32(Str8 str);
 
 // returns true if the entire string was parsed successfully into 'number', otherwise false
 //
-extern XI_API xi_b32 xi_str_parse_u32(xi_string str, xi_u32 *number);
+Func B32 Str8ParseU32(Str8 str, U32 *number);
 
 // returns the actual number of bytes copied, equal to count if sufficient space is available in the buffer,
 // otherwise will be the size of the remainding space before copy
 //
-extern XI_API xi_uptr xi_buffer_append(xi_buffer *buffer, void *base, xi_uptr count);
+Func S64 BufferAppend(Buffer *buffer, void *base, S64 count);
 
 // return true if they successfully put them into the buffer, if false nothing is copied
 //
-extern XI_API xi_b32 xi_buffer_put_u8(xi_buffer *buffer,  xi_u8  value);
-extern XI_API xi_b32 xi_buffer_put_u16(xi_buffer *buffer, xi_u16 value);
-extern XI_API xi_b32 xi_buffer_put_u32(xi_buffer *buffer, xi_u32 value);
-extern XI_API xi_b32 xi_buffer_put_u64(xi_buffer *buffer, xi_u64 value);
+Func B32  BufferPutU8(Buffer *buffer, U8  value);
+Func B32 BufferPutU16(Buffer *buffer, U16 value);
+Func B32 BufferPutU32(Buffer *buffer, U32 value);
+Func B32 BufferPutU64(Buffer *buffer, U64 value);
 
 // logging interface
 //
-typedef struct xiLogger {
-    xiFileHandle file;
-    xi_buffer output;
-} xiLogger;
+typedef struct Logger Logger;
+struct Logger {
+    FileHandle file;
+    Buffer output;
+};
 
 // create a new logger with a buffer of the given size from an existing file handle or open a new file
 // at a given path to log to
 //
-// it will only log messages which are greater than or equal to its 'level'
-//
-extern XI_API void xi_logger_create(xiArena *arena, xiLogger *logger, xiFileHandle file, xi_uptr size);
-extern XI_API xi_b32 xi_logger_create_from_path(xiArena *arena, xiLogger *logger, xi_string path, xi_uptr size);
+Func Logger LoggerCreate(M_Arena *arena, FileHandle file, S64 limit);
+Func Logger LoggerCreateFromPath(M_Arena *arena, Str8 path, S64 limit);
+
+Func void LoggerFlush(Logger *logger);
 
 // print a log message into the loggers buffer.
 //
@@ -55,28 +56,14 @@ extern XI_API xi_b32 xi_logger_create_from_path(xiArena *arena, xiLogger *logger
 //
 // @todo: how to deal with buffer end? currently truncates
 //
-extern XI_API void xi_log_print_args(xiLogger *logger, const char *ident, const char *format, va_list args);
-extern XI_API void xi_log_print(xiLogger *logger, const char *ident, const char *format, ...);
+Func void LogPrintArgs(Logger *logger, Str8 ident, const char *format, va_list args);
+Func void LogPrint(Logger *logger, Str8 ident, const char *format, ...);
 
-// pre-wrapped ident xi_string
-//
-extern XI_API void xi_log_print_args_str(xiLogger *logger, xi_string ident, const char *format, va_list args);
-extern XI_API void xi_log_print_str(xiLogger *logger, xi_string ident, const char *format, ...);
-
-// :note this can be used to completely disable logging in a build if desired, if the user calls
-// xi_log_print or xi_log_print_args directly their logging will not be affacted by this
-//
 #if defined(XI_NO_LOG)
-    #define xi_log(...)
-    #define xi_log_str(...)
+    #define Log(...)
 #else
-    #define xi_log(logger, ident, format, ...) xi_log_print(logger, ident, format, ##__VA_ARGS__)
-    #define xi_log_str(logger, ident, format, ...) xi_log_print_str(logger, ident, format, ##__VA_ARGS__)
+    #define Log(logger, ident, format, ...) LogPrint(logger, ident, format, ##__VA_ARGS__)
 #endif
-
-// write the current contents of the logger out to its file handle, this can be called at any point
-//
-extern XI_API void xi_logger_flush(xiLogger *logger);
 
 #if defined(__cplusplus)
 }

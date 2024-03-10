@@ -5,101 +5,121 @@
 extern "C" {
 #endif
 
-#if !defined(XI_ARENA_DEFAULT_ALIGNMENT)
-    #define XI_ARENA_DEFAULT_ALIGNMENT (2 * sizeof(void *))
+#if !defined(M_TEMP_ARENA_LIMIT)
+    #define M_TEMP_ARENA_LIMIT GB(8)
 #endif
 
-enum xiArenaFlags {
-    // signifies that the base of the arena has been virtually reserved and thus requires to be
-    // committed/decommitted as the arena use grows/shrinks. if this flag is not present, the entire
-    // arena range is assumed to be valid
-    //
-    XI_ARENA_FLAG_VIRTUAL_BASE = (1 << 0),
+#define M_ARENA_DEFAULT_RESERVE   MB(32)
+#define M_ARENA_INITIAL_COMMIT    MB(2)
+#define M_ARENA_COMMIT_BLOCK_SIZE KB(64)
+#define M_ARENA_INITIAL_OFFSET    64
 
-    // forces strict use of the arena's default alignment for all push/pop operations, the presence of
-    // this flag makes push/push_aligned effectively the same
+typedef U32 M_ArenaFlags;
+enum {
+    // Arenas will grow by default as they run out of space, this flag will prevent that
+    // from happening and will be limited to their initial size
     //
-    XI_ARENA_FLAG_STRICT_ALIGNMENT = (1 << 1)
+    // :switch_virtmem
+    //
+    M_ARENA_DONT_GROW = (1 << 0),
+
+    // Used per allocation, prevents the system from setting the allocation to zero
+    //
+    M_ARENA_NO_ZERO   = (1 << 1)
 };
 
-typedef struct xiArena {
-    void *base;
-    xi_uptr size;
-    xi_uptr offset;
+typedef struct M_Arena M_Arena;
+struct M_Arena {
+    M_Arena *current;
+    M_Arena *prev;
 
-    xi_uptr last_offset;
-    xi_uptr default_alignment;
+    U64 base;
+    U64 limit;
+    U64 offset;
 
-    xi_uptr committed;
-    xi_u64  flags;
-    xi_u64  pad;
-} xiArena;
+    U64 committed;
 
-// arena initialisation
+    U64 last_offset;
+
+    M_ArenaFlags flags;
+    U32 unused;
+};
+
+StaticAssert(sizeof(M_Arena) == 64);
+
 //
-extern XI_API void xi_arena_init_from(xiArena *arena, void *base, xi_uptr size);
-extern XI_API void xi_arena_init_virtual(xiArena *arena, xi_uptr size);
-
-// release any virtual memory associated with the arena and reset all members to zero
+// --------------------------------------------------------------------------------
+// :Arena_Init
+// --------------------------------------------------------------------------------
 //
-extern XI_API void xi_arena_deinit(xiArena *arena);
 
-// base arena push allocation calls
+Func M_Arena *M_ArenaAlloc(U64 reserve, M_ArenaFlags flags);
+
+Func void M_ArenaReset(M_Arena *arena);
+Func void M_ArenaRelease(M_Arena *arena);
+
+Func U64 M_ArenaOffset(M_Arena *arena); // Current global offset of the arena
+
 //
-extern XI_API void *xi_arena_push_aligned(xiArena *arena, xi_uptr size, xi_uptr alignment);
-extern XI_API void *xi_arena_push(xiArena *arena, xi_uptr size);
-
-// arena push macros, these are preferred to the base calls above
+// --------------------------------------------------------------------------------
+// :Arena_Push
+// --------------------------------------------------------------------------------
 //
-#define xi_arena_push_size_aligned(arena, size, alignment) xi_arena_push_aligned(arena, size, alignment)
-#define xi_arena_push_size(arena, size) xi_arena_push(arena, size)
 
-#define xi_arena_push_type_aligned(arena, type, alignment) (type *) xi_arena_push_aligned(arena, sizeof(type), alignment)
-#define xi_arena_push_type(arena, type) (type *) xi_arena_push(arena, sizeof(type))
+Func void *M_ArenaPushFrom(M_Arena *arena, U64 size, M_ArenaFlags flags, U64 alignment);
+Func void *M_ArenaPushCopyFrom(M_Arena *arena, void *src, U64 size, M_ArenaFlags flags, U64 alignment);
 
-#define xi_arena_push_array_aligned(arena, type, count, alignment) (type *) xi_arena_push_aligned(arena, (count) * sizeof(type), alignment)
-#define xi_arena_push_array(arena, type, count) (type *) xi_arena_push(arena, (count) * sizeof(type))
+#define M_ArenaPush(...)     M_ArenaPushExpand((__VA_ARGS__, M_ArenaPush5, M_ArenaPush4, M_ArenaPush3, M_ArenaPush2))(__VA_ARGS__)
+#define M_ArenaPushCopy(...) M_ArenaPushCopyExpand((__VA_ARGS__, M_ArenaPushCopy6, M_ArenaPushCopy5, M_ArenaPushCopy4, M_ArenaPushCopy3))(__VA_ARGS__)
 
-// base arena push copy allocation calls
-// like the push calls above but take a source pointer to copy data to
+// Arena push expansion macros
 //
-extern XI_API void *xi_arena_push_copy_aligned(xiArena *arena, void *src, xi_uptr size, xi_uptr alignment);
-extern XI_API void *xi_arena_push_copy(xiArena *arena, void *src, xi_uptr size);
+#define M_ArenaPushExpand(args) M_ArenaPushBase args
+#define M_ArenaPushBase(a, b, c, d, e, f, ...) f
 
-// arena push copy macros, like standard push calls these are preferred to the base calls
+#define M_ArenaPush2(arena, T)          (T *) M_ArenaPushFrom((arena),       sizeof(T), 0, AlignOf(T))
+#define M_ArenaPush3(arena, T, n)       (T *) M_ArenaPushFrom((arena), (n) * sizeof(T), 0, AlignOf(T))
+#define M_ArenaPush4(arena, T, n, f)    (T *) M_ArenaPushFrom((arena), (n) * sizeof(T), f, AlignOf(T))
+#define M_ArenaPush5(arena, T, n, f, a) (T *) M_ArenaPushFrom((arena), (n) * sizeof(T), f, a)
+
+// Arena push copy expansion macros
 //
-#define xi_arena_push_size_copy_aligned(arena, src, size, alignment) xi_arena_push_copy_aligned(arena, src, size, alignment)
-#define xi_arena_push_size_copy(arena, src, size) xi_arena_push_copy(arena, src, size)
+#define M_ArenaPushCopyExpand(args) M_ArenaPushCopyBase args
+#define M_ArenaPushCopyBase(a, b, c, d, e, f, g, ...) g
 
-#define xi_arena_push_copy_type_aligned(arena, src, type, alignment) (type *) xi_arena_push_copy_aligned(arena, src, sizeof(type), alignment)
-#define xi_arena_push_copy_type(arena, src, type) (type *) xi_arena_push_copy(arena, src, sizeof(type))
+#define M_ArenaPushCopy3(arena, src, T)          (T *) M_ArenaPushCopyFrom((arena), src,       sizeof(T), 0, AlignOf(T))
+#define M_ArenaPushCopy4(arena, src, T, n)       (T *) M_ArenaPushCopyFrom((arena), src, (n) * sizeof(T), 0, AlignOf(T))
+#define M_ArenaPushCopy5(arena, src, T, n, f)    (T *) M_ArenaPushCopyFrom((arena), src, (n) * sizeof(T), f, AlignOf(T))
+#define M_ArenaPushCopy6(arena, src, T, n, f, a) (T *) M_ArenaPushCopyFrom((arena), src, (n) * sizeof(T), f, a)
 
-#define xi_arena_push_copy_array_aligned(arena, src, type, count, alignment) (type *) xi_arena_push_copy_aligned(arena, src, (count) * sizeof(type), alignment)
-#define xi_arena_push_copy_array(arena, src, type, count) (type *) xi_arena_push_copy(arena, src, (count) * sizeof(type))
-
-// get the current offset of the arena
 //
-extern XI_API xi_uptr xi_arena_offset_get(xiArena *arena);
-
-// pop allocation calls
+// --------------------------------------------------------------------------------
+// :Arena_Pop
+// --------------------------------------------------------------------------------
 //
-extern XI_API void xi_arena_pop_to(xiArena *arena, xi_uptr offset);
-extern XI_API void xi_arena_pop_size(xiArena *arena, xi_uptr size);
-extern XI_API void xi_arena_pop_last(xiArena *arena);
 
-// utility pop macros for dealing with typed removal
-//
-#define xi_arena_pop_type(arena, type) xi_arena_pop_size(arena, sizeof(type))
-#define xi_arena_pop_array(arena, type, count) xi_arena_pop_size(arena, (count) * sizeof(type))
+Func void M_ArenaPopTo(M_Arena *arena, U64 offset);
+Func void M_ArenaPopSize(M_Arena *arena, U64 size);
+Func void M_ArenaPopLast(M_Arena *arena);
 
-// reset call
-//
-extern XI_API void xi_arena_reset(xiArena *arena);
+#define M_ArenaPop(...) M_ArenaPopExpand((__VA_ARGS__, M_ArenaPop3, M_ArenaPop2))(__VA_ARGS__)
 
-// thread-local temporary arena
+#define M_ArenaPopExpand(args) M_ArenaPopBase args
+#define M_ArenaPopBase(a, b, c, d, ...) d
+
+#define M_ArenaPop2(arena, T)    M_ArenaPopSize((arena),       sizeof(T))
+#define M_ArenaPop3(arena, T, n) M_ArenaPopSize((arena), (n) * sizeof(T))
+
 //
-extern XI_API xiArena *xi_temp_get();
-extern XI_API void xi_temp_reset();
+// --------------------------------------------------------------------------------
+// :Temporary_Arena
+// --------------------------------------------------------------------------------
+//
+// @todo: rework this to use stack-based temporary arenas instead
+//
+
+Func M_Arena *M_TempGet();
+Func void     M_TempReset();
 
 #if defined(__cplusplus)
 }

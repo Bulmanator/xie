@@ -1,107 +1,102 @@
-void xi_memory_zero(void *base, xi_uptr size) {
-    xi_u8 *base8 = (xi_u8 *) base;
+void MemoryZero(void *base, U64 size) {
+    U8 *base8 = cast(U8 *) base;
 
     while (size--) {
-        base8[0] = 0;
-        base8++;
+        *base8++ = 0;
     }
 }
 
-void xi_memory_set(void *base, xi_u8 value, xi_uptr size) {
-    xi_u8 *base8 = (xi_u8 *) base;
+void MemoryCopy(void *dst, void *src, U64 size) {
+    U8 *dst8 = cast(U8 *) dst;
+    U8 *src8 = cast(U8 *) src;
 
     while (size--) {
-        base8[0] = value;
-        base8++;
+        *dst8++ = *src8++;
     }
 }
 
-void xi_memory_copy(void *dst, void *src, xi_uptr size) {
-    xi_u8 *dst8 = (xi_u8 *) dst;
-    xi_u8 *src8 = (xi_u8 *) src;
+void MemorySet(void *base, U8 value, U64 size) {
+    U8 *base8 = cast(U8 *) base;
 
     while (size--) {
-        dst8[0] = src8[0];
-
-        dst8++;
-        src8++;
+        *base8++ = value;
     }
 }
 
-xi_u8 xi_char_to_lowercase(xi_u8 c) {
-    xi_u8 result = (c >= 'A' && c <= 'Z') ? (c + ('a' - 'A')) : c;
+U8 U8CharToLowercase(U8 c) {
+    U8 result = (c >= 'A' && c <= 'Z') ? (c + ('a' - 'A')) : c;
     return result;
 }
 
-xi_u8 xi_char_to_uppercase(xi_u8 c) {
-    xi_u8 result = (c >= 'a' && c <= 'z') ? (c - ('a' - 'A')) : c;
+U8 U8CharToUppercase(U8 c) {
+    U8 result = (c >= 'a' && c <= 'z') ? (c - ('a' - 'A')) : c;
     return result;
 }
 
-xi_u32 xi_str_djb2_hash_u32(xi_string str) {
-    xi_u32 result = 5381;
+U32 Str8_Djb2HashU32(Str8 str) {
+    U32 result = 5381;
 
-    for (xi_uptr it = 0; it < str.count; ++it) {
+    for (S64 it = 0; it < str.count; ++it) {
         result = ((result << 5) + result) + str.data[it]; // hash * 33 + str.data[it]
     }
 
     return result;
 }
 
-xi_u32 xi_str_fnv1a_hash_u32(xi_string str) {
-    xi_u32 result = 0x811c9dc5;
-    for (xi_uptr it = 0; it < str.count; ++it) {
-        result  = (result ^ (xi_u32) str.data[it]);
+U32 Str8_Fnv1aHashU32(Str8 str) {
+    U32 result = 0x811c9dc5;
+    for (S64 it = 0; it < str.count; ++it) {
+        result  = (result ^ cast(U32) str.data[it]);
         result *= 0x1000193;
     }
 
     return result;
 }
 
-xi_b32 xi_str_parse_u32(xi_string str, xi_u32 *number) {
-    xi_b32 result = true;
+S64 Str8_ParseInteger(Str8 str) {
+    S64 result = 0;
+    S64 sign   = 1;
 
-    xi_u32 total = 0;
-    for (xi_uptr it = 0; it < str.count; ++it) {
-        if (str.data[it] >= '0' && str.data[it] <= '9') {
-            total *= 10;
-            total += (str.data[it] - '0');
+    for (S64 it = 0; it < str.count; ++it) {
+        if (it == 0 && str.data[it] == '-') {
+            sign = -1;
         }
-        else {
-            result = false;
-            total  = 0;
-
+        else if (str.data[it] >= '0' && str.data[it] <= '9') {
+            result *= 10;
+            result += (str.data[it] - '0');
+        }
+        else if (it != 0 || str.data[it] != '+') {
             break;
         }
     }
 
-    *number = total;
+    result *= sign;
 
     return result;
 }
 
-xi_uptr xi_buffer_append(xi_buffer *buffer, void *base, xi_uptr count) {
-    xi_uptr result = XI_MIN(count, buffer->limit - buffer->used);
+S64 BufferAppend(Buffer *buffer, void *base, S64 count) {
+    S64 result = Min(count, buffer->limit - buffer->used);
 
     if (result > 0) {
-        xi_memory_copy(buffer->data + buffer->used, base, result);
+        MemoryCopy(buffer->data + buffer->used, base, result);
         buffer->used += result;
     }
 
     return result;
 }
 
-xi_b32 xi_buffer_put_u8(xi_buffer *buffer, xi_u8 value) {
-    xi_b32 result = (buffer->limit - buffer->used) >= 1;
+B32 BufferPutU8(Buffer *buffer, U8 value) {
+    B32 result = (buffer->limit - buffer->used) >= 1;
 
     if (result) { buffer->data[buffer->used++] = value; }
     return result;
 }
 
-xi_b32 xi_buffer_put_u16(xi_buffer *buffer, xi_u16 value) {
-    xi_b32 result = (buffer->limit - buffer->used) >= 2;
+B32 BufferPutU16(Buffer *buffer, U16 value) {
+    B32 result = (buffer->limit - buffer->used) >= 2;
     if (result) {
-        xi_u8 *ptr = (xi_u8 *) &value;
+        U8 *ptr = cast(U8 *) &value;
 
         buffer->data[buffer->used++] = ptr[0];
         buffer->data[buffer->used++] = ptr[1];
@@ -110,89 +105,79 @@ xi_b32 xi_buffer_put_u16(xi_buffer *buffer, xi_u16 value) {
     return result;
 }
 
-xi_b32 xi_buffer_put_u32(xi_buffer *buffer, xi_u32 value) {
-    xi_b32 result = (buffer->limit - buffer->used) >= 4;
+B32 BufferPutU32(Buffer *buffer, U32 value) {
+    B32 result = (buffer->limit - buffer->used) >= 4;
 
-    if (result) { xi_buffer_append(buffer, &value, 4); }
+    if (result) { BufferAppend(buffer, &value, 4); }
     return result;
 }
 
-xi_b32 xi_buffer_put_u64(xi_buffer *buffer, xi_u64 value) {
-    xi_b32 result = (buffer->limit - buffer->used) >= 8;
+B32 BufferPutU64(Buffer *buffer, U64 value) {
+    B32 result = (buffer->limit - buffer->used) >= 8;
 
-    if (result) { xi_buffer_append(buffer, &value, 8); }
+    if (result) { BufferAppend(buffer, &value, 8); }
     return result;
 }
 
-void xi_logger_create(xiArena *arena, xiLogger *logger, xiFileHandle file, xi_uptr size) {
-    if (file.status == XI_FILE_HANDLE_STATUS_VALID) {
-        logger->file  = file;
+Logger LoggerCreate(M_Arena *arena, FileHandle file, S64 size) {
+    Logger result = { 0 };
 
-        logger->output.used  = 0;
-        logger->output.limit = size;
-        logger->output.data  = xi_arena_push_size(arena, logger->output.limit);
-    }
-}
+    if (file.status == FILE_HANDLE_STATUS_VALID) {
+        result.file = file;
 
-xi_b32 xi_logger_create_from_path(xiArena *arena, xiLogger *logger, xi_string path, xi_uptr size) {
-    xi_b32 result = false;
-    if (xi_os_file_open(&logger->file, path, XI_FILE_ACCESS_FLAG_WRITE)) {
-        logger->output.used  = 0;
-        logger->output.limit = size;
-        logger->output.data  = xi_arena_push_size(arena, logger->output.limit);
-
-        result = true;
+        result.output.used  = 0;
+        result.output.limit = size;
+        result.output.data  = M_ArenaPush(arena, U8, result.output.limit);
     }
 
     return result;
 }
 
-void xi_log_print_args(xiLogger *logger, const char *ident, const char *format, va_list args) {
-    xi_log_print_args_str(logger, xi_str_wrap_cstr(ident), format, args);
+Logger LoggerCreateFromPath(M_Arena *arena, Str8 path, S64 size) {
+    Logger result = { 0 };
+
+    result.file         = OS_FileOpen(path, FILE_ACCESS_FLAG_WRITE);
+    result.output.used  = 0;
+    result.output.limit = size;
+    result.output.data  = M_ArenaPush(arena, U8, result.output.limit);
+
+    return result;
 }
 
-void xi_log_print(xiLogger *logger, const char *ident, const char *format, ...) {
-    va_list args;
-    va_start(args, format);
-    xi_log_print_args_str(logger, xi_str_wrap_cstr(ident), format, args);
-    va_end(args);
-}
-
-void xi_log_print_args_str(xiLogger *logger, xi_string ident, const char *format, va_list args) {
-    if (xi_str_is_valid(ident)) {
-        xi_str_format_buffer(&logger->output, "[%.*s] :: ", xi_str_unpack(ident));
-    }
-
-    xi_str_format_buffer_args(&logger->output, format, args);
-    xi_buffer_put_u8(&logger->output, '\n');
-}
-
-void xi_log_print_str(xiLogger *logger, xi_string ident, const char *format, ...) {
-    if (xi_str_is_valid(ident)) {
-        xi_str_format_buffer(&logger->output, "[%.*s] :: ", xi_str_unpack(ident));
-    }
-
-    va_list args;
-    va_start(args, format);
-    xi_str_format_buffer_args(&logger->output, format, args);
-    va_end(args);
-
-    xi_buffer_put_u8(&logger->output, '\n');
-}
-
-void xi_logger_flush(xiLogger *logger) {
-    if ((logger->file.status == XI_FILE_HANDLE_STATUS_VALID) && (logger->output.used > 0)) {
-        xi_os_file_write(&logger->file, logger->output.data, XI_FILE_OFFSET_APPEND, logger->output.used);
+void LoggerFlush(Logger *logger) {
+    if ((logger->file.status == FILE_HANDLE_STATUS_VALID) && (logger->output.used > 0)) {
+        OS_FileWrite(&logger->file, logger->output.data, FILE_OFFSET_APPEND, logger->output.used);
         logger->output.used = 0;
     }
 }
 
-XI_INTERNAL xi_b32 game_code_is_valid(xiGameCode *game) {
-    xi_b32 result = (game->init != 0) && (game->simulate != 0) && (game->render != 0);
+void LogPrintArgs(Logger *logger, Str8 ident, const char *format, va_list args) {
+    if (ident.count) {
+        Str8_FormatToBuffer(&logger->output, "[%.*s] :: ", Str8_Arg(ident));
+    }
+
+    Str8_FormatArgsToBuffer(&logger->output, format, args);
+}
+
+void LogPrint(Logger *logger, Str8 ident, const char *format, ...) {
+    if (ident.count) {
+        Str8_FormatToBuffer(&logger->output, "[%.*s] :: ", Str8_Arg(ident));
+    }
+
+    va_list args;
+    va_start(args, format);
+
+    Str8_FormatArgsToBuffer(&logger->output, format, args);
+
+    va_end(args);
+}
+
+FileScope B32 Xi_GameCodeIsValid(Xi_GameCode *game) {
+    B32 result = (game->Init != 0) && (game->Simulate != 0) && (game->Render != 0);
     return result;
 }
 
-XI_INTERNAL void xi_input_button_handle(xiInputButton *button, xi_b32 down) {
+FileScope void InputButtonHandle(InputButton *button, B32 down) {
     if (button->down != down) {
         button->pressed  = button->pressed  || (!button->down &&  down);
         button->released = button->released || ( button->down && !down);

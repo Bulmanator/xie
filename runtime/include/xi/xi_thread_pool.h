@@ -1,62 +1,64 @@
 #if !defined(XI_THREAD_POOL_H_)
 #define XI_THREAD_POOL_H_
 
-#if XI_COMPILER_CL
-    #define XI_ATOMIC_VAR volatile
-#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    #define XI_ATOMIC_VAR _Atomic
-#endif
+typedef volatile U32 Futex;
 
-#if XI_OS_WIN32
-    // :note the interlocked variable access porition on msdn states that "simple reads and writes to properly
-    // aligned 32-bit variables are atomic" and then states that "simple reads and writes to properly
-    // aligned 64-bit variables are atomic on 64-bit windows", it is unclear whether this means _only_
-    // 64-bit variables are atomic on 64-bit windows or if _both_ 32-bit and 64-bit variables are atomic
-    // on 64-bit windows, to play it safe i am defining a futex to be 64-bit
-    //
-    typedef volatile xi_s64 xiFutex;
-#elif XI_OS_LINUX
-    // we are required that a futex for 'syscall(SYS_futex, ...)' be a u32
-    //
-    typedef _Atomic xi_u32 xiFutex;
-#endif
+typedef struct ThreadPool ThreadPool;
 
-typedef struct xiThreadPool xiThreadPool;
+#define THREAD_TASK_PROC(name) void name(ThreadPool *pool, void *arg)
+typedef THREAD_TASK_PROC(ThreadTaskProc);
 
-#define XI_THREAD_TASK_PROC(name) void name(xiThreadPool *pool, void *arg)
-typedef XI_THREAD_TASK_PROC(xiThreadTaskProc);
-
-typedef struct xiThreadTask {
-    xiThreadTaskProc *proc;
+typedef struct ThreadTask ThreadTask;
+struct ThreadTask {
+    ThreadTaskProc *Proc;
     void *arg;
-} xiThreadTask;
+};
 
-typedef struct xiThreadQueue {
-    XI_ATOMIC_VAR xi_u64 head;
-    XI_ATOMIC_VAR xi_u64 tail;
+typedef struct ThreadQueue ThreadQueue;
+struct ThreadQueue {
+    volatile U64 head;
+    volatile U64 tail;
 
-    xiThreadPool *pool;
-    xi_u32 thread_index;
+    U32 thread_index;
 
-    xi_u32 task_limit;
-    xiThreadTask *tasks;
-} xiThreadQueue;
+    ThreadPool *pool;
 
-typedef struct xiThreadPool {
-    xiFutex task_count;
-    xiFutex tasks_available;
+    U32 task_limit;
+    ThreadTask *tasks;
+};
 
-    xi_u32 task_limit;   // tasks per queue, must be a power of 2
-    xi_u32 thread_count; // this includes the main thread
-    xiThreadQueue *queues;
-} xiThreadPool;
+struct ThreadPool {
+    Futex task_count;
+    Futex tasks_available;
+
+    U32 task_limit;  // tasks per queue, must be a power of 2
+    U32 num_threads; // this includes the main thread
+    ThreadQueue *queues;
+};
 
 // enqueue a task to the calling threads work queue, if proc is null this function does nothing
 //
-extern XI_API void xi_thread_pool_enqueue(xiThreadPool *pool, xiThreadTaskProc *proc, void *arg);
+Func void ThreadPoolEnqueue(ThreadPool *pool, ThreadTaskProc *Proc, void *arg);
 
 // wait for all tasks currently enqueued on the pool to be completed
 //
-extern XI_API void xi_thread_pool_await_complete(xiThreadPool *pool);
+Func void ThreadPoolAwaitComplete(ThreadPool *pool);
+
+// Compiler intrinsic atomics
+//
+// Increment, Decrement return new value stored in 'dst'
+// Others return previous value
+//
+// @todo: this was a mistake, should make these consistent to always return the 'old' value of dst
+// leaving as is temporarily to prevent breaking stuff
+//
+Inline U32 U32AtomicIncrement(volatile U32 *dst);
+Inline U32 U32AtomicDecrement(volatile U32 *dst);
+Inline U32 U32AtomicExchange(volatile U32 *dst, U32 value);
+Inline B32 U32AtomicCompareExchange(volatile U32 *dst, U32 value, U32 compare);
+
+Inline U64 U64AtomicAdd(volatile U64 *dst, U64 amount);
+Inline U64 U64AtomicExchange(volatile U64 *dst, U64 value);
+Inline B32 U64AtomicCompareExchange(volatile U64 *dst, U64 value, U64 compare);
 
 #endif  // XI_THREAD_POOL_H_

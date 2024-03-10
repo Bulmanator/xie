@@ -1,59 +1,39 @@
 #if !defined(XI_FILEIO_H_)
 #define XI_FILEIO_H_
 
-enum xiDirectoryEntryType {
-    XI_DIRECTORY_ENTRY_TYPE_FILE = 0,
-    XI_DIRECTORY_ENTRY_TYPE_DIRECTORY
+typedef U32 DirectoryEntryType;
+enum DirectoryEntryType {
+    DIRECTORY_ENTRY_TYPE_FILE = 0,
+    DIRECTORY_ENTRY_TYPE_DIRECTORY
 };
 
-typedef struct xiDirectoryEntry {
-    xi_u32 type;
-    xi_u64 size;
-    xi_u64 time;
+typedef struct DirectoryEntry DirectoryEntry;
+struct DirectoryEntry {
+    DirectoryEntryType type;
 
-    xi_string path;     // full path to entry
-    xi_string basename; // name of the base path segment without file extension
-} xiDirectoryEntry;
+    U64 size;
+    U64 time;
 
-typedef struct xiDirectoryList {
-    xi_u32 count;
-    xiDirectoryEntry *entries;
-} xiDirectoryList;
+    Str8 path;
+    Str8 basename; // with file extension
+};
 
-extern XI_API void xi_directory_list_get(xiArena *arena, xiDirectoryList *list, xi_string path, xi_b32 recursive);
+typedef struct DirectoryList DirectoryList;
+struct DirectoryList {
+    U32 num_entries;
+    DirectoryEntry *entries;
+};
 
-// filter for only files in the supplied 'list', putting the resulting entries in 'out'
+Func DirectoryList DirectoryListGet(M_Arena *arena, Str8 path, B32 recursive);
+
+// Filter entries in 'list'
 //
-extern XI_API void xi_directory_list_filter_for_files(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list);
+Func DirectoryList DirectoryListFilterForFiles(M_Arena *arena, DirectoryList *list);
+Func DirectoryList DirectoryListFilterForDirectories(M_Arena *arena, DirectoryList *list);
+Func DirectoryList DirectoryListFilterForPrefix(M_Arena *arena, DirectoryList *list, Str8 suffix);
+Func DirectoryList DirectoryListFilterForSuffix(M_Arena *arena, DirectoryList *list, Str8 prefix);
 
-// filter for directories only in the supplied 'list', putting the resulting entries in 'out'
-//
-extern XI_API void xi_directory_list_filter_for_directories(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list);
-
-// filter for files with a specific prefix in the filename in the supplied 'list', putting the
-// the resulting entries in 'out'
-//
-extern XI_API void xi_directory_list_filter_for_prefix(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, xi_string prefix);
-
-// filter for files with a specific suffix in the basename in the supplied 'list', putting the
-// the resulting entries in 'out'
-//
-extern XI_API void xi_directory_list_filter_for_suffix(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, xi_string suffix);
-
-// filter for files with a specific extension in the path in the supplied 'list', putting the
-// the resulting entries in 'out'. this differs from suffix above as it is applied to the path not the
-// basename of the directory entry
-//
-extern XI_API void xi_directory_list_filter_for_extension(xiArena *arena,
-        xiDirectoryList *out, xiDirectoryList *list, xi_string extension);
-
-// the entry have the fully qualified path after which will be allocated in the arena provided
-//
-extern XI_API xi_b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirectoryEntry *entry, xi_string path);
+Func B32 OS_DirectoryEntryGetByPath(M_Arena *arena, DirectoryEntry *entry, Str8 path);
 
 // create delete directories
 //
@@ -64,53 +44,56 @@ extern XI_API xi_b32 xi_os_directory_entry_get_by_path(xiArena *arena, xiDirecto
 // directory
 //
 //
-extern XI_API xi_b32 xi_os_directory_create(xi_string path);
-extern XI_API void xi_os_directory_delete(xi_string path);
+Func B32  OS_DirectoryCreate(Str8 path);
+Func void OS_DirectoryDelete(Str8 path);
 
 // open close file handles
 //
 // @todo: these status values should be more granular... did a read fail because 'invalid offset' or
 // 'invalid size' etc..
 //
-enum xiFileHandleStatus {
-    XI_FILE_HANDLE_STATUS_VALID = 0,
-    XI_FILE_HANDLE_STATUS_FAILED_OPEN,
-    XI_FILE_HANDLE_STATUS_FAILED_WRITE,
-    XI_FILE_HANDLE_STATUS_FAILED_READ,
-    XI_FILE_HANDLE_STATUS_CLOSED
+typedef U32 FileHandleStatus;
+enum FileHandleStatus {
+    FILE_HANDLE_STATUS_VALID = 0,
+    FILE_HANDLE_STATUS_FAILED_OPEN,
+    FILE_HANDLE_STATUS_FAILED_WRITE,
+    FILE_HANDLE_STATUS_FAILED_READ,
+    FILE_HANDLE_STATUS_CLOSED
 };
 
-enum xiFileAccessFlags {
-    XI_FILE_ACCESS_FLAG_READ      = (1 << 0),
-    XI_FILE_ACCESS_FLAG_WRITE     = (1 << 1),
-    XI_FILE_ACCESS_FLAG_READWRITE = (XI_FILE_ACCESS_FLAG_READ | XI_FILE_ACCESS_FLAG_WRITE)
+typedef U32 FileAccessFlags;
+enum FileAccessFlags {
+    FILE_ACCESS_FLAG_READ      = (1 << 0),
+    FILE_ACCESS_FLAG_WRITE     = (1 << 1),
+    FILE_ACCESS_FLAG_READWRITE = (FILE_ACCESS_FLAG_READ | FILE_ACCESS_FLAG_WRITE)
 };
 
-typedef struct xiFileHandle {
-    xi_u32 status;
-    void *os;
-} xiFileHandle;
+typedef struct FileHandle FileHandle;
+struct FileHandle {
+    FileHandleStatus status;
+    U64 v;
+};
 
 // specify this for the 'offset' parameter to file write function to append to the end of the file,
 //
-#define XI_FILE_OFFSET_APPEND ((xi_uptr) -1)
+#define FILE_OFFSET_APPEND ((U64) -1)
 
 // opening a non-existent file as 'write' will create the file automatically, attempting to open a
 // non-existent file as 'read' will result in an error
 //
-extern XI_API xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access);
-extern XI_API void xi_os_file_close(xiFileHandle *handle);
+Func FileHandle OS_FileOpen(Str8 path, FileAccessFlags access);
+Func void OS_FileClose(FileHandle *handle);
 
-extern XI_API void xi_os_file_delete(xi_string path);
+Func void OS_FileDelete(Str8 path);
 
-extern XI_API xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr size);
-extern XI_API xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr size);
+Func B32 OS_FileRead(FileHandle *handle, void *dst, U64 offset, U64 size);
+Func B32 OS_FileWrite(FileHandle *handle, void *src, U64 offset, U64 size);
 
 // resulting string will be zero sized if the file fails to open the file
 //
 // if the buffer doesn't have enough space, the only the remaining size will be loaded
 //
-extern XI_API xi_string xi_file_read_all(xiArena *arena, xi_string path);
-extern XI_API xi_string xi_file_read_all_buffer(xi_buffer *b, xi_string path);
+Func Str8 FileReadAll(M_Arena *arena, Str8 path);
+Func Str8 FileReadAllToBuffer(Buffer *buffer, Str8 path);
 
 #endif  // XI_FILEIO_H_

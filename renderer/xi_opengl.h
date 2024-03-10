@@ -1,12 +1,12 @@
 #if !defined(XI_OPENGL_H_)
 #define XI_OPENGL_H_
 
-#define XI_RENDERER_BACKEND 1
-typedef struct xiOpenGLContext xiRendererBackend;
+#define RENDERER_BACKEND 1
+typedef struct GL_Context RendererBackend;
 
 #include <xi/xi.h>
 
-#if XI_OS_WIN32
+#if OS_WIN32
     #define WIN32_LEAN_AND_MEAN 1
     #include <windows.h>
 
@@ -85,56 +85,57 @@ typedef void (APIENTRY *GLDEBUGPROC)(GLenum, GLenum, GLuint, GLenum, GLsizei, co
 
 // any function typedefs for extension functions to load dynamically
 //
-typedef void xiOpenGL_glGenVertexArrays(GLsizei, GLuint *);
-typedef void xiOpenGL_glGenBuffers(GLsizei, GLuint *);
-typedef void xiOpenGL_glBindBuffer(GLenum, GLuint);
-typedef void xiOpenGL_glBufferStorage(GLenum, GLsizeiptr, const void *, GLbitfield);
-typedef void xiOpenGL_glGenProgramPipelines(GLsizei, GLuint *);
-typedef void xiOpenGL_glShaderSource(GLuint, GLsizei, const GLchar **, const GLint *);
-typedef void xiOpenGL_glCompileShader(GLuint);
-typedef void xiOpenGL_glGetShaderiv(GLuint, GLenum, GLint *);
-typedef void xiOpenGL_glProgramParameteri(GLuint, GLenum, GLint);
-typedef void xiOpenGL_glAttachShader(GLuint, GLuint);
-typedef void xiOpenGL_glLinkProgram(GLuint);
-typedef void xiOpenGL_glDetachShader(GLuint, GLuint);
-typedef void xiOpenGL_glGetProgramiv(GLuint, GLenum, GLint *);
-typedef void xiOpenGL_glGetProgramInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
-typedef void xiOpenGL_glDeleteProgram(GLuint);
-typedef void xiOpenGL_glGetShaderInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
-typedef void xiOpenGL_glDeleteShader(GLuint);
-typedef void xiOpenGL_glBindVertexArray(GLuint);
-typedef void xiOpenGL_glVertexAttribPointer(GLuint, GLint, GLenum, GLboolean, GLsizei, const GLvoid *);
-typedef void xiOpenGL_glEnableVertexAttribArray(GLuint);
-typedef void xiOpenGL_glUseProgramStages(GLuint, GLbitfield, GLuint);
-typedef void xiOpenGL_glBindProgramPipeline(GLuint);
-typedef void xiOpenGL_glDrawElementsBaseVertex(GLenum, GLsizei, GLenum, void *, GLint);
-typedef void xiOpenGL_glFlushMappedBufferRange(GLenum, GLintptr, GLsizeiptr);
-typedef void xiOpenGL_glTexStorage3D(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
-typedef void xiOpenGL_glTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void *);
-typedef void xiOpenGL_glTexImage3D(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
-typedef void xiOpenGL_glDebugMessageCallback(GLDEBUGPROC, const void *);
-typedef void xiOpenGL_glBufferSubData(GLenum, GLintptr, GLsizeiptr, const void *);
-typedef void xiOpenGL_glBufferData(GLenum, GLsizeiptr, GLvoid *, GLenum);
-typedef void xiOpenGL_glActiveTexture(GLenum);
-typedef void xiOpenGL_glBindBufferRange(GLenum, GLuint, GLuint, GLintptr, GLsizeiptr);
+typedef void GL_glGenVertexArrays(GLsizei, GLuint *);
+typedef void GL_glGenBuffers(GLsizei, GLuint *);
+typedef void GL_glBindBuffer(GLenum, GLuint);
+typedef void GL_glBufferStorage(GLenum, GLsizeiptr, const void *, GLbitfield);
+typedef void GL_glGenProgramPipelines(GLsizei, GLuint *);
+typedef void GL_glShaderSource(GLuint, GLsizei, const GLchar **, const GLint *);
+typedef void GL_glCompileShader(GLuint);
+typedef void GL_glGetShaderiv(GLuint, GLenum, GLint *);
+typedef void GL_glProgramParameteri(GLuint, GLenum, GLint);
+typedef void GL_glAttachShader(GLuint, GLuint);
+typedef void GL_glLinkProgram(GLuint);
+typedef void GL_glDetachShader(GLuint, GLuint);
+typedef void GL_glGetProgramiv(GLuint, GLenum, GLint *);
+typedef void GL_glGetProgramInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
+typedef void GL_glDeleteProgram(GLuint);
+typedef void GL_glGetShaderInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
+typedef void GL_glDeleteShader(GLuint);
+typedef void GL_glBindVertexArray(GLuint);
+typedef void GL_glVertexAttribPointer(GLuint, GLint, GLenum, GLboolean, GLsizei, const GLvoid *);
+typedef void GL_glEnableVertexAttribArray(GLuint);
+typedef void GL_glUseProgramStages(GLuint, GLbitfield, GLuint);
+typedef void GL_glBindProgramPipeline(GLuint);
+typedef void GL_glDrawElementsBaseVertex(GLenum, GLsizei, GLenum, void *, GLint);
+typedef void GL_glFlushMappedBufferRange(GLenum, GLintptr, GLsizeiptr);
+typedef void GL_glTexStorage3D(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
+typedef void GL_glTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void *);
+typedef void GL_glTexImage3D(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
+typedef void GL_glDebugMessageCallback(GLDEBUGPROC, const void *);
+typedef void GL_glBufferSubData(GLenum, GLintptr, GLsizeiptr, const void *);
+typedef void GL_glBufferData(GLenum, GLsizeiptr, GLvoid *, GLenum);
+typedef void GL_glActiveTexture(GLenum);
+typedef void GL_glBindBufferRange(GLenum, GLuint, GLuint, GLintptr, GLsizeiptr);
 
-typedef void *xiOpenGL_glMapBufferRange(GLenum, GLintptr, GLsizeiptr, GLbitfield);
+typedef void *GL_glMapBufferRange(GLenum, GLintptr, GLsizeiptr, GLbitfield);
 
-typedef GLuint xiOpenGL_glCreateShader(GLenum);
-typedef GLuint xiOpenGL_glCreateProgram(void);
+typedef GLuint GL_glCreateShader(GLenum);
+typedef GLuint GL_glCreateProgram(void);
 
-#define GL_FUNCTION_POINTER(name) xiOpenGL_gl##name *name
+#define GL_FUNCTION_POINTER(name) GL_gl##name *name
 
-typedef struct xiOpenGLContext {
+typedef struct GL_Context GL_Context;
+struct GL_Context {
     struct {
-        xi_b32 srgb;
-        xi_b32 multisample;
+        B32 srgb;
+        B32 multisample;
 
         GLint major_version;
         GLint minor_version;
     } info;
 
-    xiArena arena;
+    M_Arena *arena;
 
     GLenum texture_format;
     GLuint transfer_buffer;
@@ -149,7 +150,7 @@ typedef struct xiOpenGLContext {
 
     GLuint ubo;
 
-    xi_u32 shader_count; // a shader contains a single stage
+    U32 shader_count; // a shader contains a single stage
     GLuint *shaders;
 
     GLuint base_vs;
@@ -192,17 +193,17 @@ typedef struct xiOpenGLContext {
     GL_FUNCTION_POINTER(BufferData);
     GL_FUNCTION_POINTER(ActiveTexture);
     GL_FUNCTION_POINTER(BindBufferRange);
-} xiOpenGLContext;
+};
 
 #undef GL_FUNCTION_POINTER
 
 // os specific calls
 //
-static xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform);
-static void gl_os_context_delete(xiOpenGLContext *gl);
+FileScope GL_Context *GL_ContextCreate(RendererContext *renderer, void *platform);
+FileScope void        GL_ContextDelete(GL_Context *gl);
 
 // generic opengl calls
 //
-static xi_b32 gl_base_shader_compile(xiOpenGLContext *gl);
+FileScope B32 GL_BaseShaderCompile(GL_Context *gl);
 
 #endif  // XI_OPENGL_H_

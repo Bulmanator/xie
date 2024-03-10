@@ -1,8 +1,6 @@
 #include "xi_opengl.h"
 
-void xi_gl_debug_proc(GLenum source, GLenum type, GLuint id, GLenum severity,
-        GLsizei len, const char *message, const void *user_data)
-{
+void GL_DebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei len, const char *message, const void *user_data) {
     (void) source;
     (void) type;
     (void) id;
@@ -10,23 +8,30 @@ void xi_gl_debug_proc(GLenum source, GLenum type, GLuint id, GLenum severity,
     (void) message;
     (void) user_data;
 
+    // @todo: do something more substantial with this!
+    //
+
     if (severity == GL_DEBUG_SEVERITY_HIGH) {
-        XI_ASSERT(false && "opengl error!");
+        // Assert(false && "opengl error!");
+        //
+        // Sharing screens via discord triggers the above assert because it decides to insert its
+        // own compatability layer code and that is classed as a HIGH error when using OpenGL core
+        //
     }
 }
 
-extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
-    xi_b32 result = false;
+ExportFunc RENDERER_INIT(GL_Init) {
+    B32 result = false;
 
-    xiOpenGLContext *gl = gl_os_context_create(renderer, platform);
+    GL_Context *gl = GL_ContextCreate(renderer, platform);
     if (gl) {
         result = true;
 
         renderer->backend = gl;
 
-        gl->DebugMessageCallback(xi_gl_debug_proc, gl);
+        gl->DebugMessageCallback(GL_DebugCallback, gl);
 
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS); // :speed real bad for release
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -52,8 +57,8 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         gl->GenBuffers(1, &gl->vbo);
         gl->GenBuffers(1, &gl->ebo);
 
-        xi_u32 num_vertices = renderer->vertices.limit;
-        xi_u32 num_indices  = renderer->indices.limit;
+        U32 num_vertices = renderer->vertices.limit;
+        U32 num_indices  = renderer->indices.limit;
 
         // you can "misalign" the number of vertices/indices to the number of quads meaning you
         // will run out of one before the other, but thats up to the user
@@ -73,7 +78,7 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         //
         GLbitfield buffer_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT;
 
-        GLsizeiptr vbo_size = num_vertices * sizeof(xi_vert3);
+        GLsizeiptr vbo_size = num_vertices * sizeof(Vertex3);
 
         gl->BindBuffer(GL_ARRAY_BUFFER, gl->vbo);
         gl->BufferStorage(GL_ARRAY_BUFFER, vbo_size, 0, buffer_flags);
@@ -84,7 +89,7 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 
         gl->BindBuffer(GL_ARRAY_BUFFER, 0);
 
-        GLsizeiptr ebo_size = num_indices * sizeof(xi_u16);
+        GLsizeiptr ebo_size = num_indices * sizeof(U16);
 
         gl->BindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
         gl->BufferStorage(GL_ELEMENT_ARRAY_BUFFER, ebo_size, 0, buffer_flags);
@@ -98,8 +103,9 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
         // setup uniform buffer
         //
         void *ubo_base = 0;
-        xi_uptr ubo_size = renderer->uniforms.size;
-        if (ubo_size == 0) { ubo_size = XI_MB(16); }
+        U64   ubo_size = renderer->uniforms.limit;
+
+        if (ubo_size == 0) { ubo_size = MB(16); }
 
         GLint alignment = 0;
         glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
@@ -115,33 +121,36 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 
         ubo_base = gl->MapBufferRange(GL_UNIFORM_BUFFER, 0, ubo_size, buffer_flags | GL_MAP_FLUSH_EXPLICIT_BIT);
 
-        xi_arena_init_from(&renderer->uniforms, ubo_base, ubo_size);
-
-        renderer->uniforms.default_alignment = alignment;
-        renderer->uniforms.flags |= XI_ARENA_FLAG_STRICT_ALIGNMENT;
+        renderer->ubo_globals_size = AlignUp(sizeof(ShaderGlobals), alignment);
+        renderer->uniforms.used    = 0;
+        renderer->uniforms.data    = cast(U8 *) ubo_base;
+        renderer->uniforms.limit   = ubo_size;
 
         gl->GenProgramPipelines(1, &gl->pipeline);
 
         gl->shader_count = 32; // :configure
-        gl->shaders      = xi_arena_push_array(&gl->arena, GLuint, gl->shader_count);
+        gl->shaders      = M_ArenaPush(gl->arena, GLuint, gl->shader_count);
 
-        if (gl_base_shader_compile(gl)) {
+        if (GL_BaseShaderCompile(gl)) {
             if (renderer->command_buffer.limit == 0) {
-                renderer->command_buffer.limit = XI_MB(8);
+                renderer->command_buffer.limit = MB(8);
             }
 
             renderer->command_buffer.used = 0;
-            renderer->command_buffer.data = xi_arena_push_size(&gl->arena, renderer->command_buffer.limit);
+            renderer->command_buffer.data = M_ArenaPush(gl->arena, U8, renderer->command_buffer.limit);
         }
         else {
             // this will de-init the arena associated with the context
             //
-            gl_os_context_delete(gl);
+            GL_ContextDelete(gl);
             result = false;
+
+            return result;
         }
 
-        xi_u32 level_count = 1;
-        xi_u32 dimension = renderer->sprite_array.dimension;
+        U32 level_count = 1;
+        U32 dimension   = renderer->sprite_array.dimension;
+
         if (dimension == 0) {
             renderer->sprite_array.dimension = 256;
             level_count = 9;
@@ -150,15 +159,15 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
             // @todo: replace with clz or something...
             //
             while (dimension > 1) {
-                dimension >>= 1;
+                dimension  >>= 1;
                 level_count += 1;
             }
         }
 
-        xi_u32 width  = renderer->sprite_array.dimension;
-        xi_u32 height = width;
+        U32 width  = renderer->sprite_array.dimension;
+        U32 height = width;
 
-        xi_u32 count = renderer->sprite_array.limit;
+        U32 count = renderer->sprite_array.limit;
         if (count == 0) {
             count = renderer->sprite_array.limit = 512;
         }
@@ -170,13 +179,8 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
 
         gl->TexStorage3D(GL_TEXTURE_2D_ARRAY, level_count, gl->texture_format, width, height, count);
 
-#if 0
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-#else
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-#endif
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
 
@@ -186,33 +190,31 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
             renderer->texture_limit = 128;
         }
 
-        gl->textures = xi_arena_push_array(&gl->arena, GLuint, renderer->texture_limit);
+        gl->textures = M_ArenaPush(gl->arena, GLuint, renderer->texture_limit);
         glGenTextures(renderer->texture_limit, gl->textures);
 
         // setup texture transfer queue
         //
-        xiRendererTransferQueue *transfer_queue = &renderer->transfer_queue;
+        RendererTransferQueue *transfer_queue = &renderer->transfer_queue;
 
-        if (transfer_queue->max_tasks == 0) {
-            transfer_queue->max_tasks = 256;
+        if (transfer_queue->task_limit == 0) {
+            transfer_queue->task_limit= 256;
         }
         else {
-            transfer_queue->max_tasks = xi_pow2_next_u32(transfer_queue->max_tasks);
+            transfer_queue->task_limit = U32_Pow2Next(transfer_queue->task_limit);
         }
 
-        transfer_queue->tasks = xi_arena_push_array(&gl->arena, xiRendererTransferTask, transfer_queue->max_tasks);
+        transfer_queue->tasks = M_ArenaPush(gl->arena, RendererTransferTask, transfer_queue->task_limit);
 
         if (transfer_queue->limit == 0) {
-            transfer_queue->limit = XI_MB(256);
+            transfer_queue->limit = MB(256);
         }
 
         gl->GenBuffers(1, &gl->transfer_buffer);
         gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, gl->transfer_buffer);
 
         gl->BufferStorage(GL_PIXEL_UNPACK_BUFFER, transfer_queue->limit, 0, buffer_flags);
-
-        transfer_queue->base = gl->MapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0,
-            transfer_queue->limit, buffer_flags | GL_MAP_FLUSH_EXPLICIT_BIT);
+        transfer_queue->base = gl->MapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, transfer_queue->limit, buffer_flags | GL_MAP_FLUSH_EXPLICIT_BIT);
 
         if (renderer->layer_offset == 0.0f) {
             renderer->layer_offset = 1.0f;
@@ -222,73 +224,72 @@ extern XI_EXPORT XI_RENDERER_INIT(xi_opengl_init) {
     return result;
 }
 
-XI_INTERNAL xi_b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum stage, xi_string code) {
-    xi_b32 result = false;
+FileScope B32 GL_ShaderCompile(GL_Context *gl, GLuint *handle, GLenum stage, Str8 code) {
+    B32 result = false;
 
-    const xi_string shader_header =
-                  xi_str_wrap_const("#version 440 core\n"
-                                    "#define f32 float\n"
-                                    "#define f64 double\n"
+    const Str8 shader_header =
+                  Str8_Literal("#version 440 core\n"
+                               "#define f32 float\n"
+                               "#define f64 double\n"
 
-                                    "#define v2u uvec2\n"
-                                    "#define v2s ivec2\n"
+                               "#define v2u uvec2\n"
+                               "#define v2s ivec2\n"
 
-                                    "#define v2 vec2\n"
-                                    "#define v3 vec3\n"
-                                    "#define v4 vec4\n"
+                               "#define v2 vec2\n"
+                               "#define v3 vec3\n"
+                               "#define v4 vec4\n"
 
-                                    "#define m2x2 mat2\n"
-                                    "#define m4x4 mat4\n"
+                               "#define m2x2 mat2\n"
+                               "#define m4x4 mat4\n"
 
-                                   "layout(row_major, binding = 0) uniform xiGlobals {"
-                                   "    m4x4 transform;"
-                                   "    v4   camera_position;"
-                                   "    f32  time;"
-                                   "    f32  dt;"
-                                   "    f32  unused0;"
-                                   "    f32  unused1;"
-                                   "};");
+                               "layout(row_major, binding = 0) uniform xiGlobals {"
+                               "    m4x4  transform;"
+                               "    v4    camera_position;"
+                               "    f32   time;"
+                               "    f32   dt;"
+                               "    uvec2 window_dim;"
+                               "};");
 
-    const xi_string vertex_defines =
-                  xi_str_wrap_const("layout(location = 0) in v3 vertex_position;"
-                                    "layout(location = 1) in v3 vertex_uv;"
-                                    "layout(location = 2) in v4 vertex_colour;"
+    const Str8 vertex_defines =
+                  Str8_Literal("layout(location = 0) in v3 vertex_position;"
+                               "layout(location = 1) in v3 vertex_uv;"
+                               "layout(location = 2) in v4 vertex_colour;"
 
-                                    // this has to be re-declared if you are using GL_PROGRAM_SEPARABLE
-                                    //
-                                    "out gl_PerVertex {"
-                                    "    vec4  gl_Position;"
-                                    "    float gl_PointSize;"
-                                    "    float gl_ClipDistance[];"
-                                    "};"
+                               // this has to be re-declared if you are using GL_PROGRAM_SEPARABLE
+                               //
+                               "out gl_PerVertex {"
+                               "    vec4  gl_Position;"
+                               "    float gl_PointSize;"
+                               "    float gl_ClipDistance[];"
+                               "};"
 
-                                    "layout(location = 0) out v3 fragment_uv;"
-                                    "layout(location = 1) out v4 fragment_colour;");
+                               "layout(location = 0) out v3 fragment_uv;"
+                               "layout(location = 1) out v4 fragment_colour;");
 
-    const xi_string fragment_defines =
-                  xi_str_wrap_const("layout(location = 0) in v3 fragment_uv;"
-                                    "layout(location = 1) in v4 fragment_colour;"
+    const Str8 fragment_defines =
+                  Str8_Literal("layout(location = 0) in v3 fragment_uv;"
+                               "layout(location = 1) in v4 fragment_colour;"
 
-                                    "layout(location = 0) out v4 output_colour;"
+                               "layout(location = 0) out v4 output_colour;"
 
-                                    "layout(binding = 0) uniform sampler2DArray image;");
+                               "layout(binding = 0) uniform sampler2DArray image;");
 
 
     GLuint shader = gl->CreateShader(stage);
     if (shader) {
         GLint lengths[3] = { (GLint) shader_header.count, 0, (GLint) code.count };
-        xi_u8 *codes[3]  = { shader_header.data,  0, code.data  };
+        U8    *codes[3]  = {         shader_header.data,  0,         code.data  };
 
         if (stage == GL_VERTEX_SHADER) {
             lengths[1] = (GLint) vertex_defines.count;
-            codes[1]   = vertex_defines.data;
+              codes[1] =         vertex_defines.data;
         }
         else if (stage == GL_FRAGMENT_SHADER) {
             lengths[1] = (GLint) fragment_defines.count;
-            codes[1]   = fragment_defines.data;
+              codes[1] =         fragment_defines.data;
         }
 
-        gl->ShaderSource(shader, XI_ARRAY_SIZE(codes), (const GLchar **) codes, lengths);
+        gl->ShaderSource(shader, ArraySize(codes), cast(const GLchar **) codes, lengths);
         gl->CompileShader(shader);
 
         GLint compiled = GL_FALSE;
@@ -334,37 +335,37 @@ XI_INTERNAL xi_b32 gl_shader_compile(xiOpenGLContext *gl, GLuint *handle, GLenum
     return result;
 }
 
-xi_b32 gl_base_shader_compile(xiOpenGLContext *gl) {
-    xi_b32 result = false;
+B32 GL_BaseShaderCompile(GL_Context *gl) {
+    B32 result = false;
 
-    xi_string vertex_code =
-        xi_str_wrap_const("void main() {"
-                          "    gl_Position = transform * v4(vertex_position, 1.0);"
+    Str8 vertex_code =
+        Str8_Literal("void main() {"
+                     "    gl_Position = transform * v4(vertex_position, 1.0);"
 
-                          "    fragment_uv     = vertex_uv;"
-                          "    fragment_colour = vertex_colour;"
-                          "}");
+                     "    fragment_uv     = vertex_uv;"
+                     "    fragment_colour = vertex_colour;"
+                     "}");
 
-    if (gl_shader_compile(gl, &gl->base_vs, GL_VERTEX_SHADER, vertex_code)) {
-        xi_string fragment_code =
-            xi_str_wrap_const("void main() {"
-                              "    output_colour = texture(image, fragment_uv) * fragment_colour;"
-                              "}");
+    if (GL_ShaderCompile(gl, &gl->base_vs, GL_VERTEX_SHADER, vertex_code)) {
+        Str8 fragment_code =
+            Str8_Literal("void main() {"
+                         "    output_colour = texture(image, fragment_uv) * fragment_colour;"
+                         "}");
 
-        result = gl_shader_compile(gl, &gl->base_fs, GL_FRAGMENT_SHADER, fragment_code);
+        result = GL_ShaderCompile(gl, &gl->base_fs, GL_FRAGMENT_SHADER, fragment_code);
     }
 
     return result;
 }
 
-XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
+FileScope void GL_TexturesUpload(GL_Context *gl, RendererContext *renderer) {
     gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, gl->transfer_buffer);
 
-    xiRendererTransferQueue *transfer_queue = &renderer->transfer_queue;
+    RendererTransferQueue *transfer_queue = &renderer->transfer_queue;
 
     while (transfer_queue->task_count != 0) {
-        xiRendererTransferTask *task = &transfer_queue->tasks[transfer_queue->first_task];
-        if (task->state == XI_RENDERER_TRANSFER_TASK_STATE_LOADED) {
+        RendererTransferTask *task = &transfer_queue->tasks[transfer_queue->first_task];
+        if (task->state == RENDERER_TRANSFER_TASK_STATE_LOADED) {
             gl->FlushMappedBufferRange(GL_PIXEL_UNPACK_BUFFER, task->offset, task->size);
 
             // we can upload
@@ -374,18 +375,19 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
 
             GLsizei index  = task->texture.index;
 
-            if (xi_renderer_texture_is_sprite(renderer, task->texture)) {
+            if (RendererTextureIsSprite(renderer, task->texture)) {
                 glBindTexture(GL_TEXTURE_2D_ARRAY, gl->sprite_array);
 
                 // base layer
                 //
                 gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, index,
-                        width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, (void *) task->offset);
+                        width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, cast(void *) task->offset);
 
                 // mipmaps
                 //
                 GLint level = 1;
-                xi_uptr offset = task->offset + (4 * width * height);
+
+                U64 offset = task->offset + (4 * width * height);
                 while (width > 1 || height > 1) {
                     width  >>= 1;
                     height >>= 1;
@@ -394,16 +396,16 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
                     if (height == 0) { height = 1; }
 
                     gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, level, 0, 0, index,
-                            width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, (void *) offset);
+                            width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, cast(void *) offset);
 
                     offset += (4 * width * height);
                     level  += 1;
                 }
 
-                XI_ASSERT((task->offset + task->size) == offset);
+                Assert((task->offset + task->size) == offset);
             }
             else {
-                XI_ASSERT(index < (GLsizei) renderer->texture_limit);
+                Assert(index < cast(GLsizei) renderer->texture_limit);
 
                 // just a straight texture copy as these are larger non-sprite textures they
                 // do not have mip-mapping
@@ -424,10 +426,11 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
                 gl->TexStorage3D(GL_TEXTURE_2D_ARRAY, level_count, gl->texture_format, width, height, 1);
 
                 gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, width, height, 1,
-                        GL_RGBA, GL_UNSIGNED_BYTE, (void *) task->offset);
+                        GL_RGBA, GL_UNSIGNED_BYTE, cast(void *) task->offset);
 
                 GLint level = 1;
-                xi_uptr offset = task->offset + (4 * width * height);
+
+                U64 offset = task->offset + (4 * width * height);
                 while (width > 1  || height > 1) {
                     width  >>= 1;
                     height >>= 1;
@@ -436,26 +439,22 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
                     if (height == 0) { height = 1; }
 
                     gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, level, 0, 0, 0, width, height, 1,
-                            GL_RGBA, GL_UNSIGNED_BYTE, (void *) offset);
+                            GL_RGBA, GL_UNSIGNED_BYTE, cast(void *) offset);
 
                     offset += (4 * width * height);
                     level  += 1;
                 }
 
-                XI_ASSERT(offset == (task->offset + task->size));
+                Assert(offset == (task->offset + task->size));
 
-#if 0
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-#else
-                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-#endif
+
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
             }
         }
-        else if (task->state == XI_RENDERER_TRANSFER_TASK_STATE_PENDING) {
+        else if (task->state == RENDERER_TRANSFER_TASK_STATE_PENDING) {
             // we encountered one that has been queued but hasn't finished loading from disk
             // yet so break here and it will continue next frame
             //
@@ -463,7 +462,7 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
         }
 
         transfer_queue->first_task += 1;
-        transfer_queue->first_task &= (transfer_queue->max_tasks - 1);
+        transfer_queue->first_task &= (transfer_queue->task_limit - 1);
 
         transfer_queue->task_count -= 1;
 
@@ -473,10 +472,10 @@ XI_INTERNAL void gl_textures_upload(xiOpenGLContext *gl, xiRenderer *renderer) {
     gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 }
 
-XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
-    xiOpenGLContext *gl = renderer->backend;
+FileScope void GL_Submit(RendererContext *renderer) {
+    GL_Context *gl = renderer->backend;
 
-    gl_textures_upload(gl, renderer);
+    GL_TexturesUpload(gl, renderer);
 
     glViewport(0, 0, renderer->setup.window_dim.w, renderer->setup.window_dim.h);
 
@@ -488,12 +487,13 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
     //
     gl->BindVertexArray(gl->vao);
 
-    gl->BindBuffer(GL_ARRAY_BUFFER, gl->vbo);
+    gl->BindBuffer(GL_ARRAY_BUFFER,         gl->vbo);
     gl->BindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
+    gl->BindBuffer(GL_UNIFORM_BUFFER,       gl->ubo);
 
-    gl->VertexAttribPointer(0, 3, GL_FLOAT,         GL_FALSE, sizeof(xi_vert3), (void *) XI_OFFSET_OF(xi_vert3, p));
-    gl->VertexAttribPointer(1, 3, GL_FLOAT,         GL_FALSE, sizeof(xi_vert3), (void *) XI_OFFSET_OF(xi_vert3, uv));
-    gl->VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(xi_vert3), (void *) XI_OFFSET_OF(xi_vert3, c));
+    gl->VertexAttribPointer(0, 3, GL_FLOAT,         GL_FALSE, sizeof(Vertex3), cast(void *) OffsetTo(Vertex3, p));
+    gl->VertexAttribPointer(1, 3, GL_FLOAT,         GL_FALSE, sizeof(Vertex3), cast(void *) OffsetTo(Vertex3, uv));
+    gl->VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(Vertex3), cast(void *) OffsetTo(Vertex3, c));
 
     gl->EnableVertexAttribArray(0);
     gl->EnableVertexAttribArray(1);
@@ -506,50 +506,37 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
 
     gl->BindProgramPipeline(gl->pipeline);
 
-    gl->FlushMappedBufferRange(GL_ARRAY_BUFFER, 0, renderer->vertices.count * sizeof(xi_vert3));
-    gl->FlushMappedBufferRange(GL_ELEMENT_ARRAY_BUFFER, 0, renderer->indices.count * sizeof(xi_u16));
+    gl->FlushMappedBufferRange(GL_ARRAY_BUFFER,         0, renderer->vertices.count * sizeof(Vertex3));
+    gl->FlushMappedBufferRange(GL_ELEMENT_ARRAY_BUFFER, 0, renderer->indices.count  * sizeof(U16));
+    gl->FlushMappedBufferRange(GL_UNIFORM_BUFFER,       0, renderer->uniforms.used);
 
-    //
-    // @todo: flush ubo and texture buffers
-    //
+    gl->BindBuffer(GL_UNIFORM_BUFFER, 0);
 
     gl->ActiveTexture(GL_TEXTURE0);
 
-    xi_uptr globals_size = XI_ALIGN_UP(sizeof(xiShaderGlobals), renderer->uniforms.default_alignment);
+    U64 globals_size = renderer->ubo_globals_size;
 
-    xi_buffer *command_buffer = &renderer->command_buffer;
-    for (xi_uptr offset = 0; offset < command_buffer->used;) {
-        xi_u32 type = *(xi_u32 *) (command_buffer->data + offset);
-        offset += sizeof(xi_u32);
+    Buffer *command_buffer = &renderer->command_buffer;
+    for (S64 offset = 0; offset < command_buffer->used;) {
+        RenderCommandType type = *cast(RenderCommandType *) (command_buffer->data + offset);
+        offset += sizeof(RenderCommandType);
 
         switch (type) {
-            case XI_RENDER_COMMAND_xiRenderCommandDraw: {
-                xiRenderCommandDraw *draw = (xiRenderCommandDraw *) (command_buffer->data + offset);
-                offset += sizeof(xiRenderCommandDraw);
+            case RENDER_COMMAND_RenderCommandDraw: {
+                RenderCommandDraw *draw = cast(RenderCommandDraw *) (command_buffer->data + offset);
+                offset += sizeof(RenderCommandDraw);
 
-                if (xi_renderer_texture_is_sprite(renderer, draw->texture)) {
+                if (RendererTextureIsSprite(renderer, draw->texture)) {
                     glBindTexture(GL_TEXTURE_2D_ARRAY, gl->sprite_array);
                 }
                 else {
                     glBindTexture(GL_TEXTURE_2D_ARRAY, gl->textures[draw->texture.index]);
-
-                    // @hack: to get around weird mip-map behaviour for larger textures, this seems to work
-                    // perfectly for what we are using
-                    //
-                    // @incomplete: what we really want is some way to specify samplers rather than just
-                    // textures :renderer_handles
-                    // this will be overhauled at some point
-                    //
-                    GLfloat bias_x = renderer->setup.window_dim.w / (GLfloat) draw->texture.width;
-                    GLfloat bias_y = renderer->setup.window_dim.h / (GLfloat) draw->texture.height;
-
-                    glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_LOD_BIAS, 1.0f - XI_MAX(bias_x, bias_y));
                 }
 
                 gl->BindBufferRange(GL_UNIFORM_BUFFER, 0, gl->ubo, draw->ubo_offset, globals_size);
 
-                void *index_offset = (void *) (draw->index_offset * sizeof(xi_u16));
-                xi_u32 index_count = draw->index_count;
+                void *index_offset = cast(void *) (draw->index_offset * sizeof(U16));
+                U32   index_count  = draw->index_count;
 
                 gl->DrawElementsBaseVertex(GL_TRIANGLES, index_count,
                         GL_UNSIGNED_SHORT, index_offset, draw->vertex_offset);
@@ -566,16 +553,14 @@ XI_INTERNAL void xi_opengl_submit(xiRenderer *renderer) {
     renderer->indices.count  = 0;
 
     renderer->command_buffer.used = 0;
+    renderer->uniforms.used       = 0;
 
-    xi_arena_reset(&renderer->uniforms);
-
-    renderer->layer = 0;
-
+    renderer->layer     = 0;
     renderer->draw_call = 0;
 }
 
-#if XI_OS_WIN32
+#if OS_WIN32
     #include "os/wgl.c"
-#elif XI_OS_LINUX
+#elif OS_LINUX
     #include "os/sdl2_gl.c"
 #endif

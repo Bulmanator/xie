@@ -1,10 +1,11 @@
 #if !defined(XI_XIA_H_)
 #define XI_XIA_H_
 
-#define XIA_HEADER_SIGNATURE XI_FOURCC('X', 'I', 'A', 'F')
+#define XIA_HEADER_SIGNATURE FourCC('X', 'I', 'A', 'F')
 #define XIA_HEADER_VERSION   2
 
-enum xiaAssetType {
+typedef U32 Xia_AssetType;
+enum {
     XIA_ASSET_TYPE_NONE = 0,
     XIA_ASSET_TYPE_IMAGE,
     XIA_ASSET_TYPE_SOUND,
@@ -13,24 +14,25 @@ enum xiaAssetType {
 
 #pragma pack(push, 1)
 
-typedef struct xiaHeader {
-    xi_u32 signature;
-    xi_u32 version;
+typedef struct Xia_Header Xia_Header;
+struct Xia_Header {
+    U32 signature;
+    U32 version;
 
-    xi_u32 asset_count;
+    U32 num_assets;
 
-    xi_u32 pad0[13];
+    U32 pad0[13];
 
     // we only need the info_offset, the str_table follows directly after and thus will be at
-    // info_offset + (asset_count * sizeof(xiaAssetInfo))
+    // info_offset + (asset_count * sizeof(Xia_AssetInfo))
     //
-    xi_u64 info_offset;
-    xi_u64 str_table_size;
+    U64 info_offset;
+    U64 str_table_size;
 
-    xi_u64 pad1[6];
-} xiaHeader;
+    U64 pad1[6];
+};
 
-XI_STATIC_ASSERT(sizeof(xiaHeader) == 128);
+StaticAssert(sizeof(Xia_Header) == 128);
 
 // :note we store generated mipmaps directly in the file, the decision for this was made to make
 // the loading simpler. we will be loading into gpu mapped memory for our staging buffer which is very
@@ -45,35 +47,38 @@ XI_STATIC_ASSERT(sizeof(xiaHeader) == 128);
 // only increases this to ~341K for the maximum size which is only a 33% increase
 //
 
-typedef struct xiaImageInfo {
-    xi_u32 width;
-    xi_u32 height;
-    xi_u16 flags;       // reserved, maybe this should become a xi_u8 and the frame_count can be xi_u16
-    xi_u8  frame_count; // > 0 if animation
-    xi_u8  mip_levels;  // > 0 if sprite @unused: remove, not needed
-} xiaImageInfo;
+typedef struct Xia_ImageInfo Xia_ImageInfo;
+struct Xia_ImageInfo {
+    U32 width;
+    U32 height;
+    U16 flags;       // reserved, maybe this should become a xi_u8 and the frame_count can be xi_u16
+    U8  frame_count; // > 0 if animation
+    U8  mip_levels;  // > 0 if sprite @unused: remove, not needed
+};
 
-typedef struct xiaSoundInfo {
-    xi_u32 channel_count; // only 2 supported at the moment
-    xi_u32 sample_count;  // total number of samples
-} xiaSoundInfo;
+typedef struct Xia_SoundInfo Xia_SoundInfo;
+struct Xia_SoundInfo {
+    U32 num_channels; // only 2 supported at the moment
+    U32 num_samples;  // total number of samples
+};
 
-typedef struct xiaAssetInfo {
-    xi_u64 offset;
-    xi_u32 size;
-    xi_u32 name_offset; // from the beginning of the string table, if 0 there is no name associated
+typedef struct Xia_AssetInfo Xia_AssetInfo;
+struct Xia_AssetInfo {
+    U64 offset;
+    U32 size;
+    U32 name_offset; // from the beginning of the string table, if 0 there is no name associated
 
-    xi_u32 type;
+    Xia_AssetType type;
     union {
-        xiaImageInfo image;
-        xiaSoundInfo sound;
-        xi_u8 pad[36];
+        Xia_ImageInfo image;
+        Xia_SoundInfo sound;
+        U8 pad[36];
     };
 
-    xi_u64 write_time; // last write time of imported file
-} xiaAssetInfo;
+    U64 write_time; // last write time of imported file
+};
 
-XI_STATIC_ASSERT(sizeof(xiaAssetInfo) == 64);
+StaticAssert(sizeof(Xia_AssetInfo) == 64);
 
 #pragma pack(pop)
 

@@ -1,81 +1,58 @@
 // os threading
 //
-XI_INTERNAL void xi_os_thread_start(xiThreadQueue *arg);
+FileScope void OS_ThreadStart(ThreadQueue *arg);
 
-XI_INTERNAL void xi_os_futex_wait(xiFutex *futex, xiFutex value);
-XI_INTERNAL void xi_os_futex_signal(xiFutex *futex); // one thread
-XI_INTERNAL void xi_os_futex_broadcast(xiFutex *futex); // all threads
+FileScope void OS_FutexWait(Futex *futex, Futex value);
+FileScope void OS_FutexSignal(Futex *futex); // one thread
+FileScope void OS_FutexBroadcast(Futex *futex); // all threads
 
-// atomic intrinsics
-//
-#if XI_COMPILER_CL
-    #define XI_FUTEX_INCREMENT(futex) _InterlockedIncrement64(futex)
-    #define XI_FUTEX_DECREMENT(futex) _InterlockedDecrement64(futex)
-
-    // @todo: these should probably be part of the public facing api
-    //
-    #define XI_ATOMIC_ADD_U64(target, value) _InterlockedExchangeAdd64((__int64 volatile *) target, value)
-
-    #define XI_ATOMIC_EXCHANGE_U64(target, value) _InterlockedExchange64((__int64 volatile *) target, value)
-    #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) (_InterlockedCompareExchange64((__int64 volatile *) target, value, compare) == (__int64) compare)
-
-#elif (XI_COMPILER_CLANG || XI_COMPILER_GCC)
-    // @todo: do all of these really need __ATOMIC_SEQ_CST
-    //
-    #define XI_FUTEX_INCREMENT(futex) __atomic_add_fetch(futex, 1, __ATOMIC_SEQ_CST)
-    #define XI_FUTEX_DECREMENT(futex) __atomic_sub_fetch(futex, 1, __ATOMIC_SEQ_CST)
-
-    #define XI_ATOMIC_ADD_U64(target, value) __atomic_fetch_add(target, value, __ATOMIC_SEQ_CST)
-
-    #define XI_ATOMIC_EXCHANGE_U64(target, value) __atomic_exchange_n(target, value, __ATOMIC_SEQ_CST)
-    #define XI_ATOMIC_COMPARE_EXCHANGE_U64(target, value, compare) __atomic_compare_exchange_n(target, &(compare), value, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
-#endif
-
-
-XI_INTERNAL void xi_thread_queue_init(xiArena *arena, xiThreadPool *pool, xiThreadQueue *queue, xi_u32 index) {
-    queue->pool = pool;
+FileScope void ThreadQueueInit(M_Arena *arena, ThreadPool *pool, ThreadQueue *queue, U32 index) {
+    queue->pool         = pool;
     queue->thread_index = index;
 
     queue->task_limit = pool->task_limit;
-    queue->tasks = xi_arena_push_array(arena, xiThreadTask, queue->task_limit);
+    queue->tasks      = M_ArenaPush(arena, ThreadTask, queue->task_limit);
 
     queue->head = queue->tail = 0;
 }
 
-XI_INTERNAL void xi_thread_queue_enqueue(xiThreadQueue *queue, xiThreadTask task) {
-    xiThreadPool *pool = queue->pool;
+FileScope void ThreadQueueEnqueue(ThreadQueue *queue, ThreadTask task) {
+    ThreadPool *pool = queue->pool;
 
     // immediately broadcast to all threads away that there will be a new task available, it won't
     // actually be able to be stolen until we update the head on the queue however
     //
-    XI_FUTEX_INCREMENT(&pool->task_count);
+    U32AtomicIncrement(&pool->task_count);
+
+    // XI_FUTEX_INCREMENT(&pool->task_count);
 
     // we don't have to loop on this as we know the calling thread is the only thread that is
     // allowed to enqueue to the queue
     //
-    xi_u64 mask = queue->task_limit - 1;
-    xi_u64 head = queue->head;
-    xi_u64 next = (head + 1) & mask;
+    U64 mask = queue->task_limit - 1;
+    U64 head = queue->head;
+    U64 next = (head + 1) & mask;
 
-    XI_ASSERT(queue->tail != next);
+    Assert(queue->tail != next);
 
     queue->tasks[head] = task;
 
-    XI_ATOMIC_EXCHANGE_U64(&queue->head, next); // @todo: is a full exchange really needed here?
+    U64AtomicExchange(&queue->head, next); // @todo: is a full exchange really needed here?
 
     // broadcast to all sleeping worker threads that there is a new task available so they can
     // try to steal it
     //
-    XI_FUTEX_INCREMENT(&pool->tasks_available);
-    xi_os_futex_broadcast(&pool->tasks_available);
+    U32AtomicIncrement(&pool->tasks_available);
+    OS_FutexBroadcast(&pool->tasks_available);
 }
 
-XI_INTERNAL xi_b32 xi_thread_queue_dequeue(xiThreadQueue *queue, xiThreadTask *task) {
-    xi_b32 result = true;
+FileScope B32 ThreadQueueDequeue(ThreadQueue *queue, ThreadTask *task) {
+    B32 result = true;
 
-    xi_u64 mask = queue->task_limit - 1;
-    xi_u64 tail;
-    xi_u64 next;
+    U64 mask = queue->task_limit - 1;
+    U64 tail;
+    U64 next;
+
     do {
         tail = queue->tail;
         if (tail == queue->head) {
@@ -91,27 +68,25 @@ XI_INTERNAL xi_b32 xi_thread_queue_dequeue(xiThreadQueue *queue, xiThreadTask *t
         //
         next = (tail + 1) & mask;
     }
-    while (!XI_ATOMIC_COMPARE_EXCHANGE_U64(&queue->tail, next, tail));
+    while (!U64AtomicCompareExchange(&queue->tail, next, tail));
 
-    if (result) {
-        *task = queue->tasks[tail];
-    }
+    if (result) { *task = queue->tasks[tail]; }
 
     return result;
 }
 
-XI_INTERNAL XI_THREAD_VAR xi_u32 __tls_thread_index;
+GlobalVar ThreadVar U32 __tls_thread_index;
 
-XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
-    xiThreadPool *pool = queue->pool;
+FileScope void ThreadRun(ThreadQueue *queue) {
+    ThreadPool *pool   = queue->pool;
     __tls_thread_index = queue->thread_index;
 
-    xiThreadTask task;
+    ThreadTask task;
     for (;;) {
-        while (xi_thread_queue_dequeue(queue, &task)) {
-            task.proc(pool, task.arg);
+        while (ThreadQueueDequeue(queue, &task)) {
+            task.Proc(pool, task.arg);
 
-            if (XI_FUTEX_DECREMENT(&pool->task_count) == 0) {
+            if (U32AtomicDecrement(&pool->task_count) == 0) {
                 // we can safely break here, as there are no tasks left in the pool. if, however,
                 // in the time it takes us signal and break out the loop there are more tasks available
                 // we will attempt to steal them by entering the if statement below.
@@ -126,29 +101,30 @@ XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
                 //
                 // :wait_signal
                 //
-                XI_ASSERT(queue->head == queue->tail);
+                Assert(queue->head == queue->tail);
 
-                xi_os_futex_signal(&pool->task_count); // wake threads in xi_thread_pool_await_complete
+                OS_FutexSignal(&pool->task_count); // wake threads in xi_thread_pool_await_complete
                 break;
             }
         }
 
         while (pool->task_count != 0) {
-            xi_u32 index = __tls_thread_index;
-            for (xi_u32 it = 0; it < pool->thread_count; ++it) {
+            U32 index = __tls_thread_index;
+
+            for (U32 it = 0; it < pool->num_threads; ++it) {
                 if (pool->task_count == 0) { break; }
 
-                index = (index + 1) % pool->thread_count;
-                xiThreadQueue *other = &pool->queues[index];
-                if (xi_thread_queue_dequeue(other, &task)) {
-                    task.proc(pool, task.arg);
+                // Attempt to steal work from other thread queues in the pool
+                //
+                index = (index + 1) % pool->num_threads;
+                ThreadQueue *other = &pool->queues[index];
+                if (ThreadQueueDequeue(other, &task)) {
+                    task.Proc(pool, task.arg);
 
-                    if (XI_FUTEX_DECREMENT(&pool->task_count) == 0) {
-                        // same as comment above
-                        //
+                    if (U32AtomicDecrement(&pool->task_count) == 0) {
                         // :wait_signal
                         //
-                        xi_os_futex_signal(&pool->task_count);
+                        OS_FutexSignal(&pool->task_count);
                         break;
                     }
                 }
@@ -171,72 +147,79 @@ XI_INTERNAL void xi_thread_run(xiThreadQueue *queue) {
         // large buffers (especially when importing assets) and we don't really want that unused memory
         // lying about while we're sleeping
         //
-        xiFutex count = pool->tasks_available;
+        Futex count = pool->tasks_available;
 
         // reset the temporary arena to release any memory we used as we are no longer executing
         // any tasks so it isn't needed anymore
         //
-        xi_temp_reset();
+        M_TempReset();
 
-        xi_os_futex_wait(&pool->tasks_available, count);
+        OS_FutexWait(&pool->tasks_available, count);
     }
 }
 
-XI_INTERNAL void xi_thread_pool_init(xiArena *arena, xiThreadPool *pool, xi_u32 processor_count) {
-    if (pool->thread_count == 0) {
-        pool->thread_count = processor_count;
+FileScope void ThreadPoolInit(M_Arena *arena, ThreadPool *pool, U32 processor_count) {
+    if (pool->num_threads == 0) {
+        pool->num_threads = processor_count;
     }
 
     if (pool->task_limit == 0) {
         pool->task_limit = (1 << 13);
     }
     else {
-        pool->task_limit = xi_pow2_nearest_u32(pool->task_limit);
+        pool->task_limit = U32_Pow2Nearest(pool->task_limit);
     }
 
-    pool->queues = xi_arena_push_array(arena, xiThreadQueue, pool->thread_count);
+    pool->queues = M_ArenaPush(arena, ThreadQueue, pool->num_threads);
 
-    xi_thread_queue_init(arena, pool, &pool->queues[0], 0);
+    // Init the 'main' thread queue
+    //
+    ThreadQueueInit(arena, pool, &pool->queues[0], 0);
 
-    for (xi_u32 it = 1; it < pool->thread_count; ++it) {
-        xiThreadQueue *queue = &pool->queues[it];
+    // Init the other worker thread queues
+    //
+    for (U32 it = 1; it < pool->num_threads; ++it) {
+        ThreadQueue *queue = &pool->queues[it];
 
-        xi_thread_queue_init(arena, pool, queue, it);
-        xi_os_thread_start(queue);
+        ThreadQueueInit(arena, pool, queue, it);
+        OS_ThreadStart(queue);
     }
 }
 
 // these are the exported api functions
 //
-void xi_thread_pool_enqueue(xiThreadPool *pool, xiThreadTaskProc *proc, void *arg) {
-    if (proc) {
-        // we don't queue anything if we aren't supplied a function to call
+void ThreadPoolEnqueue(ThreadPool *pool, ThreadTaskProc *Proc, void *arg) {
+    if (Proc) {
+        // we don't queue anything if we aren't supplied a function to call!
         //
-        xiThreadQueue *queue = &pool->queues[__tls_thread_index];
+        ThreadQueue *queue = &pool->queues[__tls_thread_index];
 
-        xiThreadTask task;
-        task.proc = proc;
+        ThreadTask task;
+        task.Proc = Proc;
         task.arg  = arg;
 
-        xi_thread_queue_enqueue(queue, task);
+        ThreadQueueEnqueue(queue, task);
     }
 }
 
-void xi_thread_pool_await_complete(xiThreadPool *pool) {
-    xiThreadQueue *queue = &pool->queues[__tls_thread_index];
+void ThreadPoolAwaitComplete(ThreadPool *pool) {
+    ThreadQueue *queue = &pool->queues[__tls_thread_index];
 
-    xiThreadTask task;
+    // @todo: As a call to this function implies the calling thread cannot proceed
+    // until all work on the pool has been completed we should get it to steal work from
+    // other queues if it has completed all work on its own queue
+    //
+
+    ThreadTask task;
     while (pool->task_count != 0) {
-        while (xi_thread_queue_dequeue(queue, &task)) {
-            // there is work on our queue to execute
+        while (ThreadQueueDequeue(queue, &task)) {
+            // There is work on our queue to execute
             //
-            task.proc(pool, task.arg);
-            XI_FUTEX_DECREMENT(&pool->task_count);
+            task.Proc(pool, task.arg);
+            U32AtomicDecrement(&pool->task_count);
         }
 
-        xiFutex count = pool->task_count;
-        if (count != 0) {
-            xi_os_futex_wait(&pool->task_count, count);
-        }
+        Futex count = pool->task_count;
+        if (count != 0) { OS_FutexWait(&pool->task_count, count); }
     }
 }

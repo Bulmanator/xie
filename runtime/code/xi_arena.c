@@ -1,211 +1,266 @@
 // os memory functions
 //
-XI_INTERNAL xi_uptr xi_os_allocation_granularity_get();
-XI_INTERNAL xi_uptr xi_os_page_size_get();
+FileScope U64 OS_AllocationGranularity();
+FileScope U64 OS_PageSize();
 
-XI_INTERNAL void *xi_os_virtual_memory_reserve(xi_uptr size);
-XI_INTERNAL xi_b32 xi_os_virtual_memory_commit(void *base, xi_uptr size);
-XI_INTERNAL void xi_os_virtual_memory_decommit(void *base, xi_uptr size);
-XI_INTERNAL void xi_os_virtual_memory_release(void *base, xi_uptr size);
+FileScope void *OS_MemoryReserve(U64 size);
+FileScope B32   OS_MemoryCommit(void *base, U64 size);
+FileScope void  OS_MemoryDecommit(void *base, U64 size);
+FileScope void  OS_MemoryRelease(void *base, U64 size);
 
-void xi_arena_init_from(xiArena *arena, void *base, xi_uptr size) {
-    arena->base   = base;
-    arena->size   = size;
-    arena->offset = 0;
+//
+// --------------------------------------------------------------------------------
+// :Init
+// --------------------------------------------------------------------------------
+//
+#if OS_SWITCH
+    // switchbrew doesn't currently support generic virtual memory semantics, this means we have to
+    // resort to using malloc/free for heap allocations.
+    //
+    // As this prevents us from reserving large regions of the address space and committing only what
+    // we need, the maximum reserve size must be heavily limited as malloc is pretty much guaranteed to
+    // fail with larger 'reserve' sizes like 64GiB
+    //
+    // while this works fine in theory, it has a massive glaring issue that you cannot push a single
+    // allocation larger than this limit
+    //
+    // :switch_virtmem
+    //
+    #define M_ARENA_RESERVE_LIMIT MB(64)
+#else
+    #define M_ARENA_RESERVE_LIMIT TB(256)
+#endif
 
-    arena->last_offset       = 0;
-    arena->default_alignment = XI_ARENA_DEFAULT_ALIGNMENT;
+M_Arena *M_ArenaAlloc(U64 reserve, M_ArenaFlags flags) {
+    M_Arena *result = 0;
 
-    arena->committed = 0; // not used
-    arena->flags     = 0;
-    arena->pad       = 0;
-}
+#if OS_SWITCH
+    // :switch_virtmem arenas must grow otherwise would be limited by small sizes
+    //
+    flags &= ~M_ARENA_DONT_GROW;
+#endif
 
-void xi_arena_init_virtual(xiArena *arena, xi_uptr size) {
-    xi_uptr granularity = xi_os_allocation_granularity_get();
+    U64 granularity = OS_AllocationGranularity();
+    U64 limit       = Clamp(M_ARENA_INITIAL_COMMIT, AlignUp(reserve, granularity), M_ARENA_RESERVE_LIMIT);
+    U64 commit      = M_ARENA_INITIAL_COMMIT;
 
-    xi_uptr full_size = XI_ALIGN_UP(size, granularity);
+    void *base = OS_MemoryReserve(limit);
+    if (base) {
+        if (OS_MemoryCommit(base, commit)) {
+            result = cast(M_Arena *) base;
 
-    if (full_size > 0) {
-        arena->base   = xi_os_virtual_memory_reserve(full_size);
-        arena->size   = full_size;
-        arena->offset = 0;
+            result->current     = result;
+            result->prev        = 0;
 
-        arena->last_offset       = 0;
-        arena->default_alignment = XI_ARENA_DEFAULT_ALIGNMENT;
+            result->base        = 0;
+            result->limit       = limit;
+            result->offset      = M_ARENA_INITIAL_OFFSET;
 
-        arena->committed = 0;
-        arena->flags     = XI_ARENA_FLAG_VIRTUAL_BASE;
-        arena->pad       = 0;
+            result->committed   = commit;
+
+            result->last_offset = M_ARENA_INITIAL_OFFSET;
+
+            result->flags       = flags;
+        }
+        else {
+            OS_MemoryRelease(base, reserve);
+        }
     }
+
+    return result;
 }
 
-void xi_arena_deinit(xiArena *arena) {
-    xi_b32 virtual = (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) != 0;
+void M_ArenaReset(M_Arena *arena) {
+    M_Arena *current = arena->current;
+    while (current->prev != 0) {
+        U8 *base = cast(U8 *) current;
+        U64 size = current->limit;
 
-    void *base   = arena->base;
-    xi_uptr size = arena->size;
+        current = current->prev;
 
-    XI_ASSERT(base != 0);
-
-    arena->base   = 0;
-    arena->size   = 0;
-    arena->offset = 0;
-
-    arena->last_offset       = 0;
-    arena->default_alignment = 0;
-
-    arena->committed = 0;
-    arena->flags     = 0;
-
-    if (virtual && size > 0) {
-        xi_os_virtual_memory_release(base, size);
-
-        // we don't want to touch the arena after calling this in-case the user has passed us a pointer
-        // to an arena stored inside its own reserved base
-        //
+        OS_MemoryRelease(base, size);
     }
+
+    Assert(current == arena);
+    Assert(current->committed >= M_ARENA_INITIAL_COMMIT);
+
+    // Decommit the region of memory that is no longer being used
+    //
+    U64 decommit_size = current->committed - M_ARENA_INITIAL_COMMIT;
+    if (decommit_size != 0) {
+        U8 *decommit_base = cast(U8 *) current + M_ARENA_INITIAL_COMMIT;
+        OS_MemoryDecommit(decommit_base, decommit_size);
+
+        current->committed = M_ARENA_INITIAL_COMMIT;
+    }
+
+    current->offset    = M_ARENA_INITIAL_OFFSET;
+    arena->last_offset = M_ARENA_INITIAL_OFFSET;
 }
 
-void *xi_arena_push_aligned(xiArena *arena, xi_uptr size, xi_uptr alignment) {
+void M_ArenaRelease(M_Arena *arena) {
+    M_Arena *current = arena->current;
+    while (current->prev != 0) {
+        U8 *base = cast(U8 *) current;
+        U64 size = current->limit;
+
+        current = current->prev;
+
+        OS_MemoryRelease(base, size);
+    }
+
+    Assert(current == arena);
+
+    OS_MemoryRelease(current, current->limit);
+}
+
+//
+// --------------------------------------------------------------------------------
+// :Arena_Push
+// --------------------------------------------------------------------------------
+//
+
+void *M_ArenaPushFrom(M_Arena *arena, U64 size, M_ArenaFlags flags, U64 alignment) {
     void *result = 0;
 
-    // we only actually do anything if size > 0, this guarantees we get a null-pointer and nothing is
-    // modified in the case the user tries to allocate zero sized buffers for consistend results
-    // and making it easier to catch bugs via crash
-    //
-    if (size != 0) {
-        if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
-            alignment = arena->default_alignment;
+    M_Arena *current = arena->current;
+
+    U64 last_offset = current->base + current->offset;
+
+    U64 offset = AlignUp(current->offset, alignment);
+    U64 end    = offset + size;
+
+    B32 growable = (arena->flags & M_ARENA_DONT_GROW) == 0;
+
+    if (end > current->limit && growable) {
+        // Allocate a new chunk as we have run out of space on the current arena
+        //
+        U64 reserve = M_ARENA_DEFAULT_RESERVE;
+        if (size >= reserve) {
+            reserve = size + M_ARENA_INITIAL_OFFSET;
         }
 
-        xi_uptr align_offset   = XI_ALIGN_UP(arena->offset, alignment) - arena->offset;
-        xi_uptr allocation_end = arena->offset + align_offset + size;
+        Assert(reserve <= M_ARENA_RESERVE_LIMIT);
 
-        if (allocation_end <= arena->size) {
-            // we have enough space to push the allocation
-            //
-            if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
-                if (allocation_end > arena->committed) {
-                    // we haven't committed enough virtual memory so commit more
-                    //
-                    xi_uptr page_size = xi_os_page_size_get();
+        M_Arena *next = M_ArenaAlloc(reserve, arena->flags);
+        if (next != 0) {
+            next->prev = current;
+            next->base = current->base + current->limit;
 
-                    void *commit_base   = (xi_u8 *) arena->base + arena->committed;
-                    xi_uptr commit_size = XI_ALIGN_UP(allocation_end - arena->committed, page_size);
+            arena->current = current = next;
 
-                    xi_os_virtual_memory_commit(commit_base, commit_size);
+            offset = AlignUp(current->offset, alignment);
+            end    = offset + size;
+        }
+    }
 
-                    arena->committed += commit_size;
-                }
+    if (end > current->committed) {
+        // Commit more space
+        //
+        Assert(current->committed <= current->limit);
+
+        U64 commit_size = AlignUp(end - current->committed, M_ARENA_COMMIT_BLOCK_SIZE);
+        if ((current->committed + commit_size) > current->limit) {
+            commit_size = current->limit - current->committed;
+        }
+
+        if (commit_size != 0) {
+            U8 *commit_base = cast(U8 *) current + current->committed;
+
+            if (OS_MemoryCommit(commit_base, commit_size)) {
+                current->committed += commit_size;
             }
+        }
+    }
 
-            // :note for now we don't need to zero the memory as we are explicitly decommitting pages when
-            // the arena is reset or an allocation is popped. on modern operating systems when decommitting
-            // pages it guarantees us zero pages when re-committing/accessing them again
+    if (end <= current->committed) {
+        result = cast(U8 *) current + offset;
+        current->offset = end;
+
+        arena->last_offset = last_offset;
+
+        if ((flags & M_ARENA_NO_ZERO) == 0) {
+            // @todo: remove this flag, zero on pop. we can rely on the virtual memory system to zero
+            // our memory for freshly committed pages. only when memory is re-used will we have to
+            // zero memory reuse directly from an arena can only occur if a Pop call has happened, thus
+            // we can decommit pages within a specified threshold (guaranteeing zero pages again on commit)
+            // and any portion that isn't decommitted within this range can be set to zero like below
             //
-            result = (xi_u8 *) arena->base + arena->offset + align_offset;
-
-            arena->last_offset = arena->offset;
-            arena->offset      = allocation_end;
-        }
-
-        XI_ASSERT(result != 0);
-        XI_ASSERT(((xi_u64) result & (alignment - 1)) == 0);
-    }
-
-    return result;
-}
-
-void *xi_arena_push(xiArena *arena, xi_uptr size) {
-    void *result = xi_arena_push_aligned(arena, size, arena->default_alignment);
-    return result;
-}
-
-void *xi_arena_push_copy_aligned(xiArena *arena, void *src, xi_uptr size, xi_uptr alignment) {
-    void *result = xi_arena_push_aligned(arena, size, alignment);
-
-    if (result != 0) { xi_memory_copy(result, src, size); }
-    return result;
-}
-
-void *xi_arena_push_copy(xiArena *arena, void *src, xi_uptr size) {
-    void *result = xi_arena_push_aligned(arena, size, arena->default_alignment);
-
-    if (result != 0) { xi_memory_copy(result, src, size); }
-    return result;
-}
-
-xi_uptr xi_arena_offset_get(xiArena *arena) {
-    xi_uptr result = arena->offset;
-
-    if (arena->flags & XI_ARENA_FLAG_STRICT_ALIGNMENT) {
-        result = XI_ALIGN_UP(result, arena->default_alignment);
-    }
-
-    return result;
-}
-
-void xi_arena_pop_to(xiArena *arena, xi_uptr offset) {
-    XI_ASSERT(offset <= arena->offset); // can't pop forward
-
-    if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
-        xi_uptr page_size    = xi_os_page_size_get();
-        xi_uptr removed_size = arena->offset - offset;
-        xi_uptr to_decommit  = XI_ALIGN_DOWN(removed_size, page_size);
-        xi_uptr left_over    = removed_size - to_decommit;
-
-        arena->committed -= to_decommit;
-
-        if (to_decommit > 0) {
-            xi_os_virtual_memory_decommit((xi_u8 *) arena->base + arena->committed, to_decommit);
-        }
-
-        xi_memory_zero((xi_u8 *) arena->base + (arena->committed - left_over), left_over);
-    }
-
-    arena->offset      = offset;
-    arena->last_offset = offset;
-}
-
-void xi_arena_pop_size(xiArena *arena, xi_uptr size) {
-    XI_ASSERT(arena->offset >= size);
-
-    xi_uptr new_offset = (arena->offset - size);
-    xi_arena_pop_to(arena, new_offset);
-}
-
-void xi_arena_pop_last(xiArena *arena) {
-    xi_arena_pop_to(arena, arena->last_offset);
-}
-
-void xi_arena_reset(xiArena *arena) {
-    arena->last_offset = 0;
-    arena->offset      = 0;
-
-    if (arena->flags & XI_ARENA_FLAG_VIRTUAL_BASE) {
-        if (arena->committed > 0) {
-            xi_os_virtual_memory_decommit(arena->base, arena->committed);
-            arena->committed = 0;
+            // this is significantly more efficient for larger sized pushes
+            //
+            MemoryZero(result, size);
         }
     }
+
+    return result;
 }
 
-XI_GLOBAL XI_THREAD_VAR xiArena __tls_temp;
+void *M_ArenaPushCopyFrom(M_Arena *arena, void *src, U64 size, M_ArenaFlags flags, U64 alignment) {
+    void *result = M_ArenaPushFrom(arena, size, flags | M_ARENA_NO_ZERO, alignment);
+    MemoryCopy(result, src, size);
 
-xiArena *xi_temp_get() {
-    xiArena *result = &__tls_temp;
-    if (!result->base) {
-        xi_arena_init_virtual(result, XI_GB(16));
+    return result;
+}
+
+//
+// --------------------------------------------------------------------------------
+// :Arena_Pop
+// --------------------------------------------------------------------------------
+//
+
+void M_ArenaPopTo(M_Arena *arena, U64 offset) {
+    U64 end = Max(offset, M_ARENA_INITIAL_OFFSET);
+
+    M_Arena *current = arena->current;
+    while (current->base >= end) {
+        U8 *base = cast(U8 *) current;
+        U64 size = current->limit;
+
+        current = current->prev;
+
+        OS_MemoryRelease(base, size);
+    }
+
+    Assert(current != 0);
+
+    end = end - current->base;
+    current->offset = end;
+}
+
+void M_ArenaPopSize(M_Arena *arena, U64 size) {
+    M_Arena *current = arena->current;
+
+    Assert(current->offset >= M_ARENA_INITIAL_OFFSET);
+    Assert(size <= (current->offset - M_ARENA_INITIAL_OFFSET));
+
+    U64 new_offset = current->base + (current->offset - size);
+    M_ArenaPopTo(arena, new_offset);
+}
+
+void M_ArenaPopLast(M_Arena *arena) {
+    M_ArenaPopTo(arena, arena->last_offset);
+}
+
+U64 M_ArenaOffset(M_Arena *arena) {
+    M_Arena *current = arena->current;
+
+    U64 result = current->base + current->offset;
+    return result;
+}
+
+GlobalVar ThreadVar M_Arena *__tls_temp;
+
+M_Arena *M_TempGet() {
+    M_Arena *result = __tls_temp;
+    if (!result) {
+        result = __tls_temp = M_ArenaAlloc(M_TEMP_ARENA_LIMIT, 0);
     }
 
     return result;
 }
 
-void xi_temp_reset() {
-    if (__tls_temp.base) {
-        xi_arena_reset(&__tls_temp);
+void M_TempReset() {
+    if (__tls_temp != 0) {
+        M_ArenaReset(__tls_temp);
     }
 }
-
-

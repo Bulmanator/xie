@@ -16,29 +16,29 @@
 #include "xi_audio.c"
 #include "xi_draw.c"
 
-XI_INTERNAL XI_GAME_INIT(xiContext *xi, xi_u32 type) {
+FileScope GAME_INIT(Xi_Engine *xi, U32 type) {
     // do nothing...
     //
     (void) xi;
     (void) type;
 }
 
-XI_INTERNAL XI_GAME_SIMULATE(xiContext *xi) {
+FileScope GAME_SIMULATE(Xi_Engine *xi) {
     // do nothing...
     //
     (void) xi;
 }
 
-XI_INTERNAL XI_GAME_RENDER(xiContext *xi, xiRenderer *renderer) {
+FileScope GAME_RENDER(Xi_Engine *xi, RendererContext *renderer) {
     // do nothing...
     //
     (void) xi;
     (void) renderer;
 }
 
-#if XI_OS_WIN32
+#if OS_WIN32
     #include "os/win32.c"
-#elif XI_OS_LINUX
+#elif OS_LINUX
     #include "os/linux.c"
 #endif
 

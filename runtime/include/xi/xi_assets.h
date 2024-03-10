@@ -1,91 +1,106 @@
 #if !defined(XI_ASSETS_H_)
 #define XI_ASSETS_H_
 
-typedef struct xiRendererTransferTask xiRendererTransferTask;
-typedef struct xiRendererTransferQueue xiRendererTransferQueue;
+// @todo: this whole asset system kinda needs overhauling
+//
 
-enum xiAssetState {
-    XI_ASSET_STATE_UNLOADED = 0,
-    XI_ASSET_STATE_PENDING,
-    XI_ASSET_STATE_LOADED
+typedef struct RendererTransferTask  RendererTransferTask;
+typedef struct RendererTransferQueue RendererTransferQueue;
+
+typedef U32 AssetState;
+enum AssetState {
+    ASSET_STATE_UNLOADED = 0,
+    ASSET_STATE_PENDING,
+    ASSET_STATE_LOADED
 };
 
-typedef struct xiImageHandle {
-   xi_u32 value;
-} xiImageHandle;
+typedef struct ImageHandle ImageHandle;
+struct ImageHandle {
+   U32 value;
+};
 
-typedef struct xiSoundHandle {
-   xi_u32 value;
-} xiSoundHandle;
+typedef struct SoundHandle SoundHandle;
+struct SoundHandle {
+   U32 value;
+};
 
-typedef struct xiAssetFile {
-    xi_b32 modified; // whether we need to rewrite the asset info table and string table
+typedef struct AssetFile AssetFile;
+struct AssetFile {
+    B32 modified; // whether we need to rewrite the asset info table and string table
 
-    xiFileHandle handle;
-    xiaHeader    header;
+    Xia_Header header;
+
+    FileHandle handle;
 
     // these are out here so we can mark them as atomic variables to be
     // updated, as the xiaHeader has strict packing requirements we don't want
     // to mess with that in there. these are copied into the header when writing out the
     // file
     //
-    volatile xi_uptr next_write_offset;
-    volatile xi_u32  asset_count;
+    volatile U64 next_write_offset;
 
-    xi_u32 base_asset;
-    volatile xi_buffer strings; // the string table, we need this incase we need to rewrite the file after
-                                // a contained asset is imported again due to change, or we append to the file
-                                // as a new asset is found
-                                //
-                                // it is marked volatile for the import pass as new asset names are appended
-                                // to it in a multi-threaded fashion
-} xiAssetFile;
+             U32 base_asset;
+    volatile U32 num_assets;
 
-typedef struct xiAsset {
-    xi_u32 state;
+    volatile Buffer strings; // the string table, we need this incase we need to rewrite the file after
+                             // a contained asset is imported again due to change, or we append to the file
+                             // as a new asset is found
+                             //
+                             // it is marked volatile for the import pass as new asset names are appended
+                             // to it in a multi-threaded fashion
+};
 
-    xi_u32 type;
-    xi_u32 index;
-    xi_u32 file;
+typedef struct Asset Asset;
+struct Asset {
+    volatile AssetState state;
+
+    U32 type;
+    U32 index;
+    U32 file;
 
     union {
-        xiRendererTexture texture;
-        xi_uptr sample_base;
+        RendererTexture texture;
+        U64 sample_base;
     } data;
-} xiAsset;
+};
 
-typedef struct xiAssetHash {
-    xi_u32 index;
-    xi_u32 hash;
+typedef struct AssetHash AssetHash;
+struct AssetHash {
+    U32 index;
+    U32 hash;
 
-    xi_string value;
-} xiAssetHash;
+    Str8 value;
+};
 
-typedef struct xiAssetLoadInfo {
-    xiAssetManager *assets;
-    xiAssetFile *file;
-    xiAsset *asset;
+typedef struct AssetLoadInfo AssetLoadInfo;
+struct AssetLoadInfo {
+    AssetManager *assets;
 
-    xi_uptr offset;
-    xi_uptr size;
+    AssetFile *file;
+    Asset     *asset;
+
+    U64 offset;
+    U64 size;
+
     void *data;
 
-    xiRendererTransferTask *transfer_task;
-} xiAssetLoadInfo;
+    RendererTransferTask *transfer_task;
+};
 
-typedef struct xiAssetManager {
-    xiArena *arena;
-    xiThreadPool *thread_pool;
-    xiRendererTransferQueue *transfer_queue;
+struct AssetManager {
+    M_Arena    *arena;
+    ThreadPool *thread_pool;
 
-    xi_u32 file_count;
-    xiAssetFile *files;
+    RendererTransferQueue *transfer_queue;
 
-    volatile xi_u32 asset_count;
+    U32 num_files;
+    AssetFile *files;
 
-    xi_u32 max_assets;
-    xiAsset *assets;
-    xiaAssetInfo *xias;
+    volatile U32 num_assets;
+
+    U32           max_assets;
+    Asset         *assets;
+    Xia_AssetInfo *xias;
 
     // these have to be persistent as we don't wait for loading from file to be complete on each frame
     // as that would kinda defeat the point of them being threaded, thus we can't create these from our
@@ -94,14 +109,14 @@ typedef struct xiAssetManager {
     //
     // @todo: this should just be a circular buffer
     //
-    xi_u32 next_load;
-    volatile xi_u32 total_loads;
-    xiAssetLoadInfo *asset_loads;
+    U32 next_load;
+    volatile U32 total_loads;
+    AssetLoadInfo *asset_loads;
 
     // hash table for lookup
     //
-    xi_u32 lookup_table_count;
-    xiAssetHash *lookup_table;
+    U32 lookup_table_count;
+    AssetHash *lookup_table;
 
     // texture handles are acquired from this
     //
@@ -112,110 +127,91 @@ typedef struct xiAssetManager {
     //
     // :renderer_handles
     //
-    xi_u16 next_sprite;
-    xi_u16 next_texture;
+    U16 next_sprite;
+    U16 next_texture;
 
-    xi_u32 max_sprite_handles;
-    xi_u32 max_texture_handles;
+    U32 max_sprite_handles;
+    U32 max_texture_handles;
 
     // this value is controlled by the texture array dimension set for the renderer, it can be controlled
     // there. any value set here directly will be overwritten
     //
-    xi_u32 sprite_dimension;
-    xi_f32 animation_dt; // in seconds
+    U32 sprite_dimension;
+    F32 animation_dt; // in seconds
 
-    xi_u32 sample_rate;
-    xi_buffer sample_buffer;
+    U32 sample_rate;
+    Buffer sample_buffer;
 
     struct {
-        xi_b32 enabled;
-        xi_string search_dir;
-        xi_string sprite_prefix;
+        B32  enabled;
+        Str8 search_dir;
+        Str8 sprite_prefix;
 
-        xi_buffer strings;
+        Buffer strings;
     } importer;
-} xiAssetManager;
+};
 
-enum xiAnimationFlags {
-    XI_ANIMATION_FLAG_REVERSE   = (1 << 0), // play in reverse
-    XI_ANIMATION_FLAG_PING_PONG = (1 << 1), // play forward then backward etc.
-    XI_ANIMATION_FLAG_ONE_SHOT  = (1 << 2), // play once
-    XI_ANIMATION_FLAG_PAUSED    = (1 << 3), // don't update frame even when update is called
+typedef U32 SpriteAnimationFlags;
+enum AnimationFlags {
+    SPRITE_ANIMATION_FLAG_REVERSE   = (1 << 0), // play in reverse
+    SPRITE_ANIMATION_FLAG_PING_PONG = (1 << 1), // play forward then backward etc.
+    SPRITE_ANIMATION_FLAG_ONE_SHOT  = (1 << 2), // play once
+    SPRITE_ANIMATION_FLAG_PAUSED    = (1 << 3), // don't update frame even when update is called
 };
 
 // :note by default animations will loop forever and will play forward, the flags above can be combined
 // to alter this behaviour.
 //
-
-typedef struct xiAnimation {
-    xiImageHandle base_frame;
-
-    xi_u32 flags;
-
-    xi_f32 frame_accum;
-    xi_f32 frame_dt;
-
-    xi_u32 current_frame;
-    xi_u32 frame_count;
-} xiAnimation;
-
-// image handling functions
+// @todo: this shouldn't even be here
 //
-extern XI_API xiImageHandle xi_image_get_by_name_str(xiAssetManager *assets, xi_string name);
-extern XI_API xiImageHandle xi_image_get_by_name(xiAssetManager *assets, const char *name);
 
-extern XI_API xiaImageInfo *xi_image_info_get(xiAssetManager *assets, xiImageHandle image);
-extern XI_API xiRendererTexture xi_image_data_get(xiAssetManager *assets, xiImageHandle image);
+typedef struct SpriteAnimation SpriteAnimation;
+struct SpriteAnimation {
+    ImageHandle base_frame;
 
-// animation handling functions
+    SpriteAnimationFlags flags;
+
+    F32 frame_accum;
+    F32 frame_dt;
+
+    U32 current_frame;
+    U32 frame_count;
+};
+
+// Asset acquisition functions
 //
-extern XI_API xiAnimation xi_animation_get_by_name_str_flags(xiAssetManager *assets,
-        xi_string name, xi_u32 flags);
+Func ImageHandle ImageGetByName(AssetManager *assets, Str8 name);
+Func SoundHandle SoundGetByName(AssetManager *assets, Str8 name);
 
-extern XI_API xiAnimation xi_animation_get_by_name_flags(xiAssetManager *assets,
-        const char *name, xi_u32 flags);
+Func SpriteAnimation SpriteAnimationGetByName(AssetManager *assets, Str8 name, SpriteAnimationFlags flags);
+Func SpriteAnimation SpriteAnimationFromImage(AssetManager *assets, ImageHandle image, SpriteAnimationFlags flags);
 
-extern XI_API xiAnimation xi_animation_create_from_image_flags(xiAssetManager *assets,
-        xiImageHandle image, xi_u32 flags);
-
-extern XI_API xiAnimation xi_animation_get_by_name_str(xiAssetManager *assets, xi_string name);
-extern XI_API xiAnimation xi_animation_get_by_name(xiAssetManager *assets, const char *name);
-extern XI_API xiAnimation xi_animation_create_from_image(xiAssetManager *assets, xiImageHandle image);
-
-// this will return true if the animation reached the end, for looping animations this will happen every
-// time it loops. for ping-pong animations this will happen once for each full playback of the animation
-// in either direction, thus for a full "ping-pong" it will return 'true' twice otherwise for one-shot
-// animations this will happen a single time
+// Asset information
 //
-// if the animation is paused, with the XI_ANIMATION_FLAG_PAUSED flag, this function will never return true
-//
-extern XI_API xi_b32 xi_animation_update(xiAnimation *animation, xi_f32 dt);
+Func Xia_ImageInfo *ImageInfoGet(AssetManager *assets, ImageHandle image);
+Func Xia_SoundInfo *SoundInfoGet(AssetManager *assets, SoundHandle sound);
 
-// get, as a percentage, the amount of the animation that has been played, for looping animations this
-// resets every loop, for ping-pong animations tracks only 'ping' or 'pong' percentage
-//
-// can be used to execute events at certain times throughout the animation
-//
-extern XI_API xi_f32 xi_animation_playback_percentage_get(xiAnimation *animation);
+Func Xia_ImageInfo *SpriteAnimationInfoGet(AssetManager *assets, SpriteAnimation *animation);
 
-// reset an animation, this can be used to restart one-shot animations that have finished or simply restart
-// animations in the middle of their playback
+// Asset data
 //
-extern XI_API void xi_animation_reset(xiAnimation *animation);
+Func RendererTexture ImageDataGet(AssetManager *assets, ImageHandle image);
+Func S16 *           SoundDataGet(AssetManager *assets, SoundHandle sound);
 
-extern XI_API void xi_animation_pause(xiAnimation *animation);
-extern XI_API void xi_animation_unpause(xiAnimation *animation);
+Func ImageHandle SpriteAnimationFrameGet(SpriteAnimation *animation);
 
-// returns the image handle associated with the current frame of the animation
+// Other misc animation functions
 //
-extern XI_API xiImageHandle xi_animation_current_frame_get(xiAnimation *animation);
-
-// sound handling functions
+// ... again these shouldn't be here as they're not direct assets
 //
-extern XI_API xiSoundHandle xi_sound_get_by_name_str(xiAssetManager *assets, xi_string name);
-extern XI_API xiSoundHandle xi_sound_get_by_name(xiAssetManager *assets, const char *name);
-
-extern XI_API xiaSoundInfo *xi_sound_info_get(xiAssetManager *assets, xiSoundHandle sound);
-extern XI_API xi_s16 *xi_sound_data_get(xiAssetManager *assets, xiSoundHandle sound);
+// This api is kinda icky the engine shouldn't split update/render and animations should just be
+// updated and rendererd directly, there shouldn't be the notion of 'pause' or whatever the
+// system should just call 'SpriteAnimationDraw' or whatever if they want to update the animation
+//
+Func B32  SpriteAnimationUpdate(SpriteAnimation *animation, F32 dt);
+Func F32  SpriteAnimationPlaybackPercentageGet(SpriteAnimation *animation);
+Func void SpriteAnimationReset(SpriteAnimation *animation);
+Func void SpriteAnimationPause(SpriteAnimation *animation);
+Func void SpriteAnimationResume(SpriteAnimation *animation);
 
 #endif  // XI_ASSETS_H_
