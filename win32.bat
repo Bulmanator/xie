@@ -16,6 +16,11 @@ rem build opengl renderer .dll
 rem
 cl %compiler_flags% -Od -Zi -LD "..\renderer\xi_opengl.c" -Fe"xi_opengld.dll" -link %linker_flags%  -libpath:. xid.lib
 
+rem build vulkan renderer .dll
+rem IN TESTING!!
+rem
+cl %compiler_flags% -I%VULKAN_SDK%\Include -Od -Zi -LD "..\renderer\xi_vulkan.c" -Fe"xi_vulkan.dll" -link %linker_flags% -libpath:. -libpath:%VULKAN_SDK%\Lib xid.lib
+
 rem @todo: build release versions of both runtime and renderer
 rem
 

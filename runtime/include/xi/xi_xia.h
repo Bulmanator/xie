@@ -51,9 +51,9 @@ typedef struct Xia_ImageInfo Xia_ImageInfo;
 struct Xia_ImageInfo {
     U32 width;
     U32 height;
-    U16 flags;       // reserved, maybe this should become a xi_u8 and the frame_count can be xi_u16
+    U16 flags;       // reserved, maybe this should become a U8 and the frame_count can be U16
     U8  frame_count; // > 0 if animation
-    U8  mip_levels;  // > 0 if sprite @unused: remove, not needed
+    U8  mip_levels;  // > 0 if sprite
 };
 
 typedef struct Xia_SoundInfo Xia_SoundInfo;

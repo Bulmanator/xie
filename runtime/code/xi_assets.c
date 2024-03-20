@@ -338,8 +338,9 @@ FileScope void AssetManagerInit(M_Arena *arena, AssetManager *assets, Xi_Engine 
             h >>= 1;
         }
 
-        task->texture = error->data.texture;
-        task->state   = RENDERER_TRANSFER_TASK_STATE_LOADED;
+        task->texture    = error->data.texture;
+        task->mip_levels = 8;
+        task->state      = RENDERER_TRANSFER_TASK_STATE_LOADED;
     }
 
     // upload the solid white texture
@@ -383,8 +384,9 @@ FileScope void AssetManagerInit(M_Arena *arena, AssetManager *assets, Xi_Engine 
 
         MemorySet(data, 0xFF, size);
 
-        task->texture = white->data.texture;
-        task->state   = RENDERER_TRANSFER_TASK_STATE_LOADED;
+        task->texture    = white->data.texture;
+        task->mip_levels = 8;
+        task->state      = RENDERER_TRANSFER_TASK_STATE_LOADED;
     }
 
     if (assets->sample_buffer.limit == 0) {
@@ -512,6 +514,7 @@ void ImageLoad(AssetManager *assets, ImageHandle image) {
 
                 if (task != 0) {
                     task->texture        = asset->data.texture;
+                    task->mip_levels     = xia->image.mip_levels;
                     assets->total_loads += 1;
 
                     ThreadPoolEnqueue(assets->thread_pool, AssetDataLoad, cast(void *) asset_load);
@@ -520,7 +523,6 @@ void ImageLoad(AssetManager *assets, ImageHandle image) {
         }
     }
 }
-
 
 void SoundLoad(AssetManager *assets, SoundHandle sound) {
     if (assets->total_loads < assets->max_assets) {
@@ -1013,6 +1015,9 @@ FileScope THREAD_TASK_PROC(ImageAssetImport) {
 
                     // generate mip maps
                     //
+                    // @todo: we can just do this via the graphics api with a blit command rather
+                    // than wasting the space in the asset file :mip_map_gen
+                    //
                     U8 *cur   = pixels;
                     U32 cur_w = w;
                     U32 cur_h = h;
@@ -1042,15 +1047,19 @@ FileScope THREAD_TASK_PROC(ImageAssetImport) {
                     Assert(next == (pixels + total_size));
                 }
                 else {
-                    // @copypaste: from above just for testing, mip-maps for non-sprite images
+                    // @copypaste: from above just for testing, mip-maps for non-sprite images,
+                    // just do this in gpu api with blit operations!!!
                     //
-                    total_size = MipMappedImageSize(w, h);
+                    // if requested! :mip_map_gen
+                    //
+                    total_size = 4 * w * h; // MipMappedImageSize(w, h);
                     pixels     = M_ArenaPush(temp, U8, total_size);
 
                     // copy the base image data into the new buffer
                     //
                     MemoryCopy(pixels, image_data, 4 * w * h);
 
+#if 0
                     // generate mip maps
                     //
                     U8 *cur   = pixels;
@@ -1080,6 +1089,7 @@ FileScope THREAD_TASK_PROC(ImageAssetImport) {
                     }
 
                     Assert(next == (pixels + total_size));
+#endif
                 }
 
                 Asset         *asset = &assets->assets[handle];

@@ -38,6 +38,8 @@ struct RendererTransferTask {
 
     RendererTexture texture;
 
+    U32 mip_levels;
+
     U64 offset;
     U64 size;
 };
@@ -115,6 +117,7 @@ struct RendererContext {
     AssetManager *assets;
 
     struct {
+        B32   debug;
         B32   vsync;
         Vec2U window_dim;
     } setup;

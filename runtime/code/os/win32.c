@@ -2042,6 +2042,7 @@ FileScope DWORD WINAPI Win32_GameThread(LPVOID param) {
     // THIS IS SO BAD!!! PLEASEEEEEEEEEEEE CHANGE IT
     //
     RendererContext *renderer = &xi->renderer;
+#if 0
     {
         renderer->setup.window_dim.w = xi->window.width;
         renderer->setup.window_dim.h = xi->window.height;
@@ -2060,6 +2061,28 @@ FileScope DWORD WINAPI Win32_GameThread(LPVOID param) {
             }
         }
     }
+#else
+    {
+        renderer->setup.window_dim.w = xi->window.width;
+        renderer->setup.window_dim.h = xi->window.height;
+
+        HMODULE lib = LoadLibraryA("xi_vulkan.dll");
+        if (lib) {
+            context->renderer.lib  = lib;
+            context->renderer.Init = cast(RendererInitProc *) GetProcAddress(lib, "VK_Init");
+
+            if (context->renderer.Init) {
+                Win32_WindowData data = { 0 };
+                data.hInstance = GetModuleHandleW(0);
+                data.hwnd      = hwnd;
+
+                renderer->setup.debug = true;
+
+                context->renderer.valid = context->renderer.Init(renderer, &data);
+            }
+        }
+    }
+#endif
 
     if (context->renderer.valid) {
         // audio may fail to initialise, in that case we just continue without audio

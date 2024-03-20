@@ -410,9 +410,14 @@ FileScope void GL_TexturesUpload(GL_Context *gl, RendererContext *renderer) {
                 // just a straight texture copy as these are larger non-sprite textures they
                 // do not have mip-mapping
                 //
+                // This is hacked together, tried to add mip-mapping to non-sprite textures. this should
+                // be removed
+                //
                 glBindTexture(GL_TEXTURE_2D_ARRAY, gl->textures[index]);
 
                 GLuint level_count = 1;
+
+#if 0
                 GLsizei mipw = width;
                 GLsizei miph = height;
 
@@ -422,12 +427,14 @@ FileScope void GL_TexturesUpload(GL_Context *gl, RendererContext *renderer) {
 
                     level_count += 1;
                 }
+#endif
 
                 gl->TexStorage3D(GL_TEXTURE_2D_ARRAY, level_count, gl->texture_format, width, height, 1);
 
                 gl->TexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, width, height, 1,
                         GL_RGBA, GL_UNSIGNED_BYTE, cast(void *) task->offset);
 
+#if 0
                 GLint level = 1;
 
                 U64 offset = task->offset + (4 * width * height);
@@ -446,6 +453,7 @@ FileScope void GL_TexturesUpload(GL_Context *gl, RendererContext *renderer) {
                 }
 
                 Assert(offset == (task->offset + task->size));
+#endif
 
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);

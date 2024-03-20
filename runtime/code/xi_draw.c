@@ -48,8 +48,8 @@ FileScope void QuadVerticesDraw(RendererContext *renderer, RendererTexture textu
         indices[2] = 2 + offset;
 
         indices[3] = 1 + offset;
-        indices[4] = 2 + offset;
-        indices[5] = 3 + offset;
+        indices[4] = 3 + offset;
+        indices[5] = 2 + offset;
 
         renderer->vertices.count += 4;
         renderer->indices.count  += 6;
@@ -106,13 +106,13 @@ void LineDraw(RendererContext *renderer, Vec4F start_c, Vec2F start_p, Vec4F end
     vt[0].uv   = V3F(0, 0, 1);
     vt[0].c    = ustart;
 
-    vt[1].p.xy = V2F_Add(start_p, V2F_Scale(norm, half_width));
-    vt[1].uv   = V3F(1, 0, 1);
-    vt[1].c    = ustart;
+    vt[1].p.xy = V2F_Sub(end_p, V2F_Scale(norm, half_width));
+    vt[1].uv   = V3F(1, 1, 1);
+    vt[1].c    = uend;
 
-    vt[2].p.xy = V2F_Sub(end_p, V2F_Scale(norm, half_width));
-    vt[2].uv   = V3F(1, 1, 1);
-    vt[2].c    = uend;
+    vt[2].p.xy = V2F_Add(start_p, V2F_Scale(norm, half_width));
+    vt[2].uv   = V3F(1, 0, 1);
+    vt[2].c    = ustart;
 
     vt[3].p.xy = V2F_Add(end_p, V2F_Scale(norm, half_width));
     vt[3].uv   = V3F(0, 1, 1);
