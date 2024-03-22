@@ -122,7 +122,15 @@ FileScope VkBool32 VK_DebugMessageCallback(VkDebugUtilsMessageSeverityFlagBitsEX
     // @todo: logging proper
     //
 
-    OutputDebugString("VULKAN :: ");
+    OutputDebugString("[VK][");
+
+    switch (messageSeverity) {
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: { OutputDebugString("VRB] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:    { OutputDebugString("INF] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: { OutputDebugString("WRN] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:   { OutputDebugString("ERR] :: "); } break;
+    }
+
     OutputDebugString(pCallbackData->pMessage);
     OutputDebugString("\n");
 
@@ -326,6 +334,44 @@ ExportFunc RENDERER_INIT(VK_Init) {
             device->vk = vk;
         }
 
+        // Create immediate vertex and index buffers, one range per frame. we could instead use a circular
+        // system to make this more efficient but the buffer sizes even for like 16k quads is tiny without
+        // even compressing our vertex type so its whatever really
+        //
+
+        U32 num_vertices = renderer->vertices.limit;
+        U32 num_indices  = renderer->indices.limit;
+
+        // you can "misalign" the number of vertices/indices to the number of quads meaning you
+        // will run out of one before the other, but thats up to the user
+        //
+        if (num_vertices == 0) { num_vertices = 65536; } // 16k quads * 4 vertices
+        if (num_indices  == 0) { num_indices  = 98304; } // 16k quads * 6 indices
+
+        // Buffer for vertices and indices
+        //
+        VK_Buffer *vbo = &device->vertex_buffer;
+
+        vbo->size        = VK_NUM_FRAMES * num_vertices * sizeof(Vertex3);
+        vbo->host_mapped = true;
+        vbo->usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+        VK_BufferCreate(device, vbo);
+
+        // @speed: these could be rolled into one buffer!
+        //
+
+        VK_Buffer *ibo = &device->index_buffer;
+
+        ibo->size        = VK_NUM_FRAMES * num_indices * sizeof(U16);
+        ibo->host_mapped = true;
+        ibo->usage       = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+
+        VK_BufferCreate(device, ibo);
+
+        renderer->vertices.limit = num_vertices;
+        renderer->indices.limit  = num_indices;
+
         // Frame data, this is single threaded for now, the whole rendering system will be changed
         // at some point so not really any point in thinking too hard about it
         //
@@ -338,6 +384,9 @@ ExportFunc RENDERER_INIT(VK_Init) {
 
                 frame->next = next;
 
+                frame->imm.vertex_offset = (it * num_vertices) * sizeof(Vertex3);
+                frame->imm.index_offset  = (it * num_indices)  * sizeof(U16);
+
                 // Command pool per frame
                 //
                 {
@@ -347,6 +396,20 @@ ExportFunc RENDERER_INIT(VK_Init) {
 
                     VkResult success = vk->CreateCommandPool(device->handle, &create_info, 0, &frame->command_pool);
                     if (success != VK_SUCCESS) { return result; }
+
+                    VkCommandBuffer cmds[2];
+
+                    VkCommandBufferAllocateInfo alloc_info = { 0 };
+                    alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                    alloc_info.commandPool        = frame->command_pool;
+                    alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                    alloc_info.commandBufferCount = 2;
+
+                    success = vk->AllocateCommandBuffers(device->handle, &alloc_info, cmds);
+                    if (success != VK_SUCCESS) { return result; }
+
+                    frame->cmds     = cmds[0];
+                    frame->transfer = cmds[1];
                 }
 
                 // Descriptor pool per frame
@@ -405,6 +468,12 @@ ExportFunc RENDERER_INIT(VK_Init) {
             // Set the frame to the first frame
             //
             device->frame = &frames[0];
+
+            U8 *vertex_base = cast(U8 *) vbo->data;
+            U8 *index_base  = cast(U8 *) ibo->data;
+
+            renderer->vertices.base = cast(Vertex3 *) (vertex_base + device->frame->imm.vertex_offset);
+            renderer->indices.base  = cast(U16     *) (index_base  + device->frame->imm.index_offset);
         }
 
         // Setup swapchain
@@ -418,39 +487,6 @@ ExportFunc RENDERER_INIT(VK_Init) {
                 return result;
             }
         }
-
-        U32 num_vertices = renderer->vertices.limit;
-        U32 num_indices  = renderer->indices.limit;
-
-        // you can "misalign" the number of vertices/indices to the number of quads meaning you
-        // will run out of one before the other, but thats up to the user
-        //
-        if (num_vertices == 0) { num_vertices = 65536; } // 16k quads * 4 vertices
-        if (num_indices  == 0) { num_indices  = 98304; } // 16k quads * 6 indices
-
-        // Buffer for vertices and indices
-        //
-        VK_Buffer *vbo = &device->vertex_buffer;
-
-        vbo->size        = num_vertices * sizeof(Vertex3);
-        vbo->host_mapped = true;
-        vbo->usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-
-        VK_BufferCreate(device, vbo);
-
-        // @speed: these could be rolled into one buffer!
-        //
-
-        VK_Buffer *ibo = &device->index_buffer;
-
-        ibo->size        = num_indices * sizeof(U16);
-        ibo->host_mapped = true;
-        ibo->usage       = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-
-        VK_BufferCreate(device, ibo);
-
-        renderer->vertices.base = cast(Vertex3 *) vbo->data;
-        renderer->indices.base  = cast(U16 *)     ibo->data;
 
         RendererTransferQueue *transfer_queue = &renderer->transfer_queue;
 
@@ -877,26 +913,17 @@ B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain) {
 
     VK_Context *vk = device->vk;
 
+    // Wait for the device to go idle, it is most likely that the swapchain will be re-built on present
+    // and we cannot destroy images which are currently in-use as the command buffer may not have
+    // been fully processed yet we wait until the final swapchain image has been presented before re-building
+    //
+    vk->DeviceWaitIdle(device->handle);
+
     if (swapchain->surface == VK_NULL_HANDLE) {
         // Create the surface and select the other initial properties of the swapchain
         //
         if (!VK_SurfaceCreate(device, swapchain)) {
             return result;
-        }
-
-        VkSurfaceCapabilitiesKHR surface_caps;
-        vk->GetPhysicalDeviceSurfaceCapabilitiesKHR(device->physical, swapchain->surface, &surface_caps);
-
-        // Set swapchain extent
-        //
-        if (surface_caps.currentExtent.width == U32_MAX) {
-            // We can just choose our own
-            //
-            swapchain->extent.width  = vk->renderer->setup.window_dim.w;
-            swapchain->extent.height = vk->renderer->setup.window_dim.h;
-        }
-        else {
-            swapchain->extent = surface_caps.currentExtent;
         }
 
         // Find suitable surface format
@@ -928,21 +955,20 @@ B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain) {
 
     VkSwapchainKHR old_swapchain = swapchain->handle;
 
-    if (old_swapchain != VK_NULL_HANDLE) {
-        // This is a swapchain re-creation
-        //
-        for (U32 it = 0; it < swapchain->num_images; ++it) {
-            vk->DestroyImageView(device->handle, swapchain->views[it], 0);
-            vk->DestroyImage(device->handle, swapchain->images[it], 0);
-        }
-
-        vk->DestroyImageView(device->handle, swapchain->depth.view, 0);
-        vk->DestroyImage(device->handle, swapchain->depth.handle, 0);
-        vk->FreeMemory(device->handle, swapchain->depth.memory, 0);
-    }
-
     VkSurfaceCapabilitiesKHR surface_caps;
     vk->GetPhysicalDeviceSurfaceCapabilitiesKHR(device->physical, swapchain->surface, &surface_caps);
+
+    // Set swapchain extent
+    //
+    if (surface_caps.currentExtent.width == U32_MAX) {
+        // We can just choose our own
+        //
+        swapchain->extent.width  = vk->renderer->setup.window_dim.w;
+        swapchain->extent.height = vk->renderer->setup.window_dim.h;
+    }
+    else {
+        swapchain->extent = surface_caps.currentExtent;
+    }
 
     VkSwapchainCreateInfoKHR create_info = { 0 };
     create_info.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -962,6 +988,20 @@ B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain) {
 
     result = (success == VK_SUCCESS);
     if (result) {
+        if (old_swapchain != VK_NULL_HANDLE) {
+            // This is a swapchain re-creation
+            //
+            for (U32 it = 0; it < swapchain->num_images; ++it) {
+                vk->DestroyImageView(device->handle, swapchain->views[it], 0);
+            }
+
+            vk->DestroyImageView(device->handle, swapchain->depth.view, 0);
+            vk->DestroyImage(device->handle, swapchain->depth.handle, 0);
+            vk->FreeMemory(device->handle, swapchain->depth.memory, 0);
+
+            vk->DestroySwapchainKHR(device->handle, old_swapchain, 0);
+        }
+
         // Get swapchain images
         //
         vk->GetSwapchainImagesKHR(device->handle, swapchain->handle, &swapchain->num_images, 0);
@@ -1012,6 +1052,48 @@ B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain) {
     return result;
 }
 
+void VK_SwapchainRebuild(VK_Device *device, VK_Swapchain *swapchain, VkResult success, B32 from_present) {
+    VK_Context *vk = device->vk;
+
+    if (success == VK_ERROR_SURFACE_LOST_KHR) {
+        // Surface lost so destroy our current surface and attempt to create a new one
+        //
+
+        for (U32 it = 0; it < swapchain->num_images; ++it) {
+            vk->DestroyImageView(device->handle, swapchain->views[it], 0);
+        }
+
+        vk->DestroySwapchainKHR(device->handle, swapchain->handle, 0);
+        vk->DestroySurfaceKHR(vk->instance, swapchain->surface, 0);
+
+        swapchain->surface = VK_NULL_HANDLE;
+        swapchain->handle  = VK_NULL_HANDLE;
+
+        VK_SwapchainCreate(device, swapchain);
+    }
+    else if (success == VK_ERROR_OUT_OF_DATE_KHR) {
+        // Out of date so just re-create the swapchain
+        //
+        VK_SwapchainCreate(device, swapchain);
+    }
+    else if (success == VK_SUBOPTIMAL_KHR && from_present) {
+        VkSurfaceCapabilitiesKHR caps;
+        vk->GetPhysicalDeviceSurfaceCapabilitiesKHR(device->physical, swapchain->surface, &caps);
+
+        // Only re-build the swapchain if the extents differ, if this sub-optimal result came when acquiring
+        // and image we don't re-build right away. the system will let us present to a sub-optimal swapchain
+        // and will return the same result so we rebuild after the present
+        //
+        if (caps.currentExtent.width  != swapchain->extent.width ||
+            caps.currentExtent.height != swapchain->extent.height)
+        {
+            VK_SwapchainCreate(device, swapchain);
+        }
+
+    }
+    // else do nothing
+}
+
 //
 // --------------------------------------------------------------------------------
 // :VK_Submit
@@ -1033,17 +1115,7 @@ FileScope void VK_TexturesUpload(VK_Device *device, RendererContext *renderer) {
     // and LOADED in the second pass
     //
 
-    if (frame->_transfer == VK_NULL_HANDLE) {
-        VkCommandBufferAllocateInfo alloc_info = { 0 };
-        alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.commandPool        = frame->command_pool;
-        alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandBufferCount = 1;
-
-        vk->AllocateCommandBuffers(device->handle, &alloc_info, &frame->_transfer);
-    }
-
-    VkCommandBuffer cmds = frame->_transfer;
+    VkCommandBuffer cmds = frame->transfer;
 
     VkCommandBufferBeginInfo begin_info = { 0 };
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1059,6 +1131,8 @@ FileScope void VK_TexturesUpload(VK_Device *device, RendererContext *renderer) {
     VkImageMemoryBarrier2    *before_barriers = M_ArenaPush(temp, VkImageMemoryBarrier2,    queue->task_count);
     VkImageMemoryBarrier2    *after_barriers  = M_ArenaPush(temp, VkImageMemoryBarrier2,    queue->task_count);
     VkCopyBufferToImageInfo2 *copy_info       = M_ArenaPush(temp, VkCopyBufferToImageInfo2, queue->task_count);
+
+    B32 to_sprite = false;
 
     while (queue->task_count != 0) {
         RendererTransferTask *task = &queue->tasks[queue->first_task];
@@ -1099,6 +1173,8 @@ FileScope void VK_TexturesUpload(VK_Device *device, RendererContext *renderer) {
 
             if (RendererTextureIsSprite(renderer, task->texture)) {
                 VK_Image *sprite_array = &device->sprite_array;
+
+                to_sprite = true;
 
                 // Upload all of the mip-maps for a single layer
                 //
@@ -1241,171 +1317,9 @@ FileScope void VK_TexturesUpload(VK_Device *device, RendererContext *renderer) {
 
     vk->CmdPipelineBarrier2(cmds, &dependency_info);
 
-#if 0
-
-    VkDependencyInfo dependency_info = { 0 };
-    dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-
-    U32 barrier_count = 0;
-
-    VkImageMemoryBarrier2 *transition_before = M_ArenaPush(temp, VkImageMemoryBarrier2, queue->task_count);
-    VkImageMemoryBarrier2 *transition_after  = M_ArenaPush(temp, VkImageMemoryBarrier2, queue->task_count);
-
-    // @todo: for command buffer re-use VkCommandBuffer cmds = VK_CommandBufferPush(device);
-    //
-    VkCommandBuffer cmds;
-
-    if (frame->_transfer == VK_NULL_HANDLE) {
-        VkCommandBufferAllocateInfo alloc_info = { 0 };
-        alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.commandPool        = frame->command_pool;
-        alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandBufferCount = 1;
-
-        vk->AllocateCommandBuffers(device->handle, &alloc_info, &frame->_transfer);
-
-        cmds = frame->_transfer;
-    }
-
-    VkCommandBufferBeginInfo begin_info = { 0 };
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    vk->BeginCommandBuffer(cmds, &begin_info);
-
-    // Pre-pass over the pending uploads to produce the transition memory barriers for before and after
-    //
-    {
-        for (U32 it = 0; it < queue->task_count; ++it) {
-            U32 task_index = (queue->first_task + it) & (queue->task_limit - 1);
-            RendererTransferTask *task = &queue->tasks[task_index];
-            if (task->state == RENDERER_TRANSFER_TASK_STATE_LOADED) {
-                U32 index  = task->texture.index;
-
-                VkImageMemoryBarrier2 *before = &transition_before[barrier_count];
-                VkImageMemoryBarrier2 *after  = &transition_after[barrier_count];
-
-                // @todo: this assumes the image has yet to be uploaded to thus is in an
-                // UNDEFINED image layout, this should always be the case at the moment as
-                // the asset system doesn't have image handle re-use, this will have to
-                // change once we implement that
-                //
-                // however, the entire rendering system is going to change so this will likely
-                // change with it anyway
-                //
-
-                before->sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                before->srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
-                before->srcAccessMask = 0;
-                before->dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                before->dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                before->oldLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
-                before->newLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-
-                after->sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                after->srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                after->srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                after->dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                after->dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-                after->oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                after->newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                if (RendererTextureIsSprite(renderer, task->texture)) {
-                    VK_Image *sprite_array = &device->sprite_array;
-
-                    // Upload all of the mip-maps for a single layer
-                    //
-                    before->image = sprite_array->handle;
-                    after->image  = sprite_array->handle;
-
-                    before->subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-                    before->subresourceRange.baseMipLevel   = 0;
-                    before->subresourceRange.levelCount     = VK_REMAINING_MIP_LEVELS;
-                    before->subresourceRange.baseArrayLayer = index;
-                    before->subresourceRange.layerCount     = 1;
-
-                    after->subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-                    after->subresourceRange.baseMipLevel   = 0;
-                    after->subresourceRange.levelCount     = VK_REMAINING_MIP_LEVELS;
-                    after->subresourceRange.baseArrayLayer = index;
-                    after->subresourceRange.layerCount     = 1;
-
-                    // @incomplete: this is only for the sprite array
-                    //
-                    barrier_count += 1;
-                }
-                else {
-                }
-            }
-            else if (task->state == RENDERER_TRANSFER_TASK_STATE_PENDING) {
-                break;
-            }
-        }
-    }
-
-    // Issue before transition barriers to put the images into TRANSFER_DST_OPTIMAL
-    //
-    dependency_info.imageMemoryBarrierCount = barrier_count;
-    dependency_info.pImageMemoryBarriers    = transition_before;
-
-    vk->CmdPipelineBarrier2(cmds, &dependency_info);
-
-    U32 sprite_regions = 0;
-    VkBufferImageCopy *regions = M_ArenaPush(temp, VkBufferImageCopy, queue->task_count);
-
-    while (queue->task_count != 0) {
-        RendererTransferTask *task = &queue->tasks[queue->first_task];
-        if (task->state == RENDERER_TRANSFER_TASK_STATE_LOADED) {
-            U32 width  = task->texture.width;
-            U32 height = task->texture.height;
-
-            U32 index  = task->texture.index;
-
-            if (RendererTextureIsSprite(renderer, task->texture)) {
-                VkBufferImageCopy *region = &regions[sprite_regions++];
-
-                // @incomplete: this is only the first mip level!!!
-                //
-
-                region->bufferOffset      = task->offset;
-                region->imageSubresource  = cast(VkImageSubresourceLayers) { VK_IMAGE_ASPECT_COLOR_BIT, 0, index, 1 };
-                region->imageExtent       = cast(VkExtent3D) { width, height, 1 };
-            }
-            else {
-                // @incomplete: not uploading non-sprite textures yet. we have to
-                // create the images
-                //
-            }
-        }
-        else if (task->state == RENDERER_TRANSFER_TASK_STATE_PENDING) {
-            break;
-        }
-
-        queue->first_task += 1;
-        queue->first_task &= (queue->task_limit - 1);
-
-        queue->task_count -= 1;
-
-        queue->read_offset = task->offset;
-    }
-
-    if (sprite_regions != 0) {
-        // Issue copy to the sprite array in one go
-        //
-        VK_Buffer *tbo          = &device->transfer_buffer;
-        VK_Image  *sprite_array = &device->sprite_array;
-
-        vk->CmdCopyBufferToImage(cmds, tbo->handle, sprite_array->handle,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, sprite_regions, regions);
-    }
-
-    // Issue after transition barriers to put the images into SHADER_READ_OPTIMAL
-    //
-    dependency_info.pImageMemoryBarriers = transition_after;
-    vk->CmdPipelineBarrier2(cmds, &dependency_info);
-#endif
-
     vk->EndCommandBuffer(cmds);
+
+    device->sprite_gen += to_sprite;
 
     // Submit the work to the gpu
     //
@@ -1421,7 +1335,6 @@ FileScope void VK_TexturesUpload(VK_Device *device, RendererContext *renderer) {
     // and thus this command buffer _must_ be complete by the end of the frame
     //
     vk->QueueSubmit(device->queue.handle, 1, &submit_info, VK_NULL_HANDLE);
-    vk->DeviceWaitIdle(device->handle); // @speed: don't do this
 }
 
 RENDERER_SUBMIT(VK_Submit) {
@@ -1429,15 +1342,14 @@ RENDERER_SUBMIT(VK_Submit) {
     VK_Device  *device = &vk->device;
     VK_Frame   *frame  = device->frame;
 
-    VK_TexturesUpload(device, renderer);
-
-    vk->WaitForFences(device->handle, 1, &frame->fence, VK_FALSE, U64_MAX);
     vk->ResetFences(device->handle, 1, &frame->fence);
 
     vk->ResetCommandPool(device->handle, frame->command_pool, 0);
     vk->ResetDescriptorPool(device->handle, frame->descriptor_pool, 0);
 
-    {
+    VK_TexturesUpload(device, renderer);
+
+    if (frame->sprite_gen != device->sprite_gen) {
         if (frame->sprite_view != VK_NULL_HANDLE) {
             vk->DestroyImageView(device->handle, frame->sprite_view, 0);
         }
@@ -1457,31 +1369,20 @@ RENDERER_SUBMIT(VK_Submit) {
         create_info.subresourceRange.layerCount     = device->max_sprite_index;
 
         vk->CreateImageView(device->handle, &create_info, 0, &frame->sprite_view);
+
+        frame->sprite_gen = device->sprite_gen;
     }
 
     // Acquire image from swapchain
     //
-    // @todo: check error for swapchain rebuild
-    //
     VK_Swapchain *swapchain = &device->swapchain;
-    vk->AcquireNextImageKHR(device->handle, swapchain->handle, U64_MAX, frame->acquire, 0, &frame->image);
+    VkResult success = vk->AcquireNextImageKHR(device->handle, swapchain->handle, U64_MAX, frame->acquire, 0, &frame->image);
+    VK_SwapchainRebuild(device, swapchain, success, false /* from_present */);
 
     // start a command buffer
     //
-    VkCommandBuffer cmds;
+    VkCommandBuffer cmds = frame->cmds;
     {
-        if (frame->_cmds == VK_NULL_HANDLE) {
-            VkCommandBufferAllocateInfo alloc_info = { 0 };
-            alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            alloc_info.commandPool        = frame->command_pool;
-            alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            alloc_info.commandBufferCount = 1;
-
-            vk->AllocateCommandBuffers(device->handle, &alloc_info, &frame->_cmds);
-        }
-
-        cmds = frame->_cmds;
-
         VkCommandBufferBeginInfo begin_info = { 0 };
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1588,8 +1489,8 @@ RENDERER_SUBMIT(VK_Submit) {
 
     VkRenderingInfo rendering_info = { 0 };
     rendering_info.sType                    = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering_info.renderArea.extent.width  = renderer->setup.window_dim.w;
-    rendering_info.renderArea.extent.height = renderer->setup.window_dim.h;
+    rendering_info.renderArea.extent.width  = swapchain->extent.width;
+    rendering_info.renderArea.extent.height = swapchain->extent.height;
     rendering_info.layerCount               = 1;
     rendering_info.colorAttachmentCount     = 1;
     rendering_info.pColorAttachments        = &colour_output;
@@ -1603,13 +1504,13 @@ RENDERER_SUBMIT(VK_Submit) {
 
     VkDescriptorBufferInfo vbuffer = { 0 };
     vbuffer.buffer = device->vertex_buffer.handle;
-    vbuffer.offset = 0;
+    vbuffer.offset = frame->imm.vertex_offset;
     vbuffer.range  = renderer->vertices.count * sizeof(Vertex3);
 
     VkDescriptorImageInfo sampler = { 0 };
     sampler.sampler = device->sampler;
 
-    vk->CmdBindIndexBuffer(cmds, device->index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
+    vk->CmdBindIndexBuffer(cmds, device->index_buffer.handle, frame->imm.index_offset, VK_INDEX_TYPE_UINT16);
 
     for (S64 offset = 0; offset < commands->used;) {
         RenderCommandType type = *cast(RenderCommandType *) (commands->data + offset);
@@ -1746,15 +1647,27 @@ RENDERER_SUBMIT(VK_Submit) {
 
     // @todo: check result for swapchain resize
     //
-    vk->QueuePresentKHR(device->queue.handle, &present_info);
-    vk->DeviceWaitIdle(device->handle); // @speed: TESTING!!!!!!!!!!!
+    success = vk->QueuePresentKHR(device->queue.handle, &present_info);
+    VK_SwapchainRebuild(device, swapchain, success, true /* from_present */);
 
-    device->frame = frame->next;
+    // Don't go too far ahead we need at least one in flight frame to be idle before we can
+    // start writing to its portion of the vertex/index buffer
+    //
+    VK_Frame *next = frame->next;
+    device->frame  = next;
+
+    vk->WaitForFences(device->handle, 1, &next->fence, VK_FALSE, U64_MAX);
 
     // reset immediate mode buffers for next frame
     //
     renderer->vertices.count = 0;
     renderer->indices.count  = 0;
+
+    U8 *vertex_base = cast(U8 *) device->vertex_buffer.data;
+    U8 *index_base  = cast(U8 *) device->index_buffer.data;
+
+    renderer->vertices.base = cast(Vertex3 *) (vertex_base + next->imm.vertex_offset);
+    renderer->indices.base  = cast(U16     *) (index_base  + next->imm.index_offset);
 
     renderer->command_buffer.used = 0;
     renderer->uniforms.used       = 0;

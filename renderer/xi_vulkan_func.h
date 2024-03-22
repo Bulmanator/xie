@@ -89,6 +89,7 @@
     VK_DYN_FUNCTION(ResetDescriptorPool);
     VK_DYN_FUNCTION(CmdSetViewport);
     VK_DYN_FUNCTION(CmdSetScissor);
+    VK_DYN_FUNCTION(DestroySwapchainKHR);
 
     #undef VK_DEVICE_FUNCTIONS
 #endif

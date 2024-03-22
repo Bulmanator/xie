@@ -51,24 +51,9 @@ struct VK_Image {
     VkImageLayout layout;
 };
 
-// If the implementation of the command pool/command buffers wasn't insane we wouldn't have to
-// do this, they got it right with the descriptor pool how did they screw this up ???
-//
-typedef struct VK_CommandBufferNode VK_CommandBufferNode;
-struct VK_CommandBufferNode {
-    VK_CommandBufferNode *next;
-    VK_CommandBufferNode *next_submit;
-
-    VkCommandBuffer handle;
-};
-
 typedef struct VK_Frame VK_Frame;
 struct VK_Frame {
     VK_Frame *next;
-
-    VK_CommandBufferNode *free;
-    VK_CommandBufferNode *allocated;
-    VK_CommandBufferNode *submitted;
 
     VkSemaphore acquire; // wait on for swapchain image acquire
     VkSemaphore render;  // wait on for present complete
@@ -77,12 +62,20 @@ struct VK_Frame {
     // we could transition to a single global one due to the transition barriers waiting for execution
     // to complete
     //
+    U32 sprite_gen; // last observed sprite generation
     VkImageView sprite_view;
 
-    VkCommandBuffer _cmds; // these will go away
-    VkCommandBuffer _transfer;
+    // Will need to be re-thought when doing more sophisticated rendering with multiple command buffers
+    //
+    VkCommandBuffer cmds;
+    VkCommandBuffer transfer;
 
-    VkFence fence; // this should go in VK_CommandBufferNode so you can wait on individual command buffers
+    VkFence fence;
+
+    struct {
+        U64 vertex_offset; // in bytes
+        U64 index_offset;  // in bytes
+    } imm;
 
     U32 image;
 
@@ -169,10 +162,14 @@ struct VK_Device {
 
     VK_Swapchain swapchain;
 
+    U32 num_vertices;
+    U32 num_indices;
+
     VK_Buffer vertex_buffer;
     VK_Buffer index_buffer;
     VK_Buffer transfer_buffer;
 
+    U32 sprite_gen;
     U32 max_sprite_index;
     VK_Image sprite_array;
 
@@ -185,7 +182,6 @@ struct VK_Device {
 
     VK_Frame   *frame;
     VK_Context *vk;
-
 };
 
 struct VK_Context {
@@ -222,7 +218,8 @@ FileScope void VK_ImageCreate(VK_Device *device, VK_Image *image, VkImageCreateI
 FileScope void VK_ShaderModuleCreate(VK_Device *device, VK_Shader *shader, Str8 code);
 FileScope void VK_PipelineCreate(VK_Device *device, VK_Pipeline *pipeline);
 
-FileScope B32 VK_SurfaceCreate(VK_Device *device, VK_Swapchain *swapchain);
-FileScope B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain);
+FileScope B32  VK_SurfaceCreate(VK_Device *device, VK_Swapchain *swapchain);
+FileScope B32  VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain);
+FileScope void VK_SwapchainRebuild(VK_Device *device, VK_Swapchain *swapchain, VkResult success, B32 from_present);
 
 #endif  // XI_VULKAN_H_
