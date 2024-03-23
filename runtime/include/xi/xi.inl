@@ -900,7 +900,7 @@ F32 F32_InvSqrtApprox(F32 a) {
 // rather than linking with it becasue linking with shared objects on linux comes
 // with a whole host of problems
 //
-#if XI_OS_LINUX
+#if OS_LINUX
 
 #include <dlfcn.h>
 #include <unistd.h>
@@ -909,12 +909,10 @@ F32 F32_InvSqrtApprox(F32 a) {
 
 #include <stdio.h>
 
-StaticAssert(!"ERROR NOT COMPLETE!");
-
-int EngineRun(GameCode *code) {
+int Xi_EngineRun(Xi_GameCode *code) {
     int result = 1;
 
-    int (*__xie_bootstrap_run)(xiGameCode *);
+    int (*__xie_bootstrap_run)(Xi_GameCode *);
     void *lib;
 
     // attempt to load a global install, if fails fallback to load the local

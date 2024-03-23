@@ -12,12 +12,13 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <errno.h>
+#include <dlfcn.h>
 
 #include <dirent.h>
 
 // @copy: from winapi, should be somewhere else for cross-platform
 //
-#define XI_MAX_TITLE_COUNT 1024
+#define MAX_TITLE_COUNT 1024
 
 // SDL2 functions and types
 //
@@ -25,47 +26,48 @@
 //
 #include <SDL2/SDL.h>
 
-typedef void xiSDL2_SDL_SetWindowMinimumSize(SDL_Window *, int, int);
-typedef void xiSDL2_SDL_SetWindowMaximumSize(SDL_Window *, int, int);
-typedef void xiSDL2_SDL_SetWindowTitle(SDL_Window *, const char *);
-typedef void xiSDL2_SDL_PauseAudioDevice(SDL_AudioDeviceID, int);
+typedef void SDL2_SDL_SetWindowMinimumSize(SDL_Window *, int, int);
+typedef void SDL2_SDL_SetWindowMaximumSize(SDL_Window *, int, int);
+typedef void SDL2_SDL_SetWindowTitle(SDL_Window *, const char *);
+typedef void SDL2_SDL_PauseAudioDevice(SDL_AudioDeviceID, int);
 
-typedef int xiSDL2_SDL_Init(Uint32);
-typedef int xiSDL2_SDL_InitSubSystem(Uint32);
-typedef int xiSDL2_SDL_PollEvent(SDL_Event *);
-typedef int xiSDL2_SDL_SetWindowFullscreen(SDL_Window *, SDL_bool);
-typedef int xiSDL2_SDL_SetWindowResizable(SDL_Window *, SDL_bool);
-typedef int xiSDL2_SDL_GetWindowSize(SDL_Window *, int *, int *);
-typedef int xiSDL2_SDL_QueueAudio(SDL_AudioDeviceID, const void *, Uint32);
-typedef int xiSDL2_SDL_GetNumVideoDisplays(void);
-typedef int xiSDL2_SDL_GetDesktopDisplayMode(int, SDL_DisplayMode *);
+typedef int SDL2_SDL_Init(Uint32);
+typedef int SDL2_SDL_InitSubSystem(Uint32);
+typedef int SDL2_SDL_PollEvent(SDL_Event *);
+typedef int SDL2_SDL_SetWindowFullscreen(SDL_Window *, SDL_bool);
+typedef int SDL2_SDL_SetWindowResizable(SDL_Window *, SDL_bool);
+typedef int SDL2_SDL_GetWindowSize(SDL_Window *, int *, int *);
+typedef int SDL2_SDL_QueueAudio(SDL_AudioDeviceID, const void *, Uint32);
+typedef int SDL2_SDL_GetNumVideoDisplays(void);
+typedef int SDL2_SDL_GetDesktopDisplayMode(int, SDL_DisplayMode *);
 
-typedef Uint32 xiSDL2_SDL_GetQueuedAudioSize(SDL_AudioDeviceID);
+typedef Uint32 SDL2_SDL_GetQueuedAudioSize(SDL_AudioDeviceID);
 
-typedef const char *xiSDL2_SDL_GetDisplayName(int);
-typedef const char *xiSDL2_SDL_GetError(void);
+typedef const char *SDL2_SDL_GetDisplayName(int);
+typedef const char *SDL2_SDL_GetError(void);
 
-typedef SDL_AudioDeviceID xiSDL2_SDL_OpenAudioDevice(const char *, int, const SDL_AudioSpec *, SDL_AudioSpec *, int);
+typedef SDL_AudioDeviceID SDL2_SDL_OpenAudioDevice(const char *, int, const SDL_AudioSpec *, SDL_AudioSpec *, int);
 
-typedef SDL_Window *xiSDL2_SDL_CreateWindow(const char *, int, int, int, int, Uint32);
+typedef SDL_Window *SDL2_SDL_CreateWindow(const char *, int, int, int, int, Uint32);
 
 // gl functions passed to the renderering backend
 //
-typedef SDL_GLContext xiSDL2_SDL_GL_CreateContext(SDL_Window *window);
+typedef SDL_GLContext SDL2_SDL_GL_CreateContext(SDL_Window *window);
 
-typedef void *xiSDL2_SDL_GL_GetProcAddress(const char *);
+typedef void *SDL2_SDL_GL_GetProcAddress(const char *);
 
-typedef int  xiSDL2_SDL_GL_SetSwapInterval(int);
-typedef int  xiSDL2_SDL_GL_SetAttribute(SDL_GLattr, int);
-typedef void xiSDL2_SDL_GL_SwapWindow(SDL_Window *);
-typedef void xiSDL2_SDL_GL_DeleteContext(SDL_GLContext);
-typedef void xiSDL2_SDL_GL_GetDrawableSize(SDL_Window *window, int *, int *);
+typedef int  SDL2_SDL_GL_SetSwapInterval(int);
+typedef int  SDL2_SDL_GL_SetAttribute(SDL_GLattr, int);
+typedef void SDL2_SDL_GL_SwapWindow(SDL_Window *);
+typedef void SDL2_SDL_GL_DeleteContext(SDL_GLContext);
+typedef void SDL2_SDL_GL_GetDrawableSize(SDL_Window *window, int *, int *);
 
-#define SDL2_FUNCTION_POINTER(name) xiSDL2_SDL_##name *name
+#define SDL2_FUNCTION_POINTER(name) SDL2_SDL_##name *name
 
 // :renderer_core
 //
-typedef struct xiSDL2WindowData {
+typedef struct SDL2_WindowData SDL2_WindowData;
+struct SDL2_WindowData {
     SDL_Window *window;
 
     SDL2_FUNCTION_POINTER(GL_CreateContext);
@@ -74,22 +76,23 @@ typedef struct xiSDL2WindowData {
     SDL2_FUNCTION_POINTER(GL_SetAttribute);
     SDL2_FUNCTION_POINTER(GL_SwapWindow);
     SDL2_FUNCTION_POINTER(GL_DeleteContext);
-} xiSDL2WindowData;
+};
 
-typedef struct xiSDL2Context {
+typedef struct SDL2_Context SDL2_Context;
+struct SDL2_Context {
     void *lib;
     SDL_Window *window;
 
-    xi_u32 window_state;
-    xi_buffer title;
+    U32 window_state;
+    Buffer title;
 
     struct {
-        xi_b32 enabled;
+        B32 enabled;
 
         SDL_AudioDeviceID device;
         SDL_AudioSpec format;
 
-        xi_s16 *samples;
+        S16 *samples;
     } audio;
 
     SDL2_FUNCTION_POINTER(Init);
@@ -112,110 +115,95 @@ typedef struct xiSDL2Context {
     SDL2_FUNCTION_POINTER(GetDisplayName);
 
     SDL2_FUNCTION_POINTER(GL_GetDrawableSize);
-} xiSDL2Context;
+};
 
 #undef SDL2_FUNCTION_POINTER
 
-typedef struct xiLinuxContext {
-    xiArena arena;
-    xiLogger logger;
+typedef struct Linux_Context Linux_Context;
+struct Linux_Context {
+    M_Arena *arena;
+    Logger logger;
 
-    xiContext xi;
+    Xi_Engine xi;
 
-    xiSDL2Context SDL;
+    SDL2_Context SDL;
 
-    xi_b32 quitting;
+    B32 quitting;
+    B32 did_update;
 
-    xi_b32 did_update;
-    xi_u64 start_ns;
-    xi_u64 resolution_ns;
+    U64 start_ns;
+    U64 resolution_ns;
 
-    xi_s64 accum_ns;
-    xi_s64 fixed_ns;
-    xi_s64 clamp_ns;
+    S64 accum_ns;
+    S64 fixed_ns;
+    S64 clamp_ns;
 
     struct {
-        xi_b32 valid;
+        B32 valid;
         void *lib;
 
-        xiSDL2WindowData window; // move this to xiSDL2Context
-        xiRendererInit *init;
+        SDL2_WindowData   window; // move this to xiSDL2Context
+        RendererInitProc *Init;
     } renderer;
 
     struct {
         void *lib;
-        xi_u64 time;
+        U64   time;
 
         const char *path;
 
-        xiGameCode *code;
+        Xi_GameCode *code;
     } game;
-} xiLinuxContext;
-
-// :note utility functions
-//
-XI_INTERNAL const char *linux_str_to_cstr(xiArena *arena, xi_string str) {
-    char *result = xi_arena_push_size(arena, str.count + 1);
-
-    xi_memory_copy(result, str.data, str.count);
-    result[str.count] = 0; // null-terminate
-
-    return result;
-}
+};
 
 // :note linux memory allocation functions
 //
-xi_uptr xi_os_allocation_granularity_get() {
-    xi_uptr result = sysconf(_SC_PAGE_SIZE);
+U64 OS_AllocationGranularity() {
+    U64 result = sysconf(_SC_PAGE_SIZE);
     return result;
 }
 
-xi_uptr xi_os_page_size_get() {
-        xi_uptr result = sysconf(_SC_PAGE_SIZE);
+U64 OS_PageSize() {
+    U64 result = sysconf(_SC_PAGE_SIZE);
     return result;
 }
 
-void *xi_os_virtual_memory_reserve(xi_uptr size) {
+void *OS_MemoryReserve(U64 size) {
     void *result = mmap(0, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    return (result == MAP_FAILED) ? 0 : result;
+}
 
-    if (result == MAP_FAILED) { result = 0; }
+B32 OS_MemoryCommit(void *base, U64 size) {
+    B32 result = (mprotect(base, size, PROT_READ | PROT_WRITE) == 0);
     return result;
 }
 
-xi_b32 xi_os_virtual_memory_commit(void *base, xi_uptr size) {
-    xi_b32 result = (mprotect(base, size, PROT_READ | PROT_WRITE) == 0);
-    return result;
-}
-
-void xi_os_virtual_memory_decommit(void *base, xi_uptr size) {
-    // sigh.. linux is really bad for this, it doesn't let you explicitly
-    // commit and decommit pages, you just have to pay for the page fault,
-    // our system relies on the fact tha unmapped pages are zeroed by default
-    // for security reasons and apparently this is the only performant way to
-    // do this on linux
+void OS_MemoryDecommit(void *base, U64 size) {
+    // No real decommit on POSIX
     //
     memset(base, 0, size);
+    mprotect(base, size, PROT_NONE);
 }
 
-void xi_os_virtual_memory_release(void *base, xi_uptr size) {
+void OS_MemoryRelease(void *base, U64 size) {
     munmap(base, size);
 }
 
 // :note linux threading
 //
-XI_INTERNAL void *linux_thread_proc(void *arg) {
-    xiThreadQueue *queue = (xiThreadQueue *) arg;
-    xi_thread_run(queue);
+FileScope void *Linux_ThreadProc(void *arg) {
+    ThreadQueue *queue = cast(ThreadQueue *) arg;
+    ThreadRun(queue);
 
     return 0;
 }
 
-void xi_os_thread_start(xiThreadQueue *arg) {
+void OS_ThreadStart(ThreadQueue *arg) {
     pthread_attr_t attrs;
     pthread_attr_init(&attrs);
 
     pthread_t id;
-    int result = pthread_create(&id, &attrs, linux_thread_proc, (void *) arg);
+    int result = pthread_create(&id, &attrs, Linux_ThreadProc, (void *) arg);
     if (result != 0) {
         // @todo: logging...
         //
@@ -224,7 +212,7 @@ void xi_os_thread_start(xiThreadQueue *arg) {
     pthread_attr_destroy(&attrs);
 }
 
-void xi_os_futex_wait(xiFutex *futex, xiFutex value) {
+void OS_FutexWait(Futex *futex, Futex value) {
     for (;;) {
         int result = syscall(SYS_futex, futex, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, value, 0, 0, 0);
         if (result == -1) {
@@ -238,34 +226,36 @@ void xi_os_futex_wait(xiFutex *futex, xiFutex value) {
     }
 }
 
-void xi_os_futex_signal(xiFutex *futex) {
+void OS_FutexSignal(Futex *futex) {
     syscall(SYS_futex, futex, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, 0, 0);
 }
 
-void xi_os_futex_broadcast(xiFutex *futex) {
+void OS_FutexBroadcast(Futex *futex) {
     syscall(SYS_futex, futex, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, INT_MAX, 0, 0, 0);
 }
 
 // :note linux file system functions
 //
-enum xiLinuxPathType {
+typedef U32 Linux_PathType;
+enum {
     LINUX_PATH_TYPE_EXECUTABLE = 0,
     LINUX_PATH_TYPE_WORKING,
     LINUX_PATH_TYPE_USER,
     LINUX_PATH_TYPE_TEMP
 };
 
-XI_INTERNAL const char *linux_system_path_get(xi_u32 type) {
+FileScope const char *Linux_SystemPathGet(Linux_PathType type) {
     const char *result = "/tmp"; // on error, not much we can do use /tmp
 
-    xiArena *temp = xi_temp_get();
+    M_Arena *temp = M_TempGet();
 
     switch (type) {
         case LINUX_PATH_TYPE_EXECUTABLE: {
             // ENAMETOOLONG can occur, readlinkat instead?
             //
-            char *path = xi_arena_push_size(temp, PATH_MAX + 1);
+            char *path  = M_ArenaPush(temp, char, PATH_MAX + 1);
             ssize_t len = readlink("/proc/self/exe", path, PATH_MAX);
+
             if (len > 0) {
                 while ((len > 0) && (path[len] != '/')) {
                     // walk back the path until we find the first slash, this
@@ -275,21 +265,22 @@ XI_INTERNAL const char *linux_system_path_get(xi_u32 type) {
                 }
 
                 if (len == 1) { len += 1; }
+
                 path[len] = 0; // null-terminate, if len = 1, root dir
 
                 result = path;
 
                 // remove the unused size
                 //
-                xi_arena_pop_size(temp, PATH_MAX - len);
+                M_ArenaPop(temp, char, PATH_MAX - len);
             }
             else {
-                xi_arena_pop_size(temp, PATH_MAX + 1); // error remove everything
+                M_ArenaPop(temp, char, PATH_MAX + 1); // error remove everything
             }
         }
         break;
         case LINUX_PATH_TYPE_WORKING: {
-            result = xi_arena_push_size(temp, PATH_MAX + 1);
+            result = M_ArenaPush(temp, char, PATH_MAX + 1);
             getcwd((char *) result, PATH_MAX);
         }
         break;
@@ -298,17 +289,19 @@ XI_INTERNAL const char *linux_system_path_get(xi_u32 type) {
             struct passwd *pwd = getpwuid(uid);
             if (pwd) {
                 const char *home = pwd->pw_dir;
-                xi_string user_dir = xi_str_format(temp, "%s/.local/share", home);
-                xi_os_directory_create(user_dir);
+                Str8 user_dir = Str8_Format(temp, "%s/.local/share", home);
+                OS_DirectoryCreate(user_dir);
 
-                result = linux_str_to_cstr(temp, user_dir);
+                Str8 copy = Str8_PushCopy(temp, user_dir);
+                result    = cast(const char *) copy.data;
             }
         }
         break;
         case LINUX_PATH_TYPE_TEMP: {
-            // pretty sure this is the temp directory on all linux platforms
+            // POSIX compliant systems have /tmp as a fixed location
             //
-            result = linux_str_to_cstr(temp, xi_str_wrap_const("/tmp"));
+            Str8 tmp = Str8_PushCopy(temp, Str8_Literal("/tmp"));
+            result   = cast(const char *) tmp.data;
         }
         break;
     }
@@ -316,16 +309,14 @@ XI_INTERNAL const char *linux_system_path_get(xi_u32 type) {
     return result;
 }
 
-XI_INTERNAL char *linux_realpath_get(xi_string path) {
+FileScope char *Linux_RealpathGet(Str8 path) {
     char *result;
 
-    xiArena *temp = xi_temp_get();
+    M_Arena *temp = M_TempGet();
 
-    // once again linux people showing they are the masters of horrible api design,
-    // realpath fails if the specified path doesn't exist which is absurd because you
-    // _may well want_ to canonicalise a path that doesn't yet exist, say to create a file
-    // or directory at said path, but you were handed a relative path.
-    //
+    // We have to do this ourselves because normal realpath will fail if the specified location
+    // doesn't exist... even though you may well want to canonicalize a location that has yet
+    // to be created
     //
 
     if (path.count == 0) {
@@ -334,25 +325,28 @@ XI_INTERNAL char *linux_realpath_get(xi_string path) {
         result = "";
     }
     else {
-        result = xi_arena_push_size(temp, PATH_MAX + 1);
+        result = M_ArenaPush(temp, char, PATH_MAX + 1);
 
         const char *cpath;
         if (path.data[0] == '/') {
             // is aboslute just copy the entire path
             //
-            cpath = linux_str_to_cstr(temp, path);
+            Str8 copy = Str8_PushCopy(temp, path);
+            cpath     = cast(const char *) copy.data;
         }
         else {
             // may be relative
             //
-            const char *exe_path = linux_system_path_get(LINUX_PATH_TYPE_WORKING);
-            xi_string full_path = xi_str_format(temp, "%s/%.*s", exe_path, xi_str_unpack(path));
+            const char *exe_path  = Linux_SystemPathGet(LINUX_PATH_TYPE_WORKING);
+            Str8        full_path = Str8_Format(temp, "%s/%.*s", exe_path, Str8_Arg(path));
 
-            cpath = linux_str_to_cstr(temp, full_path);
+            Str8 copy = Str8_PushCopy(temp, full_path);
+            cpath     = cast(const char *) copy.data;
         }
 
-        xi_uptr count = 0;
+        U64 count = 0;
         const char *at = cpath;
+
         while (at[0] != 0) {
             if (at[0] == '.' && at[1] == '.') {
                 // move back a segment and skip .. relative segment
@@ -386,103 +380,73 @@ XI_INTERNAL char *linux_realpath_get(xi_string path) {
 
         result[count] = 0; // null terminate
 
-        xi_arena_pop_size(temp, PATH_MAX - count);
+        M_ArenaPop(temp, char, PATH_MAX - count);
     }
 
     return result;
 }
 
-void linux_directory_list_builder_get_recursive(xiArena *arena,
-        xiDirectoryListBuilder *builder, const char *path, xi_b32 recursive)
-{
+void Linux_DirectoryListBuilderGetRecursive(M_Arena *arena, DirectoryListBuilder *builder, const char *path, B32 recursive) {
     // @todo: for full path length support (as there is technically no
     // defined limit) we should probably be using fopendir with openat, not
     // sure how this will interact with realpath
     //
     DIR *dir = opendir(path);
     if (dir) {
-        for (struct dirent *entry = readdir(dir);
-                entry != 0;
-                entry = readdir(dir))
-        {
+        for (struct dirent *entry = readdir(dir); entry != 0; entry = readdir(dir)) {
             // ignore hidden files
             //
             if (entry->d_name[0] == '.') { continue; } // :cf not right
 
-            xi_string full_path = xi_str_format(arena, "%s/%s", path, entry->d_name);
+            M_Arena *temp = M_TempGet();
 
-            xiArena *temp = xi_temp_get();
-            const char *new_path = linux_str_to_cstr(temp, full_path);
+            Str8 full_path = Str8_Format(arena, "%s/%s", path, entry->d_name);
+            Str8 new_path  = Str8_PushCopy(temp, full_path);
+
             struct stat sb;
-            if (stat(new_path, &sb) == 0) {
-                xi_b32 is_dir = (sb.st_mode & S_IFMT) == S_IFDIR;
-                xi_u64 time   = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
+            if (stat((const char *) new_path.data, &sb) == 0) {
+                B32  is_dir   = (sb.st_mode & S_IFMT) == S_IFDIR;
+                U64  time     = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
+                Str8 basename = Str8_RemoveBeforeLast(full_path, '/');
 
-                xi_uptr last_slash = 0;
-                xi_str_find_last(full_path, &last_slash, '/');
-                xi_string basename = xi_str_advance(full_path, last_slash + 1);
-
-                xi_uptr last_dot = 0;
-                if (xi_str_find_last(basename, &last_dot, '.')) {
-                    // dot may not be found in the case of directory names and files
-                    // without extensions
-                    //
-                    basename = xi_str_prefix(basename, last_dot);
-                }
-
-                xiDirectoryEntry entry;
-                entry.type     = is_dir ? XI_DIRECTORY_ENTRY_TYPE_DIRECTORY : XI_DIRECTORY_ENTRY_TYPE_FILE;
+                DirectoryEntry entry;
+                entry.type     = is_dir ? DIRECTORY_ENTRY_TYPE_DIRECTORY : DIRECTORY_ENTRY_TYPE_FILE;
                 entry.path     = full_path;
                 entry.basename = basename;
                 entry.size     = sb.st_size;
                 entry.time     = time;
 
-                xi_directory_list_builder_append(builder, &entry);
+                DirectoryListBuilderAppend(builder, entry);
 
                 if (recursive && is_dir) {
-                    linux_directory_list_builder_get_recursive(arena,
-                            builder, new_path, recursive);
+                    const char *next_dir = cast(const char *) new_path.data;
+                    Linux_DirectoryListBuilderGetRecursive(arena, builder, next_dir, recursive);
                 }
             }
         }
     }
 }
 
-void xi_os_directory_list_build(xiArena *arena,
-        xiDirectoryListBuilder *builder, xi_string path, xi_b32 recursive)
-{
-    const char *cpath = linux_realpath_get(path);
+void OS_DirectoryListBuild(M_Arena *arena, DirectoryListBuilder *builder, Str8 path, B32 recursive) {
+    const char *cpath = Linux_RealpathGet(path);
     if (cpath != 0) {
-        linux_directory_list_builder_get_recursive(arena, builder, cpath, recursive);
+        Linux_DirectoryListBuilderGetRecursive(arena, builder, cpath, recursive);
     }
 }
 
-xi_b32 xi_os_directory_entry_get_by_path(xiArena *arena,
-        xiDirectoryEntry *entry, xi_string path)
-{
-    xi_b32 result = false;
+B32 OS_DirectoryEntryGetByPath(M_Arena *arena, DirectoryEntry *entry, Str8 path) {
+    B32 result = false;
 
-    const char *cpath = linux_realpath_get(path);
+    const char *cpath = Linux_RealpathGet(path);
 
     if (cpath != 0) {
         struct stat sb;
         if (stat(cpath, &sb) == 0) {
-            xi_b32 is_dir = (sb.st_mode & S_IFMT) == S_IFDIR;
-            xi_u64 time   = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
-            xi_uptr last_slash = 0;
+            B32  is_dir   = (sb.st_mode & S_IFMT) == S_IFDIR;
+            U64  time     = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
+            Str8 basename = Str8_PushCopy(arena, Str8_RemoveAfterLast(path, '/'));
 
-            xi_str_find_last(path, &last_slash, '/');
-            xi_string basename = xi_str_advance(path, last_slash + 1);
-
-            xi_uptr last_dot = 0;
-            if (xi_str_find_last(basename, &last_dot, '.')) {
-                // dot may not be found in the case of directory names and files
-                // without extensions
-                //
-                basename = xi_str_prefix(basename, last_dot);
-            }
-
-            entry->type     = is_dir ? XI_DIRECTORY_ENTRY_TYPE_DIRECTORY : XI_DIRECTORY_ENTRY_TYPE_FILE;
+            entry->type     = is_dir ? DIRECTORY_ENTRY_TYPE_DIRECTORY : DIRECTORY_ENTRY_TYPE_FILE;
             entry->path     = path;
             entry->basename = basename;
             entry->size     = sb.st_size;
@@ -495,14 +459,14 @@ xi_b32 xi_os_directory_entry_get_by_path(xiArena *arena,
     return result;
 }
 
-xi_b32 xi_os_directory_create(xi_string path) {
-    xi_b32 result = true;
+B32 OS_DirectoryCreate(Str8 path) {
+    B32 result = true;
 
-    char *cpath = linux_realpath_get(path);
+    char *cpath = Linux_RealpathGet(path);
 
     // there will always be a fowrard slash as linux_realpath_get converts to absolute
     //
-    xi_uptr it = 1;
+    U64 it = 1;
     while (cpath[it] != 0) {
         if (cpath[it] == '/') {
             cpath[it] = '\0'; // null-terminate this segment
@@ -534,77 +498,73 @@ xi_b32 xi_os_directory_create(xi_string path) {
     return result;
 }
 
-void xi_os_directory_delete(xi_string path) {
-    char *cpath = linux_realpath_get(path);
+void OS_DirectoryDelete(Str8 path) {
+    char *cpath = Linux_RealpathGet(path);
     rmdir(cpath);
 }
 
-xi_b32 xi_os_file_open(xiFileHandle *handle, xi_string path, xi_u32 access) {
-    xi_b32 result = true;
+FileHandle OS_FileOpen(Str8 path, FileAccessFlags access) {
+    FileHandle result;
 
-    handle->status = XI_FILE_HANDLE_STATUS_VALID;
-    handle->os     = 0;
+    result.status = FILE_HANDLE_STATUS_VALID;
+    result.v      = 0;
 
-    char *cpath = linux_realpath_get(path);
+    char *cpath = Linux_RealpathGet(path);
 
     int flags = 0;
-    if (access == XI_FILE_ACCESS_FLAG_READWRITE) {
+    if (access == FILE_ACCESS_FLAG_READWRITE) {
         flags = O_RDWR | O_CREAT;
     }
-    else if (access == XI_FILE_ACCESS_FLAG_READ) {
+    else if (access == FILE_ACCESS_FLAG_READ) {
         flags = O_RDONLY;
     }
-    else if (access == XI_FILE_ACCESS_FLAG_WRITE) {
+    else if (access == FILE_ACCESS_FLAG_WRITE) {
         flags = O_WRONLY | O_CREAT | O_TRUNC;
     }
 
     int fd = open(cpath, flags, 0644);
 
-    *(int *) &handle->os = fd; // :strict_aliasing
+    result.v = cast(U64) fd;
 
-    if (fd < 0) {
-        handle->status = XI_FILE_HANDLE_STATUS_FAILED_OPEN;
-        result = false;
-    }
-
+    if (fd < 0) { result.status = FILE_HANDLE_STATUS_FAILED_OPEN; }
     return result;
 }
 
-void xi_os_file_close(xiFileHandle *handle) {
-    int fd = *(int *) &handle->os; // :strict_aliasing
+void OS_FileClose(FileHandle *handle) {
+    int fd = cast(int) handle->v;
     if (fd >= 0) {
         close(fd);
     }
 
-    handle->status = XI_FILE_HANDLE_STATUS_CLOSED;
+    handle->status = FILE_HANDLE_STATUS_CLOSED;
 }
 
-void xi_os_file_delete(xi_string path) {
-    char *cpath = linux_realpath_get(path);
+void OS_FileDelete(Str8 path) {
+    char *cpath = Linux_RealpathGet(path);
     unlink(cpath);
 }
 
-xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr size) {
-    xi_b32 result = false;
+B32 OS_FileRead(FileHandle *handle, void *dst, U64 offset, U64 size) {
+    B32 result = false;
 
-    if (handle->status == XI_FILE_HANDLE_STATUS_VALID) {
+    if (handle->status == FILE_HANDLE_STATUS_VALID) {
         result = true;
 
-        int fd = *(int *) &handle->os; // :strict_aliasing
+        int fd = cast(int) handle->v;
 
-        XI_ASSERT(fd >= 0);
-        XI_ASSERT(offset != XI_FILE_OFFSET_APPEND);
+        Assert(fd >= 0);
+        Assert(offset != FILE_OFFSET_APPEND);
 
-        xi_u8 *data = (xi_u8 *) dst;
+        U8 *data = cast(U8 *) dst;
         while (size > 0) {
             int nread = pread(fd, data, size, offset);
             if (nread < 0) {
                 result = false;
-                handle->status = XI_FILE_HANDLE_STATUS_FAILED_READ;
+                handle->status = FILE_HANDLE_STATUS_FAILED_READ;
                 break;
             }
 
-            XI_ASSERT(size >= nread);
+            Assert(size >= nread);
 
             data   += nread;
             offset += nread;
@@ -615,30 +575,30 @@ xi_b32 xi_os_file_read(xiFileHandle *handle, void *dst, xi_uptr offset, xi_uptr 
     return result;
 }
 
-xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr size) {
-    xi_b32 result = false;
-    if (handle->status == XI_FILE_HANDLE_STATUS_VALID) {
+B32 OS_FileWrite(FileHandle *handle, void *src, U64 offset, U64 size) {
+    B32 result = false;
+    if (handle->status == FILE_HANDLE_STATUS_VALID) {
         result = true;
 
-        int fd = *(int *) &handle->os; // :strict_aliasing
+        int fd = cast(int) handle->v;
 
-        XI_ASSERT(fd >= 0);
+        Assert(fd >= 0);
 
-        if (offset == XI_FILE_OFFSET_APPEND) {
-            lseek(fd, 0, SEEK_END);
+        if (offset == FILE_OFFSET_APPEND) {
+            lseek(fd, 0, SEEK_END); // :threading ??
 
             // we are appending to the end so just use normal write
             //
-            xi_u8 *data = (xi_u8 *) src;
+            U8 *data = cast(U8 *) src;
             while (size > 0) {
                 int nwritten = write(fd, data, size);
                 if (nwritten < 0) {
                     result = false;
-                    handle->status = XI_FILE_HANDLE_STATUS_FAILED_WRITE;
+                    handle->status = FILE_HANDLE_STATUS_FAILED_WRITE;
                     break;
                 }
 
-                XI_ASSERT(size >= nwritten);
+                Assert(size >= nwritten);
 
                 data   += nwritten;
                 offset += nwritten;
@@ -648,16 +608,16 @@ xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr
         else {
             // specific offset use pwrite
             //
-            xi_u8 *data = (xi_u8 *) src;
+            U8 *data = cast(U8 *) src;
             while (size > 0) {
                 int nwritten = pwrite(fd, data, size, offset);
                 if (nwritten < 0) {
                     result = false;
-                    handle->status = XI_FILE_HANDLE_STATUS_FAILED_WRITE;
+                    handle->status = FILE_HANDLE_STATUS_FAILED_WRITE;
                     break;
                 }
 
-                XI_ASSERT(size >= nwritten);
+                Assert(size >= nwritten);
 
                 data   += nwritten;
                 offset += nwritten;
@@ -671,120 +631,119 @@ xi_b32 xi_os_file_write(xiFileHandle *handle, void *src, xi_uptr offset, xi_uptr
 
 // :note game code functions
 //
-XI_INTERNAL void linux_game_code_init(xiLinuxContext *context) {
-    xiGameCode *game = context->game.code;
+FileScope void Linux_GameCodeInit(Linux_Context *context) {
+    Xi_GameCode *game = context->game.code;
 
-    if (game->dynamic) {
-        xiArena *temp = xi_temp_get();
+    if (game->reloadable) {
+        M_Arena *temp = M_TempGet();
 
-        const char *cexe_dir = linux_system_path_get(LINUX_PATH_TYPE_EXECUTABLE);
-        xi_string exe_dir    = xi_str_wrap_cstr(cexe_dir);
+        const char *cexe_dir = Linux_SystemPathGet(LINUX_PATH_TYPE_EXECUTABLE);
+        Str8        exe_dir  = Str8_WrapNullTerminated(cexe_dir);
 
-        xiDirectoryList all;
-        xi_directory_list_get(temp, &all, exe_dir, false);
+        DirectoryList all     = DirectoryListGet(temp, exe_dir, false);
+        DirectoryList so_list = DirectoryListFilterForSuffix(temp, &all, Str8_Literal(".so"));
 
-        xiDirectoryList so_list;
-        xi_directory_list_filter_for_extension(temp, &so_list, &all, xi_str_wrap_const(".so"));
+        for (U32 it = 0; it < so_list.num_entries; ++it) {
+            DirectoryEntry *entry = &so_list.entries[it];
 
-        xi_b32 found = false;
-        for (xi_u32 it = 0; it < so_list.count; ++it) {
-            xiDirectoryEntry *entry = &so_list.entries[it];
+            Str8 path = Str8_PushCopy(temp, entry->path);
+            void *lib = dlopen((const char *) path.data, RTLD_LAZY | RTLD_LOCAL);
 
-            const char *path = linux_str_to_cstr(temp, entry->path);
-            void *lib = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
             if (lib) {
-                xiGameInit     *init     = dlsym(lib, "__xi_game_init");
-                xiGameSimulate *simulate = dlsym(lib, "__xi_game_simulate");
-                xiGameRender   *render   = dlsym(lib, "__xi_game_render");
+                Xi_GameInitProc     *Init     = dlsym(lib, "__xi_game_init");
+                Xi_GameSimulateProc *Simulate = dlsym(lib, "__xi_game_simulate");
+                Xi_GameRenderProc   *Render   = dlsym(lib, "__xi_game_render");
 
-                if (init != 0 && simulate != 0 && render != 0) {
-                    context->game.path = linux_str_to_cstr(&context->arena, entry->path);
-
+                if (Init != 0 && Simulate != 0 && Render != 0) {
+                    Str8 copy = Str8_PushCopy(context->arena, entry->path);
+                    context->game.path = cast(const char *) copy.data;
 
                     struct stat sb;
                     if (stat(context->game.path, &sb) == 0) {
                         context->game.lib = lib;
 
-                        game->init     = init;
-                        game->simulate = simulate;
-                        game->render   = render;
+                        game->Init     = Init;
+                        game->Simulate = Simulate;
+                        game->Render   = Render;
 
                         context->game.time = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
-                        found = true;
+                        break;
                     }
-
+                }
+                else {
+                    dlclose(lib);
                 }
             }
-
-            if (found) { break; }
         }
     }
 
-    if (!game->init)     { game->init     = __xi_game_init;     }
-    if (!game->simulate) { game->simulate = __xi_game_simulate; }
-    if (!game->render)   { game->render   = __xi_game_render;   }
+    if (!game->Init)     { game->Init     = __xi_game_init;     }
+    if (!game->Simulate) { game->Simulate = __xi_game_simulate; }
+    if (!game->Render)   { game->Render   = __xi_game_render;   }
 }
 
-XI_INTERNAL void linux_game_code_reload(xiLinuxContext *context) {
+FileScope void Linux_GameCodeReload(Linux_Context *context) {
     struct stat sb;
     if (stat(context->game.path, &sb) == 0) {
-        xiGameCode *game = context->game.code;
+        Xi_GameCode *game = context->game.code;
 
-        xi_u64 time = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
+        U64 time = (1000000000 * sb.st_mtim.tv_sec) + sb.st_mtim.tv_nsec;
         if (time != context->game.time) {
             if (context->game.lib) {
                 dlclose(context->game.lib);
 
-                game->init     = __xi_game_init;
-                game->simulate = __xi_game_simulate;
-                game->render   = __xi_game_render;
+                game->Init     = __xi_game_init;
+                game->Simulate = __xi_game_simulate;
+                game->Render   = __xi_game_render;
             }
 
             void *new_lib = dlopen(context->game.path, RTLD_LAZY | RTLD_LOCAL);
             if (new_lib) {
-                xiGameInit     *init     = dlsym(new_lib, "__xi_game_init");
-                xiGameSimulate *simulate = dlsym(new_lib, "__xi_game_simulate");
-                xiGameRender   *render   = dlsym(new_lib, "__xi_game_render");
+                Xi_GameInitProc     *Init     = dlsym(new_lib, "__xi_game_init");
+                Xi_GameSimulateProc *Simulate = dlsym(new_lib, "__xi_game_simulate");
+                Xi_GameRenderProc   *Render   = dlsym(new_lib, "__xi_game_render");
 
-                if (init && simulate && render) {
+                if (Init && Simulate && Render) {
                     context->game.lib  = new_lib;
                     context->game.time = time;
 
-                    game->init     = init;
-                    game->simulate = simulate;
-                    game->render   = render;
+                    game->Init     = Init;
+                    game->Simulate = Simulate;
+                    game->Render   = Render;
 
                     // call the init function of the game to notify it has been reloaded
                     //
-                    game->init(&context->xi, XI_GAME_RELOADED);
+                    game->Init(&context->xi, XI_GAME_RELOADED);
                 }
             }
         }
     }
 }
 
-XI_INTERNAL xiSDL2Context *linux_sdl2_load(xiLinuxContext *context) {
-    xiSDL2Context *result = 0;
+FileScope SDL2_Context *SDL2_Load(Linux_Context *context) {
+    SDL2_Context *result = 0;
 
-    xiSDL2Context *SDL = &context->SDL;
+    SDL2_Context *SDL = &context->SDL;
     SDL->lib = dlopen("libSDL2.so", RTLD_LAZY | RTLD_LOCAL);
     if (!SDL->lib) {
-        xi_log(&context->logger, "init", "failed to find libSDL2.so globally... trying locally");
+        Log(&context->logger, Str8_Literal("init"), "failed to find libSDL2.so globally... trying locally");
 
-        const char *exe_dir = linux_system_path_get(LINUX_PATH_TYPE_EXECUTABLE);
+        const char *exe_dir = Linux_SystemPathGet(LINUX_PATH_TYPE_EXECUTABLE);
 
-        xiArena *temp = xi_temp_get();
+        M_Arena *temp = M_TempGet();
 
-        xi_string local_sdl = xi_str_format(temp, "%s/libSDL2.so", exe_dir);
-        const char *cpath   = linux_str_to_cstr(temp, local_sdl);
+        // @todo: maybe Str8_Format should also guarantee a null-terminated string?
+        //
+        Str8 local_sdl    = Str8_PushCopy(temp, Str8_Format(temp, "%s/libSDL2.so", exe_dir));
+        const char *cpath = cast(const char *) local_sdl.data;
 
         SDL->lib = dlopen(cpath, RTLD_NOW | RTLD_GLOBAL);
     }
 
     if (SDL->lib) {
-        xiSDL2WindowData *window = &context->renderer.window;
+        SDL2_WindowData *window = &context->renderer.window;
 
-#define SDL2_FUNCTION_LOAD(x, name) (x)->name = (xiSDL2_SDL_##name *) dlsym(SDL->lib, XI_STRINGIFY(SDL_##name)); XI_ASSERT((x)->name != 0)
+#define SDL2_FUNCTION_LOAD(x, name) (x)->name = (SDL2_SDL_##name *) dlsym(SDL->lib, Stringify(SDL_##name)); Assert((x)->name != 0)
         SDL2_FUNCTION_LOAD(SDL, Init);
         SDL2_FUNCTION_LOAD(SDL, InitSubSystem);
         SDL2_FUNCTION_LOAD(SDL, PollEvent);
@@ -820,33 +779,35 @@ XI_INTERNAL xiSDL2Context *linux_sdl2_load(xiLinuxContext *context) {
             result = SDL;
         }
         else {
-            xi_log(&context->logger, "init", "failed to initialise (%s)", SDL->GetError());
+            Log(&context->logger, Str8_Literal("init"), "failed to initialise (%s)", SDL->GetError());
         }
     }
     else {
-        xi_log(&context->logger, "init", "failed to load libSDL2.so");
+        Log(&context->logger, Str8_Literal("init"), "failed to load libSDL2.so");
     }
 
     return result;
 }
 
-XI_INTERNAL void linux_sdl2_displays_enumerate(xiLinuxContext *context) {
-    xiSDL2Context *SDL = &context->SDL;
+FileScope void SDL2_DisplaysEnumerate(Linux_Context *context) {
+    SDL2_Context *SDL = &context->SDL;
 
     int count = SDL->GetNumVideoDisplays();
     if (count > 0) {
-        count = XI_MIN(count, XI_MAX_DISPLAYS);
+        Xi_Engine *xi = &context->xi;
 
-        xiContext *xi = &context->xi;
+        xi->system.num_displays = count;
+        xi->system.displays     = M_ArenaPush(context->arena, DisplayInfo, count);
+
         for (int it = 0; it < count; ++it) {
-            xiDisplay *display = &xi->system.displays[xi->system.display_count];
+            DisplayInfo *display = &xi->system.displays[it];
 
             SDL_DisplayMode mode;
             if (SDL->GetDesktopDisplayMode(it, &mode) == 0) {
                 const char *cname = SDL->GetDisplayName(it);
                 if (cname != 0) {
-                    xi_string name = xi_str_wrap_cstr(cname);
-                    display->name  = xi_str_copy(&context->arena, name);
+                    Str8 name     = Str8_WrapNullTerminated(cname);
+                    display->name = Str8_PushCopy(context->arena, name);
                 }
 
                 // @incomplete: sdl doesn't provide a way to calculate scale without first creating a
@@ -856,18 +817,16 @@ XI_INTERNAL void linux_sdl2_displays_enumerate(xiLinuxContext *context) {
                 display->height       = mode.h;
                 display->refresh_rate = mode.refresh_rate;
                 display->scale        = 1.0f;
-
-                xi->system.display_count += 1;
             }
         }
     }
 }
 
-XI_INTERNAL void linux_sdl2_audio_init(xiLinuxContext *context) {
-    xiSDL2Context *SDL = &context->SDL;
+FileScope void SDL2_AudioInit(Linux_Context *context) {
+    SDL2_Context *SDL = &context->SDL;
 
-    xiAudioPlayer *player = &context->xi.audio_player;
-    xi_audio_player_init(&context->arena, player);
+    AudioPlayer *player = &context->xi.audio_player;
+    AudioPlayerInit(context->arena, player);
 
     if (SDL->InitSubSystem(SDL_INIT_AUDIO) == 0) {
         int flags = SDL_AUDIO_ALLOW_SAMPLES_CHANGE;
@@ -876,7 +835,7 @@ XI_INTERNAL void linux_sdl2_audio_init(xiLinuxContext *context) {
         format.freq     = player->sample_rate;
         format.format   = AUDIO_S16LSB;
         format.channels = 2;
-        format.samples  = xi_pow2_nearest_u32(player->frame_count);
+        format.samples  = U32_Pow2Nearest(player->frame_count);
         format.callback = 0;
         format.userdata = 0;
 
@@ -885,25 +844,25 @@ XI_INTERNAL void linux_sdl2_audio_init(xiLinuxContext *context) {
         SDL->audio.device = SDL->OpenAudioDevice(0, SDL_FALSE, &format, &obtained, flags);
         if (SDL->audio.device != 0) {
             SDL->audio.format  = obtained;
-            SDL->audio.samples = xi_arena_push_array(&context->arena, xi_s16, obtained.samples << 1);
+            SDL->audio.samples = M_ArenaPush(context->arena, S16, obtained.samples << 1);
 
             SDL->PauseAudioDevice(SDL->audio.device, 0);
 
             SDL->audio.enabled = true;
         }
         else {
-            xi_log(&context->logger, "audio", "no device found... disabling audio");
+            Log(&context->logger, Str8_Literal("audio"), "no device found... disabling audio");
         }
     }
     else {
-        xi_log(&context->logger, "audio", "failed to initialise (%s)", SDL->GetError());
+        Log(&context->logger, Str8_Literal("audio"), "failed to initialise (%s)", SDL->GetError());
     }
 
 }
 
-XI_INTERNAL void linux_sdl2_audio_mix(xiLinuxContext *context) {
-    xiSDL2Context *SDL = &context->SDL;
-    xiContext *xi = &context->xi;
+FileScope void SDL2_AudioMix(Linux_Context *context) {
+    SDL2_Context *SDL = &context->SDL;
+    Xi_Engine    *xi  = &context->xi;
 
     if (SDL->audio.enabled) {
         // @hardcode: divide by 4 as a single frame is (channels * sizeof(sample)) which
@@ -914,121 +873,122 @@ XI_INTERNAL void linux_sdl2_audio_mix(xiLinuxContext *context) {
         //
         // :frame_count
         //
-        xi_u32 max_frames    = SDL->audio.format.samples;
-        xi_u32 queued_frames = SDL->GetQueuedAudioSize(SDL->audio.device) >> 2;
-        XI_ASSERT(queued_frames <= max_frames);
+        U32 max_frames    = SDL->audio.format.samples;
+        U32 queued_frames = SDL->GetQueuedAudioSize(SDL->audio.device) >> 2;
 
-        xi_u32 frame_count = max_frames - queued_frames;
+        Assert(queued_frames <= max_frames);
+
+        U32 frame_count = max_frames - queued_frames;
         if (frame_count > 0) {
-            xi_f32 dt = (xi_f32) xi->time.delta.s;
-            xi_audio_player_update(&xi->audio_player, &xi->assets, SDL->audio.samples, frame_count, dt);
+            F32 dt = cast(F32) xi->time.delta.s;
+            AudioPlayerUpdate(&xi->audio_player, &xi->assets, SDL->audio.samples, frame_count, dt);
 
             SDL->QueueAudio(SDL->audio.device, SDL->audio.samples, frame_count << 2); // :frame_count
         }
     }
 }
 
-XI_GLOBAL xi_u8 tbl_sdl2_scancode_to_input_key[] = {
-    [SDL_SCANCODE_UNKNOWN] = XI_KEYBOARD_KEY_UNKNOWN,
+GlobalVar U8 tbl_sdl2_scancode_to_input_key[] = {
+    [SDL_SCANCODE_UNKNOWN] = KEYBOARD_KEY_UNKNOWN,
 
     // general keys
     //
-    [SDL_SCANCODE_RETURN]    = XI_KEYBOARD_KEY_RETURN,
-    [SDL_SCANCODE_ESCAPE]    = XI_KEYBOARD_KEY_ESCAPE,
-    [SDL_SCANCODE_BACKSPACE] = XI_KEYBOARD_KEY_BACKSPACE,
-    [SDL_SCANCODE_TAB]       = XI_KEYBOARD_KEY_TAB,
-    [SDL_SCANCODE_HOME]      = XI_KEYBOARD_KEY_HOME,
-    [SDL_SCANCODE_PAGEUP]    = XI_KEYBOARD_KEY_PAGEUP,
-    [SDL_SCANCODE_DELETE]    = XI_KEYBOARD_KEY_DELETE,
-    [SDL_SCANCODE_END]       = XI_KEYBOARD_KEY_END,
-    [SDL_SCANCODE_PAGEDOWN]  = XI_KEYBOARD_KEY_PAGEDOWN,
+    [SDL_SCANCODE_RETURN]    = KEYBOARD_KEY_RETURN,
+    [SDL_SCANCODE_ESCAPE]    = KEYBOARD_KEY_ESCAPE,
+    [SDL_SCANCODE_BACKSPACE] = KEYBOARD_KEY_BACKSPACE,
+    [SDL_SCANCODE_TAB]       = KEYBOARD_KEY_TAB,
+    [SDL_SCANCODE_HOME]      = KEYBOARD_KEY_HOME,
+    [SDL_SCANCODE_PAGEUP]    = KEYBOARD_KEY_PAGEUP,
+    [SDL_SCANCODE_DELETE]    = KEYBOARD_KEY_DELETE,
+    [SDL_SCANCODE_END]       = KEYBOARD_KEY_END,
+    [SDL_SCANCODE_PAGEDOWN]  = KEYBOARD_KEY_PAGEDOWN,
 
     // arrow keys
     //
-    [SDL_SCANCODE_RIGHT] = XI_KEYBOARD_KEY_RIGHT, [SDL_SCANCODE_LEFT] = XI_KEYBOARD_KEY_LEFT,
-    [SDL_SCANCODE_DOWN]  = XI_KEYBOARD_KEY_DOWN,  [SDL_SCANCODE_UP]   = XI_KEYBOARD_KEY_UP,
+    [SDL_SCANCODE_RIGHT] = KEYBOARD_KEY_RIGHT, [SDL_SCANCODE_LEFT] = KEYBOARD_KEY_LEFT,
+    [SDL_SCANCODE_DOWN]  = KEYBOARD_KEY_DOWN,  [SDL_SCANCODE_UP]   = KEYBOARD_KEY_UP,
 
     // f keys
     //
-    [SDL_SCANCODE_F1]  = XI_KEYBOARD_KEY_F1,  [SDL_SCANCODE_F2]  = XI_KEYBOARD_KEY_F2,
-    [SDL_SCANCODE_F3]  = XI_KEYBOARD_KEY_F3,  [SDL_SCANCODE_F4]  = XI_KEYBOARD_KEY_F4,
-    [SDL_SCANCODE_F5]  = XI_KEYBOARD_KEY_F5,  [SDL_SCANCODE_F6]  = XI_KEYBOARD_KEY_F6,
-    [SDL_SCANCODE_F7]  = XI_KEYBOARD_KEY_F7,  [SDL_SCANCODE_F8]  = XI_KEYBOARD_KEY_F8,
-    [SDL_SCANCODE_F9]  = XI_KEYBOARD_KEY_F9,  [SDL_SCANCODE_F10] = XI_KEYBOARD_KEY_F10,
-    [SDL_SCANCODE_F11] = XI_KEYBOARD_KEY_F11, [SDL_SCANCODE_F12] = XI_KEYBOARD_KEY_F12,
+    [SDL_SCANCODE_F1]  = KEYBOARD_KEY_F1,  [SDL_SCANCODE_F2]  = KEYBOARD_KEY_F2,
+    [SDL_SCANCODE_F3]  = KEYBOARD_KEY_F3,  [SDL_SCANCODE_F4]  = KEYBOARD_KEY_F4,
+    [SDL_SCANCODE_F5]  = KEYBOARD_KEY_F5,  [SDL_SCANCODE_F6]  = KEYBOARD_KEY_F6,
+    [SDL_SCANCODE_F7]  = KEYBOARD_KEY_F7,  [SDL_SCANCODE_F8]  = KEYBOARD_KEY_F8,
+    [SDL_SCANCODE_F9]  = KEYBOARD_KEY_F9,  [SDL_SCANCODE_F10] = KEYBOARD_KEY_F10,
+    [SDL_SCANCODE_F11] = KEYBOARD_KEY_F11, [SDL_SCANCODE_F12] = KEYBOARD_KEY_F12,
 
     // more general
     //
-    [SDL_SCANCODE_INSERT]     = XI_KEYBOARD_KEY_INSERT,
-    [SDL_SCANCODE_SPACE]      = XI_KEYBOARD_KEY_SPACE,
-    [SDL_SCANCODE_APOSTROPHE] = XI_KEYBOARD_KEY_QUOTE,
-    [SDL_SCANCODE_COMMA]      = XI_KEYBOARD_KEY_COMMA,
-    [SDL_SCANCODE_MINUS]      = XI_KEYBOARD_KEY_MINUS,
-    [SDL_SCANCODE_PERIOD]     = XI_KEYBOARD_KEY_PERIOD,
-    [SDL_SCANCODE_SLASH]      = XI_KEYBOARD_KEY_SLASH,
+    [SDL_SCANCODE_INSERT]     = KEYBOARD_KEY_INSERT,
+    [SDL_SCANCODE_SPACE]      = KEYBOARD_KEY_SPACE,
+    [SDL_SCANCODE_APOSTROPHE] = KEYBOARD_KEY_QUOTE,
+    [SDL_SCANCODE_COMMA]      = KEYBOARD_KEY_COMMA,
+    [SDL_SCANCODE_MINUS]      = KEYBOARD_KEY_MINUS,
+    [SDL_SCANCODE_PERIOD]     = KEYBOARD_KEY_PERIOD,
+    [SDL_SCANCODE_SLASH]      = KEYBOARD_KEY_SLASH,
 
     // numbers
     //
-    [SDL_SCANCODE_0] = XI_KEYBOARD_KEY_0, [SDL_SCANCODE_1] = XI_KEYBOARD_KEY_1,
-    [SDL_SCANCODE_2] = XI_KEYBOARD_KEY_2, [SDL_SCANCODE_3] = XI_KEYBOARD_KEY_3,
-    [SDL_SCANCODE_4] = XI_KEYBOARD_KEY_4, [SDL_SCANCODE_5] = XI_KEYBOARD_KEY_5,
-    [SDL_SCANCODE_6] = XI_KEYBOARD_KEY_6, [SDL_SCANCODE_7] = XI_KEYBOARD_KEY_7,
-    [SDL_SCANCODE_8] = XI_KEYBOARD_KEY_8, [SDL_SCANCODE_9] = XI_KEYBOARD_KEY_9,
+    [SDL_SCANCODE_0] = KEYBOARD_KEY_0, [SDL_SCANCODE_1] = KEYBOARD_KEY_1,
+    [SDL_SCANCODE_2] = KEYBOARD_KEY_2, [SDL_SCANCODE_3] = KEYBOARD_KEY_3,
+    [SDL_SCANCODE_4] = KEYBOARD_KEY_4, [SDL_SCANCODE_5] = KEYBOARD_KEY_5,
+    [SDL_SCANCODE_6] = KEYBOARD_KEY_6, [SDL_SCANCODE_7] = KEYBOARD_KEY_7,
+    [SDL_SCANCODE_8] = KEYBOARD_KEY_8, [SDL_SCANCODE_9] = KEYBOARD_KEY_9,
 
     // more more general
     //
-    [SDL_SCANCODE_SEMICOLON] = XI_KEYBOARD_KEY_SEMICOLON,
-    [SDL_SCANCODE_EQUALS]    = XI_KEYBOARD_KEY_EQUALS,
+    [SDL_SCANCODE_SEMICOLON] = KEYBOARD_KEY_SEMICOLON,
+    [SDL_SCANCODE_EQUALS]    = KEYBOARD_KEY_EQUALS,
 
     // modifiers
     //
-    [SDL_SCANCODE_LSHIFT] = XI_KEYBOARD_KEY_LSHIFT,
-    [SDL_SCANCODE_LCTRL]  = XI_KEYBOARD_KEY_LCTRL,
-    [SDL_SCANCODE_LALT]   = XI_KEYBOARD_KEY_LALT,
+    [SDL_SCANCODE_LSHIFT] = KEYBOARD_KEY_LSHIFT,
+    [SDL_SCANCODE_LCTRL]  = KEYBOARD_KEY_LCTRL,
+    [SDL_SCANCODE_LALT]   = KEYBOARD_KEY_LALT,
 
-    [SDL_SCANCODE_RSHIFT] = XI_KEYBOARD_KEY_RSHIFT,
-    [SDL_SCANCODE_RCTRL]  = XI_KEYBOARD_KEY_RCTRL,
-    [SDL_SCANCODE_RALT]   = XI_KEYBOARD_KEY_RALT,
+    [SDL_SCANCODE_RSHIFT] = KEYBOARD_KEY_RSHIFT,
+    [SDL_SCANCODE_RCTRL]  = KEYBOARD_KEY_RCTRL,
+    [SDL_SCANCODE_RALT]   = KEYBOARD_KEY_RALT,
 
     // more more more general
     //
-    [SDL_SCANCODE_LEFTBRACKET]  = XI_KEYBOARD_KEY_LBRACKET,
-    [SDL_SCANCODE_BACKSLASH]    = XI_KEYBOARD_KEY_BACKSLASH,
-    [SDL_SCANCODE_RIGHTBRACKET] = XI_KEYBOARD_KEY_RBRACKET,
-    [SDL_SCANCODE_GRAVE]        = XI_KEYBOARD_KEY_GRAVE,
+    [SDL_SCANCODE_LEFTBRACKET]  = KEYBOARD_KEY_LBRACKET,
+    [SDL_SCANCODE_BACKSLASH]    = KEYBOARD_KEY_BACKSLASH,
+    [SDL_SCANCODE_RIGHTBRACKET] = KEYBOARD_KEY_RBRACKET,
+    [SDL_SCANCODE_GRAVE]        = KEYBOARD_KEY_GRAVE,
 
     // letters
     //
-    [SDL_SCANCODE_A] = XI_KEYBOARD_KEY_A, [SDL_SCANCODE_B] = XI_KEYBOARD_KEY_B,
-    [SDL_SCANCODE_C] = XI_KEYBOARD_KEY_C, [SDL_SCANCODE_D] = XI_KEYBOARD_KEY_D,
-    [SDL_SCANCODE_E] = XI_KEYBOARD_KEY_E, [SDL_SCANCODE_F] = XI_KEYBOARD_KEY_F,
-    [SDL_SCANCODE_G] = XI_KEYBOARD_KEY_G, [SDL_SCANCODE_H] = XI_KEYBOARD_KEY_H,
-    [SDL_SCANCODE_I] = XI_KEYBOARD_KEY_I, [SDL_SCANCODE_J] = XI_KEYBOARD_KEY_J,
-    [SDL_SCANCODE_K] = XI_KEYBOARD_KEY_K, [SDL_SCANCODE_L] = XI_KEYBOARD_KEY_L,
-    [SDL_SCANCODE_M] = XI_KEYBOARD_KEY_M, [SDL_SCANCODE_N] = XI_KEYBOARD_KEY_N,
-    [SDL_SCANCODE_O] = XI_KEYBOARD_KEY_O, [SDL_SCANCODE_P] = XI_KEYBOARD_KEY_P,
-    [SDL_SCANCODE_Q] = XI_KEYBOARD_KEY_Q, [SDL_SCANCODE_R] = XI_KEYBOARD_KEY_R,
-    [SDL_SCANCODE_S] = XI_KEYBOARD_KEY_S, [SDL_SCANCODE_T] = XI_KEYBOARD_KEY_T,
-    [SDL_SCANCODE_U] = XI_KEYBOARD_KEY_U, [SDL_SCANCODE_V] = XI_KEYBOARD_KEY_V,
-    [SDL_SCANCODE_W] = XI_KEYBOARD_KEY_W, [SDL_SCANCODE_X] = XI_KEYBOARD_KEY_X,
-    [SDL_SCANCODE_Y] = XI_KEYBOARD_KEY_Y, [SDL_SCANCODE_Z] = XI_KEYBOARD_KEY_Z
+    [SDL_SCANCODE_A] = KEYBOARD_KEY_A, [SDL_SCANCODE_B] = KEYBOARD_KEY_B,
+    [SDL_SCANCODE_C] = KEYBOARD_KEY_C, [SDL_SCANCODE_D] = KEYBOARD_KEY_D,
+    [SDL_SCANCODE_E] = KEYBOARD_KEY_E, [SDL_SCANCODE_F] = KEYBOARD_KEY_F,
+    [SDL_SCANCODE_G] = KEYBOARD_KEY_G, [SDL_SCANCODE_H] = KEYBOARD_KEY_H,
+    [SDL_SCANCODE_I] = KEYBOARD_KEY_I, [SDL_SCANCODE_J] = KEYBOARD_KEY_J,
+    [SDL_SCANCODE_K] = KEYBOARD_KEY_K, [SDL_SCANCODE_L] = KEYBOARD_KEY_L,
+    [SDL_SCANCODE_M] = KEYBOARD_KEY_M, [SDL_SCANCODE_N] = KEYBOARD_KEY_N,
+    [SDL_SCANCODE_O] = KEYBOARD_KEY_O, [SDL_SCANCODE_P] = KEYBOARD_KEY_P,
+    [SDL_SCANCODE_Q] = KEYBOARD_KEY_Q, [SDL_SCANCODE_R] = KEYBOARD_KEY_R,
+    [SDL_SCANCODE_S] = KEYBOARD_KEY_S, [SDL_SCANCODE_T] = KEYBOARD_KEY_T,
+    [SDL_SCANCODE_U] = KEYBOARD_KEY_U, [SDL_SCANCODE_V] = KEYBOARD_KEY_V,
+    [SDL_SCANCODE_W] = KEYBOARD_KEY_W, [SDL_SCANCODE_X] = KEYBOARD_KEY_X,
+    [SDL_SCANCODE_Y] = KEYBOARD_KEY_Y, [SDL_SCANCODE_Z] = KEYBOARD_KEY_Z
 };
 
-XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
-    xiContext *xi = &context->xi;
-    xiSDL2Context *SDL = &context->SDL;
+FileScope void Linux_ContextUpdate(Linux_Context *context) {
+    Xi_Engine    *xi  = &context->xi;
+    SDL2_Context *SDL = &context->SDL;
 
     struct timespec timer_end;
     clock_gettime(CLOCK_MONOTONIC_RAW, &timer_end);
 
-    xi_u64 end_ns   = (1000000000 * timer_end.tv_sec) + timer_end.tv_nsec;
-    xi_u64 delta_ns = end_ns - context->start_ns;
+    U64 end_ns   = (1000000000 * timer_end.tv_sec) + timer_end.tv_nsec;
+    U64 delta_ns = end_ns - context->start_ns;
 
-    delta_ns = XI_MIN(delta_ns, context->clamp_ns);
+    delta_ns = Min(delta_ns, context->clamp_ns);
 
     context->accum_ns += delta_ns;
 
-    xi->time.ticks = end_ns;
+    xi->time.ticks    = end_ns;
     context->start_ns = end_ns;
 
     xi->time.delta.ns = (context->fixed_ns);
@@ -1037,16 +997,16 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
     xi->time.delta.s  = (context->fixed_ns / 1000000000.0);
 
     xi->time.total.ns += (delta_ns);
-    xi->time.total.us  = (xi_u64) ((xi->time.total.ns / 1000.0) + 0.5);
-    xi->time.total.ms  = (xi_u64) ((xi->time.total.ns / 1000000.0) + 0.5);
+    xi->time.total.us  = cast(U64) ((xi->time.total.ns / 1000.0) + 0.5);
+    xi->time.total.ms  = cast(U64) ((xi->time.total.ns / 1000000.0) + 0.5);
     xi->time.total.s   = (xi->time.total.ns / 1000000000.0);
 
-    linux_sdl2_audio_mix(context);
+    SDL2_AudioMix(context);
 
     // process windows messages that our application received
     //
-    xiInputMouse *mouse = &xi->mouse;
-    xiInputKeyboard *kb = &xi->keyboard;
+    InputMouse    *mouse = &xi->mouse;
+    InputKeyboard *kb    = &xi->keyboard;
 
     // :step_input
     //
@@ -1055,9 +1015,9 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
         //
         mouse->connected    = true;
         mouse->active       = false;
-        mouse->delta.screen = xi_v2s_create(0, 0);
-        mouse->delta.clip   =  xi_v2_create(0, 0);
-        mouse->delta.wheel  =  xi_v2_create(0, 0);
+        mouse->delta.screen = V2S(0, 0);
+        mouse->delta.clip   = V2F(0, 0);
+        mouse->delta.wheel  = V2F(0, 0);
 
         mouse->left.pressed   = mouse->left.released   = false;
         mouse->middle.pressed = mouse->middle.released = false;
@@ -1070,7 +1030,7 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
         kb->connected = true;
         kb->active    = false;
 
-        for (xi_u32 it = 0; it < XI_KEYBOARD_KEY_COUNT; ++it) {
+        for (U32 it = 0; it < KEYBOARD_KEY_COUNT; ++it) {
             kb->keys[it].pressed  = false;
             kb->keys[it].released = false;
         }
@@ -1080,7 +1040,7 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
 
     // we don't handle programatic resizes if the user has manually resized the window
     //
-    xi_b32 user_resize = false;
+    B32 user_resize = false;
 
     int window_width = 0, window_height = 0;
     SDL->GetWindowSize(SDL->window, &window_width, &window_height);
@@ -1098,14 +1058,14 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
                 // the key will get stuck on because a key up event never gets posted even
                 // though the key was released
                 //
-                xi_b32 down     = (event.type == SDL_KEYDOWN);
-                xi_u32 scancode = event.key.keysym.scancode;
+                B32 down     = (event.type == SDL_KEYDOWN);
+                U32 scancode = event.key.keysym.scancode;
 
-                if (scancode < XI_ARRAY_SIZE(tbl_sdl2_scancode_to_input_key)) {
-                    xi_u32 index = tbl_sdl2_scancode_to_input_key[scancode];
+                if (scancode < ArraySize(tbl_sdl2_scancode_to_input_key)) {
+                    U32 index = tbl_sdl2_scancode_to_input_key[scancode];
 
-                    xiInputButton *key = &kb->keys[index];
-                    xi_input_button_handle(key, down);
+                    InputButton *key = &kb->keys[index];
+                    InputButtonHandle(key, down);
                 }
 
                 // handle modifiers for easy access booleans
@@ -1113,24 +1073,24 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
                 switch (scancode) {
                     case SDL_SCANCODE_LALT:
                     case SDL_SCANCODE_RALT: {
-                        xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LALT];
-                        xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RALT];
+                        InputButton *left  = &kb->keys[KEYBOARD_KEY_LALT];
+                        InputButton *right = &kb->keys[KEYBOARD_KEY_RALT];
 
                         kb->alt = (left->down || right->down);
                     }
                     break;
                     case SDL_SCANCODE_LCTRL:
                     case SDL_SCANCODE_RCTRL: {
-                        xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LCTRL];
-                        xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RCTRL];
+                        InputButton *left  = &kb->keys[KEYBOARD_KEY_LCTRL];
+                        InputButton *right = &kb->keys[KEYBOARD_KEY_RCTRL];
 
                         kb->ctrl = (left->down || right->down);
                     }
                     break;
                     case SDL_SCANCODE_LSHIFT:
                     case SDL_SCANCODE_RSHIFT: {
-                        xiInputButton *left  = &kb->keys[XI_KEYBOARD_KEY_LSHIFT];
-                        xiInputButton *right = &kb->keys[XI_KEYBOARD_KEY_RSHIFT];
+                        InputButton *left  = &kb->keys[KEYBOARD_KEY_LSHIFT];
+                        InputButton *right = &kb->keys[KEYBOARD_KEY_RSHIFT];
 
                         kb->shift = (left->down || right->down);
                     }
@@ -1142,7 +1102,7 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
             break;
             case SDL_MOUSEBUTTONUP:
             case SDL_MOUSEBUTTONDOWN: {
-                xiInputButton *button = 0;
+                InputButton *button = 0;
 
                 switch (event.button.button) {
                     case SDL_BUTTON_LEFT:   { button = &mouse->left;   } break;
@@ -1154,18 +1114,18 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
                 }
 
                 if (button) {
-                    xi_b32 down = (event.type == SDL_MOUSEBUTTONDOWN);
-                    xi_input_button_handle(button, down);
+                    B32 down = (event.type == SDL_MOUSEBUTTONDOWN);
+                    InputButtonHandle(button, down);
 
                     mouse->active = true;
                 }
             }
             break;
             case SDL_MOUSEMOTION: {
-                xi_v2s pt = xi_v2s_create(event.motion.x, event.motion.y);
+                Vec2S pt = V2S(event.motion.x, event.motion.y);
 
-                xi_v2s old_screen = mouse->position.screen;
-                xi_v2  old_clip   = mouse->position.clip;
+                Vec2S old_screen = mouse->position.screen;
+                Vec2F old_clip   = mouse->position.clip;
 
                 // update screen position
                 //
@@ -1173,14 +1133,14 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
 
                 // update clip position
                 //
-                mouse->position.clip.x = -1.0f + (2.0f * (pt.x / (xi_f32) window_width));
-                mouse->position.clip.y =  1.0f - (2.0f * (pt.y / (xi_f32) window_height));
+                mouse->position.clip.x = -1.0f + (2.0f * (pt.x / cast(F32) window_width));
+                mouse->position.clip.y =  1.0f - (2.0f * (pt.y / cast(F32) window_height));
 
-                xi_v2s delta_screen = xi_v2s_sub(mouse->position.screen, old_screen);
-                xi_v2  delta_clip   =  xi_v2_sub(mouse->position.clip,   old_clip);
+                Vec2S delta_screen = V2S_Sub(mouse->position.screen, old_screen);
+                Vec2F delta_clip   = V2F_Sub(mouse->position.clip,   old_clip);
 
-                mouse->delta.screen = xi_v2s_add(mouse->delta.screen, delta_screen);
-                mouse->delta.clip   =  xi_v2_add(mouse->delta.clip,   delta_clip);
+                mouse->delta.screen = V2S_Add(mouse->delta.screen, delta_screen);
+                mouse->delta.clip   = V2F_Add(mouse->delta.clip,   delta_clip);
 
                 mouse->active = true;
             }
@@ -1212,15 +1172,16 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
 
     xi->quit = context->quitting;
 
-    if (!xi_str_equal(xi->window.title, SDL->title.str)) {
-        xi_uptr count = XI_MIN(SDL->title.limit, xi->window.title.count);
+    if (!Str8_Equal(xi->window.title, SDL->title.str, 0)) {
+        S64 count = Min(SDL->title.limit, xi->window.title.count);
 
-        xi_memory_copy(SDL->title.data, xi->window.title.data, count);
+        MemoryCopy(SDL->title.data, xi->window.title.data, count);
         SDL->title.used = count;
 
-        xiArena *temp = xi_temp_get();
-        const char *title = linux_str_to_cstr(temp, SDL->title.str);
-        SDL->SetWindowTitle(SDL->window, title);
+        M_Arena *temp = M_TempGet();
+
+        Str8 copy = Str8_PushCopy(temp, SDL->title.str);
+        SDL->SetWindowTitle(SDL->window, (const char *) copy.data);
     }
 
     if (!user_resize) {
@@ -1233,12 +1194,12 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
         //
         if (xi->window.state != SDL->window_state) {
             switch (xi->window.state) {
-                case XI_WINDOW_STATE_WINDOWED:
-                case XI_WINDOW_STATE_WINDOWED_RESIZABLE:
-                case XI_WINDOW_STATE_WINDOWED_BORDERLESS: {
+                case WINDOW_STATE_WINDOWED:
+                case WINDOW_STATE_WINDOWED_RESIZABLE:
+                case WINDOW_STATE_WINDOWED_BORDERLESS: {
                     SDL->SetWindowFullscreen(SDL->window, SDL_FALSE);
 
-                    if (xi->window.state == XI_WINDOW_STATE_WINDOWED_RESIZABLE) {
+                    if (xi->window.state == WINDOW_STATE_WINDOWED_RESIZABLE) {
                         SDL->SetWindowResizable(SDL->window, SDL_TRUE);
 
                         // these have been chosen arbitrarily
@@ -1259,7 +1220,7 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
                     }
                 }
                 break;
-                case XI_WINDOW_STATE_FULLSCREEN: {
+                case WINDOW_STATE_FULLSCREEN: {
                     SDL->SetWindowFullscreen(SDL->window, SDL_TRUE);
                 }
                 break;
@@ -1283,34 +1244,33 @@ XI_INTERNAL void linux_xi_context_update(xiLinuxContext *context) {
 
     xi->window.title = SDL->title.str;
 
-    xiGameCode *game = context->game.code;
-    if (game->dynamic) {
-        linux_game_code_reload(context);
+    Xi_GameCode *game = context->game.code;
+    if (game->reloadable) {
+        Linux_GameCodeReload(context);
     }
 }
 
-extern int __xie_bootstrap_run(xiGameCode *game) {
+extern int __xie_bootstrap_run(Xi_GameCode *game) {
     int result = 1;
 
-    xiFileHandle cout = { XI_FILE_HANDLE_STATUS_VALID, (void *) STDOUT_FILENO };
-    xiFileHandle cerr = { XI_FILE_HANDLE_STATUS_VALID, (void *) STDERR_FILENO };
+    FileHandle cout = { FILE_HANDLE_STATUS_VALID, cast(U64) STDOUT_FILENO };
+    FileHandle cerr = { FILE_HANDLE_STATUS_VALID, cast(U64) STDERR_FILENO };
 
-    xiLinuxContext *context;
+    Linux_Context *context;
     {
-        xiArena arena;
-        xi_arena_init_virtual(&arena, XI_GB(4));
+        M_Arena *arena = M_ArenaAlloc(GB(4), 0);
 
-        context = xi_arena_push_type(&arena, xiLinuxContext);
+        context = M_ArenaPush(arena, Linux_Context);
         context->arena = arena;
 
-        xi_logger_create(&context->arena, &context->logger, cout, XI_KB(512));
+        context->logger = LoggerCreate(context->arena, cout, KB(512));
     }
 
-    xiSDL2Context *SDL = linux_sdl2_load(context); // also stored context->SDL
+    SDL2_Context *SDL = SDL2_Load(context); // result also stored context->SDL
     if (SDL) {
-        xiContext *xi = &context->xi;
+        Xi_Engine *xi = &context->xi;
 
-        linux_sdl2_displays_enumerate(context);
+        SDL2_DisplaysEnumerate(context);
 
         context->game.code = game;
 
@@ -1328,33 +1288,33 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
         xi->system.err = cerr;
 
         SDL->title.used   = 0;
-        SDL->title.limit  = XI_MAX_TITLE_COUNT;
-        SDL->title.data   = xi_arena_push_size(&context->arena, SDL->title.limit);
+        SDL->title.limit  = MAX_TITLE_COUNT;
+        SDL->title.data   = M_ArenaPush(context->arena, U8, SDL->title.limit);
 
         xi->window.title = SDL->title.str;
 
-        const char *exe_path     = linux_system_path_get(LINUX_PATH_TYPE_EXECUTABLE);
-        const char *temp_path    = linux_system_path_get(LINUX_PATH_TYPE_TEMP);
-        const char *user_path    = linux_system_path_get(LINUX_PATH_TYPE_USER);
-        const char *working_path = linux_system_path_get(LINUX_PATH_TYPE_WORKING);
+        const char *exe_path     = Linux_SystemPathGet(LINUX_PATH_TYPE_EXECUTABLE);
+        const char *temp_path    = Linux_SystemPathGet(LINUX_PATH_TYPE_TEMP);
+        const char *user_path    = Linux_SystemPathGet(LINUX_PATH_TYPE_USER);
+        const char *working_path = Linux_SystemPathGet(LINUX_PATH_TYPE_WORKING);
 
-        xi->system.executable_path = xi_str_copy(&context->arena, xi_str_wrap_cstr(exe_path));
-        xi->system.temp_path       = xi_str_copy(&context->arena, xi_str_wrap_cstr(temp_path));
-        xi->system.user_path       = xi_str_copy(&context->arena, xi_str_wrap_cstr(user_path));
-        xi->system.working_path    = xi_str_copy(&context->arena, xi_str_wrap_cstr(working_path));
+        xi->system.executable_path = Str8_PushCopy(context->arena, Str8_WrapNullTerminated(exe_path));
+        xi->system.temp_path       = Str8_PushCopy(context->arena, Str8_WrapNullTerminated(temp_path));
+        xi->system.user_path       = Str8_PushCopy(context->arena, Str8_WrapNullTerminated(user_path));
+        xi->system.working_path    = Str8_PushCopy(context->arena, Str8_WrapNullTerminated(working_path));
 
-        xi->system.processor_count = sysconf(_SC_NPROCESSORS_ONLN); // vs _CONF?
+        xi->system.num_cpus = sysconf(_SC_NPROCESSORS_ONLN); // vs _CONF?
 
-        linux_game_code_init(context);
+        Linux_GameCodeInit(context);
 
-        game->init(xi, XI_ENGINE_CONFIGURE);
+        game->Init(xi, XI_ENGINE_CONFIGURE);
 
         if (xi->window.width == 0 || xi->window.height == 0) {
             xi->window.width  = 1280;
             xi->window.height = 720;
         }
 
-        int display = XI_MIN(xi->window.display, xi->system.display_count);
+        int display = Min(xi->window.display, xi->system.num_displays);
 
         int p = SDL_WINDOWPOS_CENTERED_DISPLAY(display);
 
@@ -1363,29 +1323,33 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
 
         Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
 
-        if (xi->window.state == XI_WINDOW_STATE_FULLSCREEN) {
+        if (xi->window.state == WINDOW_STATE_FULLSCREEN) {
             flags |= SDL_WINDOW_FULLSCREEN;
         }
-        else if (xi->window.state == XI_WINDOW_STATE_WINDOWED_RESIZABLE) {
+        else if (xi->window.state == WINDOW_STATE_WINDOWED_RESIZABLE) {
             flags |= SDL_WINDOW_RESIZABLE;
         }
 
         const char *title = "xie";
-        if (xi_str_is_valid(xi->window.title)) {
-            xi_uptr count = XI_MIN(xi->window.title.count, SDL->title.limit);
+        if (xi->window.title.count) {
+            U64 count = Min(xi->window.title.count, SDL->title.limit);
 
             xi->window.title.count = count;
 
-            xiArena *temp = xi_temp_get();
-            title = linux_str_to_cstr(temp, xi->window.title);
+            M_Arena *temp = M_TempGet();
 
-            xi_memory_copy(SDL->title.data, xi->window.title.data, count);
+            // Null terminate
+            //
+            Str8 copy = Str8_PushCopy(temp, xi->window.title);
+            title     = cast(const char *) copy.data;
+
+            MemoryCopy(SDL->title.data, xi->window.title.data, count);
             SDL->title.used = count;
         }
 
         SDL->window = SDL->CreateWindow(title, p, p, w, h, flags);
         if (SDL->window) {
-            if (xi->window.state != XI_WINDOW_STATE_WINDOWED_RESIZABLE) {
+            if (xi->window.state != WINDOW_STATE_WINDOWED_RESIZABLE) {
                 // this prevents windows from being resized and also prevents
                 // them from being tiled on tiling window managers
                 //
@@ -1404,7 +1368,7 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                 xi->window.height = actual_h;
             }
 
-            xiRenderer *renderer = &xi->renderer;
+            RendererContext *renderer = &xi->renderer;
             {
                 // @todo: this _realy_ shouldn't need this duplicated value anyway i should just pass the
                 // context window to the renderer directly and it should work with that it requires the
@@ -1419,34 +1383,34 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                 renderer->setup.window_dim.w = xi->window.width;
                 renderer->setup.window_dim.h = xi->window.height;
 
-                xiArena *temp = xi_temp_get();
-                xi_string renderer_path = xi_str_format(temp, "%s/xi_opengld.so", exe_path);
+                M_Arena *temp = M_TempGet();
+                Str8 renderer_path = Str8_PushCopy(temp, Str8_Format(temp, "%s/xi_opengld.so", exe_path));
 
-                const char *path = linux_str_to_cstr(temp, renderer_path);
+                const char *path = cast(const char *) renderer_path.data;
                 context->renderer.lib = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
+
                 if (context->renderer.lib) {
-                    context->renderer.init = dlsym(context->renderer.lib, "xi_opengl_init");
-                    if (context->renderer.init) {
-                        xiSDL2WindowData *window_data = &context->renderer.window;
+                    context->renderer.Init = dlsym(context->renderer.lib, "GL_Init");
+                    if (context->renderer.Init) {
+                        SDL2_WindowData *window_data = &context->renderer.window;
                         window_data->window = SDL->window;
 
-                        context->renderer.valid = context->renderer.init(renderer, window_data);
+                        context->renderer.valid = context->renderer.Init(renderer, window_data);
                     }
                     else {
-                        xi_log(&context->logger, "renderer", "xi_opengl_init not found");
+                        Log(&context->logger, Str8_Literal("renderer"), "xi_opengl_init not found");
                     }
                 }
                 else {
-                    xi_log(&context->logger, "renderer", "failed to load xi_opengld.so");
+                    Log(&context->logger, Str8_Literal("renderer"), "failed to load xi_opengld.so");
                 }
             }
 
             if (context->renderer.valid) {
-                linux_sdl2_audio_init(context);
+                SDL2_AudioInit(context);
 
-                xi_u32 n_processors = xi->system.processor_count;
-                xi_thread_pool_init(&context->arena, &xi->thread_pool, n_processors);
-                xi_asset_manager_init(&context->arena, &xi->assets, xi);
+                ThreadPoolInit(context->arena, &xi->thread_pool, xi->system.num_cpus);
+                AssetManagerInit(context->arena, &xi->assets, xi);
 
                 // setup timing information
                 //
@@ -1461,15 +1425,14 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                         xi->time.delta.fixed_hz = 100;
                     }
 
-                    xi_u64 fixed_ns   = (1000000000 / xi->time.delta.fixed_hz);
-                    context->fixed_ns = fixed_ns;
+                    context->fixed_ns = (1000000000 / xi->time.delta.fixed_hz);
 
                     if (xi->time.delta.clamp_s <= 0.0f) {
                         xi->time.delta.clamp_s = 0.2f;
-                        context->clamp_ns = 200000000;
+                        context->clamp_ns      = 200000000;
                     }
                     else {
-                        context->clamp_ns = (xi_u64) (1000000000 * xi->time.delta.clamp_s);
+                        context->clamp_ns = cast(U64) (1000000000 * xi->time.delta.clamp_s);
                     }
 
                     // set the resolution
@@ -1485,19 +1448,19 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
                     xi->time.ticks    = context->start_ns;
                 }
 
-                game->init(xi, XI_GAME_INIT);
+                game->Init(xi, XI_GAME_INIT);
 
-                xi_logger_flush(&context->logger);
+                LoggerFlush(&context->logger);
 
                 while (true) {
-                    linux_xi_context_update(context);
+                    Linux_ContextUpdate(context);
 
                     // :temp_usage
                     //
-                    xi_temp_reset();
+                    M_TempReset();
 
                     while (context->accum_ns >= context->fixed_ns) {
-                        game->simulate(xi);
+                        game->Simulate(xi);
                         context->accum_ns -= context->fixed_ns;
 
                         context->did_update = true;
@@ -1511,32 +1474,32 @@ extern int __xie_bootstrap_run(xiGameCode *game) {
 
                     if (context->accum_ns < 0) { context->accum_ns = 0; }
 
-                    game->render(xi, renderer);
+                    game->Render(xi, renderer);
 
                     // :single_worker
                     //
-                    if (xi->thread_pool.thread_count == 1) { xi_thread_pool_await_complete(&xi->thread_pool); }
+                    if (xi->thread_pool.num_threads == 1) { ThreadPoolAwaitComplete(&xi->thread_pool); }
 
-                    renderer->submit(renderer);
+                    renderer->Submit(renderer);
                     if (context->quitting || xi->quit) {
                         break;
                     }
                 }
 
-                xi_thread_pool_await_complete(&xi->thread_pool);
+                ThreadPoolAwaitComplete(&xi->thread_pool);
 
                 result = 0;
             }
             else {
-                xi_log(&context->logger, "renderer", "failed to initialise");
+                Log(&context->logger, Str8_Literal("renderer"), "failed to initialise");
             }
         }
         else {
-            xi_log(&context->logger, "window", "failed to create (%s)", SDL->GetError());
+            Log(&context->logger, Str8_Literal("window"), "failed to create (%s)", SDL->GetError());
         }
     }
 
-    xi_logger_flush(&context->logger);
+    LoggerFlush(&context->logger);
 
     return result;
 }

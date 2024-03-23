@@ -12,7 +12,7 @@ typedef struct GL_Context RendererBackend;
 
     #include <gl/gl.h>
     typedef uintptr_t GLsizeiptr;
-#elif XI_OS_LINUX
+#elif OS_LINUX
     #include <GL/gl.h>
 #endif
 

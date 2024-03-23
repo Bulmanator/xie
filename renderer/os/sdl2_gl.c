@@ -1,21 +1,22 @@
 #include <SDL2/SDL_video.h>
 
-#define SDL2_LOAD_GL_FUNCTION(x) gl->x = (xiOpenGL_gl##x *) SDL->GL_GetProcAddress(XI_STRINGIFY(gl##x)); XI_ASSERT(gl->x != 0)
+#define SDL2_LOAD_GL_FUNCTION(x) gl->x = (GL_gl##x *) SDL->GL_GetProcAddress(Stringify(gl##x)); Assert(gl->x != 0)
 
-typedef SDL_GLContext xiSDL2_SDL_GL_CreateContext(SDL_Window *window);
+typedef SDL_GLContext SDL2_SDL_GL_CreateContext(SDL_Window *window);
 
-typedef void *xiSDL2_SDL_GL_GetProcAddress(const char *);
+typedef void *SDL2_SDL_GL_GetProcAddress(const char *);
 
-typedef int  xiSDL2_SDL_GL_SetSwapInterval(int);
-typedef int  xiSDL2_SDL_GL_SetAttribute(SDL_GLattr, int);
-typedef void xiSDL2_SDL_GL_SwapWindow(SDL_Window *);
-typedef void xiSDL2_SDL_GL_DeleteContext(SDL_GLContext);
+typedef int  SDL2_SDL_GL_SetSwapInterval(int);
+typedef int  SDL2_SDL_GL_SetAttribute(SDL_GLattr, int);
+typedef void SDL2_SDL_GL_SwapWindow(SDL_Window *);
+typedef void SDL2_SDL_GL_DeleteContext(SDL_GLContext);
 
-#define SDL2_FUNCTION_POINTER(name) xiSDL2_SDL_##name *name
+#define SDL2_FUNCTION_POINTER(name) SDL2_SDL_##name *name
 
 // :renderer_core passed as the platform pointer to init
 //
-typedef struct xiSDL2WindowData {
+typedef struct SDL2_WindowData SDL2_WindowData;
+struct SDL2_WindowData {
     SDL_Window *window;
 
     SDL2_FUNCTION_POINTER(GL_CreateContext);
@@ -24,12 +25,15 @@ typedef struct xiSDL2WindowData {
     SDL2_FUNCTION_POINTER(GL_SetAttribute);
     SDL2_FUNCTION_POINTER(GL_SwapWindow);
     SDL2_FUNCTION_POINTER(GL_DeleteContext);
-} xiSDL2WindowData;
+};
 
-typedef struct xiSDL2OpenGLContext {
-    xiOpenGLContext gl;
+// :naming very close to the actual SDL naming could be confusing
+//
+typedef struct SDL2GL_Context SDL2GL_Context;
+struct SDL2GL_Context {
+    GL_Context gl;
 
-    xi_b32 valid;
+    B32 valid;
 
     SDL_Window *window;
     SDL_GLContext context;
@@ -37,28 +41,30 @@ typedef struct xiSDL2OpenGLContext {
     SDL2_FUNCTION_POINTER(GL_SetSwapInterval);
     SDL2_FUNCTION_POINTER(GL_SwapWindow);
     SDL2_FUNCTION_POINTER(GL_DeleteContext);
-} xiSDL2OpenGLContext;
+};
 
 #undef SDL2_FUNCTION_POINTER
 
-XI_INTERNAL XI_RENDERER_SUBMIT(sdl2_opengl_submit);
+FileScope RENDERER_SUBMIT(SDL2GL_Submit);
 
-static xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platform) {
-    xiArena arena = { 0 };
-    xi_arena_init_virtual(&arena, XI_GB(2));
+FileScope GL_Context *GL_ContextCreate(RendererContext *renderer, void *platform) {
+    GL_Context *result = 0;
 
-    xiSDL2OpenGLContext *sdlgl = xi_arena_push_type(&arena, xiSDL2OpenGLContext);
-    xiOpenGLContext *gl = &sdlgl->gl;
+    M_Arena *arena = M_ArenaAlloc(GB(2), 0);
+
+    SDL2GL_Context *context = M_ArenaPush(arena, SDL2GL_Context);
+    GL_Context     *gl      = &context->gl;
+
+    result = gl;
 
     gl->arena = arena;
 
-    xiSDL2WindowData *window = (xiSDL2WindowData *) platform;
-    xiSDL2WindowData *SDL = window;
+    SDL2_WindowData *SDL = cast(SDL2_WindowData *) platform;
 
     SDL->GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL->GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 4);
     SDL->GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,  SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL->GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+    SDL->GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,         SDL_GL_CONTEXT_DEBUG_FLAG);
 
     // @todo: test this on nvidia, iirc setting framebuffer bit sizes explicitly
     // has issues on those drivers
@@ -70,14 +76,14 @@ static xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platfor
     SDL->GL_SetAttribute(SDL_GL_DEPTH_SIZE,   24);
     SDL->GL_SetAttribute(SDL_GL_STENCIL_SIZE,  8);
 
-    SDL->GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL->GL_SetAttribute(SDL_GL_DOUBLEBUFFER,             1);
     SDL->GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);
-    SDL->GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
+    SDL->GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL,       1);
 
-    sdlgl->context = SDL->GL_CreateContext(window->window);
-    if (sdlgl->context != 0) {
-        gl->info.srgb = true; // @todo: actually check
-        gl->info.multisample = false;
+    context->context = SDL->GL_CreateContext(SDL->window);
+    if (context->context != 0) {
+        gl->info.srgb        = true;  // @todo: actually check
+        gl->info.multisample = false; // this shouldn't be forced off
 
         // load opengl extension functions
         //
@@ -117,45 +123,42 @@ static xiOpenGLContext *gl_os_context_create(xiRenderer *renderer, void *platfor
         SDL2_LOAD_GL_FUNCTION(ActiveTexture);
         SDL2_LOAD_GL_FUNCTION(BindBufferRange);
 
-        renderer->init   = xi_opengl_init;
-        renderer->submit = sdl2_opengl_submit;
+        renderer->Init   = GL_Init;
+        renderer->Submit = SDL2GL_Submit;
 
-        sdlgl->window = SDL->window;
-        sdlgl->GL_SetSwapInterval = SDL->GL_SetSwapInterval;
-        sdlgl->GL_SwapWindow      = SDL->GL_SwapWindow;
-        sdlgl->GL_DeleteContext   = SDL->GL_DeleteContext;
+        context->window             = SDL->window;
+        context->GL_SetSwapInterval = SDL->GL_SetSwapInterval;
+        context->GL_SwapWindow      = SDL->GL_SwapWindow;
+        context->GL_DeleteContext   = SDL->GL_DeleteContext;
 
-        sdlgl->valid = true;
+        context->valid = true;
     }
 
-    if (renderer->setup.vsync) {
-        SDL->GL_SetSwapInterval(1);
+    if (renderer->setup.vsync) { SDL->GL_SetSwapInterval(1); }
+
+    if (!context->valid) {
+        M_ArenaRelease(arena);
+
+        context = 0;
+        gl      = 0;
     }
 
-    if (!sdlgl->valid) {
-        xi_arena_deinit(&arena);
-        sdlgl = 0;
-        gl    = 0;
-    }
-
-    return gl;
+    return result;
 }
 
-static void gl_os_context_delete(xiOpenGLContext *gl) {
-    xiSDL2OpenGLContext *SDL = (xiSDL2OpenGLContext *) gl;
+FileScope void GL_ContextDelete(GL_Context *gl) {
+    SDL2GL_Context *SDL = cast(SDL2GL_Context *) gl;
 
     SDL->GL_DeleteContext(SDL->context);
-
-    xiArena arena = gl->arena;
-    xi_arena_deinit(&arena);
+    M_ArenaRelease(gl->arena);
 }
 
-XI_RENDERER_SUBMIT(sdl2_opengl_submit) {
-    xiSDL2OpenGLContext *SDL = (xiSDL2OpenGLContext *) renderer->backend;
+RENDERER_SUBMIT(SDL2GL_Submit) {
+    SDL2GL_Context *SDL = cast(SDL2GL_Context *) renderer->backend;
 
     SDL->GL_SetSwapInterval(renderer->setup.vsync ? 1 : 0);
 
-    xi_opengl_submit(renderer);
+    GL_Submit(renderer);
 
     SDL->GL_SwapWindow(SDL->window);
 }

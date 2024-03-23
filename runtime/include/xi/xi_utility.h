@@ -56,6 +56,8 @@ Func void LoggerFlush(Logger *logger);
 //
 // @todo: how to deal with buffer end? currently truncates
 //
+// @todo: ident should be a cstring because we are going to use string literals for them
+//
 Func void LogPrintArgs(Logger *logger, Str8 ident, const char *format, va_list args);
 Func void LogPrint(Logger *logger, Str8 ident, const char *format, ...);
 
