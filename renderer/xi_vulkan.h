@@ -134,6 +134,8 @@ struct VK_Swapchain {
 
     VkFormat surface_format;
 
+    // Used by Wayland to know if the surface has re-sized
+    //
     VkExtent2D extent;
 
     VkPresentModeKHR vsync_off;
@@ -218,8 +220,7 @@ FileScope void VK_ImageCreate(VK_Device *device, VK_Image *image, VkImageCreateI
 FileScope void VK_ShaderModuleCreate(VK_Device *device, VK_Shader *shader, Str8 code);
 FileScope void VK_PipelineCreate(VK_Device *device, VK_Pipeline *pipeline);
 
-FileScope B32  VK_SurfaceCreate(VK_Device *device, VK_Swapchain *swapchain);
-FileScope B32  VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain);
-FileScope void VK_SwapchainRebuild(VK_Device *device, VK_Swapchain *swapchain, VkResult success, B32 from_present);
+FileScope B32 VK_SurfaceCreate(VK_Device *device, VK_Swapchain *swapchain);
+FileScope B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain);
 
 #endif  // XI_VULKAN_H_

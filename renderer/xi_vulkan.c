@@ -115,24 +115,24 @@ FileScope VkBool32 VK_DebugMessageCallback(VkDebugUtilsMessageSeverityFlagBitsEX
                                            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                                            void*                                       pUserData)
 {
-    (void) messageSeverity;
     (void) messageTypes;
     (void) pUserData;
 
     // @todo: logging proper
     //
 
-    OutputDebugString("[VK][");
+    printf("[VK][");
 
     switch (messageSeverity) {
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: { OutputDebugString("VRB] :: "); } break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:    { OutputDebugString("INF] :: "); } break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: { OutputDebugString("WRN] :: "); } break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:   { OutputDebugString("ERR] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: { printf("VRB] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:    { printf("INF] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: { printf("WRN] :: "); } break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:   { printf("ERR] :: "); } break;
+        default: { printf("UNK] :: "); } break;
     }
 
-    OutputDebugString(pCallbackData->pMessage);
-    OutputDebugString("\n");
+    printf(pCallbackData->pMessage);
+    printf("\n");
 
     return VK_FALSE;
 }
@@ -321,6 +321,7 @@ ExportFunc RENDERER_INIT(VK_Init) {
             create_info.pQueueCreateInfos       = &queue_create;
             create_info.enabledExtensionCount   = ArraySize(extensions);
             create_info.ppEnabledExtensionNames = extensions;
+            create_info.pEnabledFeatures        = &features;
 
             VkResult success = vk->CreateDevice(device->physical, &create_info, 0, &device->handle);
             if (success != VK_SUCCESS) { return result; }
@@ -1052,48 +1053,6 @@ B32 VK_SwapchainCreate(VK_Device *device, VK_Swapchain *swapchain) {
     return result;
 }
 
-void VK_SwapchainRebuild(VK_Device *device, VK_Swapchain *swapchain, VkResult success, B32 from_present) {
-    VK_Context *vk = device->vk;
-
-    if (success == VK_ERROR_SURFACE_LOST_KHR) {
-        // Surface lost so destroy our current surface and attempt to create a new one
-        //
-
-        for (U32 it = 0; it < swapchain->num_images; ++it) {
-            vk->DestroyImageView(device->handle, swapchain->views[it], 0);
-        }
-
-        vk->DestroySwapchainKHR(device->handle, swapchain->handle, 0);
-        vk->DestroySurfaceKHR(vk->instance, swapchain->surface, 0);
-
-        swapchain->surface = VK_NULL_HANDLE;
-        swapchain->handle  = VK_NULL_HANDLE;
-
-        VK_SwapchainCreate(device, swapchain);
-    }
-    else if (success == VK_ERROR_OUT_OF_DATE_KHR) {
-        // Out of date so just re-create the swapchain
-        //
-        VK_SwapchainCreate(device, swapchain);
-    }
-    else if (success == VK_SUBOPTIMAL_KHR && from_present) {
-        VkSurfaceCapabilitiesKHR caps;
-        vk->GetPhysicalDeviceSurfaceCapabilitiesKHR(device->physical, swapchain->surface, &caps);
-
-        // Only re-build the swapchain if the extents differ, if this sub-optimal result came when acquiring
-        // and image we don't re-build right away. the system will let us present to a sub-optimal swapchain
-        // and will return the same result so we rebuild after the present
-        //
-        if (caps.currentExtent.width  != swapchain->extent.width ||
-            caps.currentExtent.height != swapchain->extent.height)
-        {
-            VK_SwapchainCreate(device, swapchain);
-        }
-
-    }
-    // else do nothing
-}
-
 //
 // --------------------------------------------------------------------------------
 // :VK_Submit
@@ -1342,6 +1301,14 @@ RENDERER_SUBMIT(VK_Submit) {
     VK_Device  *device = &vk->device;
     VK_Frame   *frame  = device->frame;
 
+    // :linux swapchain re-sizing _seems_ to be stable on my setup for now, further testing will be required
+    //  Working -> SDL2 Window (X11 and Wayland) via Sway on Nvidia Drivers
+    //
+    //  The Nvidia driver doesn't return VK_ERROR_OUT_OF_DATE_KHR or VK_SUBOPTIMAL_KHR when acquiring
+    //  or presenting images on Wayland though, it _does_ mark the swapchain out of data when running
+    //  via XWayland
+    //
+
     vk->ResetFences(device->handle, 1, &frame->fence);
 
     vk->ResetCommandPool(device->handle, frame->command_pool, 0);
@@ -1376,8 +1343,43 @@ RENDERER_SUBMIT(VK_Submit) {
     // Acquire image from swapchain
     //
     VK_Swapchain *swapchain = &device->swapchain;
-    VkResult success = vk->AcquireNextImageKHR(device->handle, swapchain->handle, U64_MAX, frame->acquire, 0, &frame->image);
-    VK_SwapchainRebuild(device, swapchain, success, false /* from_present */);
+
+    VkResult success;
+    do {
+        success = vk->AcquireNextImageKHR(device->handle, swapchain->handle, U64_MAX, frame->acquire, 0, &frame->image);
+
+        if (success == VK_ERROR_OUT_OF_DATE_KHR) {
+            VK_SwapchainCreate(device, swapchain);
+        }
+        else if (success == VK_SUBOPTIMAL_KHR) {
+            // We can present to a sub-optimal swapchain so just ignore it when acquiring the image.
+            // The present engine will tell us we are sub-optimal again on present and we re-create
+            // the swapchain there
+            //
+            break;
+        }
+        else if (success == VK_ERROR_SURFACE_LOST_KHR) {
+            // We have lost the window surface, destroy it and VK_SwapchainCreate will attempt to
+            // re-create it
+            //
+            vk->DeviceWaitIdle(device->handle);
+
+            for (U32 it = 0; it < swapchain->num_images; ++it) {
+                vk->DestroyImageView(device->handle, swapchain->views[it], 0);
+            }
+
+            vk->DestroySwapchainKHR(device->handle, swapchain->handle, 0);
+            vk->DestroySurfaceKHR(vk->instance, swapchain->surface, 0);
+
+            swapchain->surface = VK_NULL_HANDLE;
+            swapchain->handle  = VK_NULL_HANDLE;
+
+            VK_SwapchainCreate(device, swapchain);
+        }
+        else {
+            Assert(success == VK_SUCCESS);
+        }
+    } while (success != VK_SUCCESS);
 
     // start a command buffer
     //
@@ -1645,10 +1647,47 @@ RENDERER_SUBMIT(VK_Submit) {
     present_info.pSwapchains        = &swapchain->handle;
     present_info.pImageIndices      = &frame->image;
 
-    // @todo: check result for swapchain resize
-    //
     success = vk->QueuePresentKHR(device->queue.handle, &present_info);
-    VK_SwapchainRebuild(device, swapchain, success, true /* from_present */);
+
+    if (success == VK_ERROR_OUT_OF_DATE_KHR) {
+        VK_SwapchainCreate(device, swapchain);
+    }
+    else if (success == VK_SUBOPTIMAL_KHR) {
+        VkSurfaceCapabilitiesKHR caps;
+        vk->GetPhysicalDeviceSurfaceCapabilitiesKHR(device->physical, swapchain->surface, &caps);
+
+        if (swapchain->extent.width  != caps.currentExtent.width ||
+            swapchain->extent.height != caps.currentExtent.height)
+        {
+            VK_SwapchainCreate(device, swapchain);
+        }
+    }
+    else if (success == VK_ERROR_SURFACE_LOST_KHR) {
+        vk->DeviceWaitIdle(device->handle);
+
+        for (U32 it = 0; it < swapchain->num_images; ++it) {
+            vk->DestroyImageView(device->handle, swapchain->views[it], 0);
+        }
+
+        vk->DestroySwapchainKHR(device->handle, swapchain->handle, 0);
+        vk->DestroySurfaceKHR(vk->instance, swapchain->surface, 0);
+
+        swapchain->surface = VK_NULL_HANDLE;
+        swapchain->handle  = VK_NULL_HANDLE;
+
+        VK_SwapchainCreate(device, swapchain);
+    }
+    else if (swapchain->extent.width  != renderer->setup.window_dim.w ||
+             swapchain->extent.height != renderer->setup.window_dim.h)
+    {
+        // :note We have to check this manually, even though there is a whole return code for
+        // either out-of-date (i.e. the surface was re-sized) or sub-optimal (some other property of the
+        // surface has changed), the infinite wisdom of Wayland won't actually produce any of these
+        // codes as the underlying system doesn't know anything about the surface due to the lack of
+        // a well thought out api
+        //
+        VK_SwapchainCreate(device, swapchain);
+    }
 
     // Don't go too far ahead we need at least one in flight frame to be idle before we can
     // start writing to its portion of the vertex/index buffer
@@ -1732,8 +1771,99 @@ B32 VK_SurfaceCreate(VK_Device *device, VK_Swapchain *swapchain) {
 
 #elif OS_LINUX
 
+#include <SDL2/SDL_video.h>
+#include <SDL2/SDL_syswm.h>
+
+typedef SDL_GLContext SDL2_SDL_GL_CreateContext(SDL_Window *window);
+
+typedef void *SDL2_SDL_GL_GetProcAddress(const char *);
+
+typedef int  SDL2_SDL_GL_SetSwapInterval(int);
+typedef int  SDL2_SDL_GL_SetAttribute(SDL_GLattr, int);
+typedef void SDL2_SDL_GL_SwapWindow(SDL_Window *);
+typedef void SDL2_SDL_GL_DeleteContext(SDL_GLContext);
+
+typedef SDL_bool SDL2_SDL_GetWindowWMInfo(SDL_Window *, SDL_SysWMinfo *);
+
+#define SDL2_FUNCTION_POINTER(name) SDL2_SDL_##name *name
+
+typedef struct SDL2_WindowData SDL2_WindowData;
+struct SDL2_WindowData {
+    SDL_Window *window;
+
+    SDL2_FUNCTION_POINTER(GL_CreateContext);
+    SDL2_FUNCTION_POINTER(GL_GetProcAddress);
+    SDL2_FUNCTION_POINTER(GL_SetSwapInterval);
+    SDL2_FUNCTION_POINTER(GL_SetAttribute);
+    SDL2_FUNCTION_POINTER(GL_SwapWindow);
+    SDL2_FUNCTION_POINTER(GL_DeleteContext);
+
+    SDL2_FUNCTION_POINTER(GetWindowWMInfo);
+};
+
+B32 VK_SurfaceCreate(VK_Device *device, VK_Swapchain *swapchain) {
+    B32 result = false;
+
+    VK_Context *vk = device->vk;
+
+    SDL2_WindowData *SDL = cast(SDL2_WindowData *) swapchain->platform;
+
+    SDL_SysWMinfo wm_info = { 0 };
+    SDL_VERSION(&wm_info.version);
+
+    if (SDL->GetWindowWMInfo(SDL->window, &wm_info)) {
+        VkResult success = VK_ERROR_INITIALIZATION_FAILED;
+        if (wm_info.subsystem == SDL_SYSWM_X11) {
+            VkXlibSurfaceCreateInfoKHR create_info = { 0 };
+            create_info.sType  = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+            create_info.dpy    = wm_info.info.x11.display;
+            create_info.window = wm_info.info.x11.window;
+
+            success = vk->CreateXlibSurfaceKHR(vk->instance, &create_info, 0, &swapchain->surface);
+        }
+        else if (wm_info.subsystem == SDL_SYSWM_WAYLAND) {
+            VkWaylandSurfaceCreateInfoKHR create_info = { 0 };
+            create_info.sType   = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+            create_info.display = wm_info.info.wl.display;
+            create_info.surface = wm_info.info.wl.surface;
+
+            success = vk->CreateWaylandSurfaceKHR(vk->instance, &create_info, 0, &swapchain->surface);
+        }
+
+        result = (success == VK_SUCCESS);
+    }
+
+    return result;
+}
+
+
 VK_Context *VK_ContextCreate() {
-    Assert(!"NOT IMPLEMENTED");
+    VK_Context *result = 0;
+
+    M_Arena *arena = M_ArenaAlloc(GB(8), 0);
+
+    VK_Context *vk = M_ArenaPush(arena, VK_Context);
+    vk->arena      = arena;
+
+    result = vk;
+
+    void *lib = dlopen("libvulkan.so", RTLD_NOW);
+    if (lib) {
+        vk->lib = lib;
+        vk->GetInstanceProcAddr = cast(PFN_vkGetInstanceProcAddr) dlsym(lib, "vkGetInstanceProcAddr");
+    }
+
+    vk->num_instance_extensions = 3;
+    vk->instance_extensions[0]  = VK_KHR_SURFACE_EXTENSION_NAME;
+    vk->instance_extensions[1]  = VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+    vk->instance_extensions[2]  = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+
+    if (!vk->GetInstanceProcAddr) {
+        M_ArenaRelease(arena);
+        result = 0;
+    }
+
+    return result;
 }
 
 #endif

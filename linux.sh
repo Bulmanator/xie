@@ -18,4 +18,8 @@ gcc $compiler_flags -I"../thirdparty" -O0 -g -ggdb -shared "../runtime/code/xi.c
 #
 gcc $compiler_flags -O0 -g -ggdb -shared "../renderer/xi_opengl.c" -o "xi_opengld.so" $linker_flags -lGL
 
+# build vulkan renderer .so
+#
+gcc $compiler_flags -O0 -g -ggdb -shared "../renderer/xi_vulkan.c" -o "xi_vulkand.so" $linker_flags
+
 popd > /dev/null

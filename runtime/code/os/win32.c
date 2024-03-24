@@ -2076,8 +2076,6 @@ FileScope DWORD WINAPI Win32_GameThread(LPVOID param) {
                 data.hInstance = GetModuleHandleW(0);
                 data.hwnd      = hwnd;
 
-                renderer->setup.debug = true;
-
                 context->renderer.valid = context->renderer.Init(renderer, &data);
             }
         }

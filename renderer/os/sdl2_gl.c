@@ -1,4 +1,5 @@
 #include <SDL2/SDL_video.h>
+#include <SDL2/SDL_syswm.h>
 
 #define SDL2_LOAD_GL_FUNCTION(x) gl->x = (GL_gl##x *) SDL->GL_GetProcAddress(Stringify(gl##x)); Assert(gl->x != 0)
 
@@ -10,6 +11,8 @@ typedef int  SDL2_SDL_GL_SetSwapInterval(int);
 typedef int  SDL2_SDL_GL_SetAttribute(SDL_GLattr, int);
 typedef void SDL2_SDL_GL_SwapWindow(SDL_Window *);
 typedef void SDL2_SDL_GL_DeleteContext(SDL_GLContext);
+
+typedef SDL_bool SDL2_SDL_GetWindowWMInfo(SDL_Window *, SDL_SysWMinfo *);
 
 #define SDL2_FUNCTION_POINTER(name) SDL2_SDL_##name *name
 
@@ -25,6 +28,7 @@ struct SDL2_WindowData {
     SDL2_FUNCTION_POINTER(GL_SetAttribute);
     SDL2_FUNCTION_POINTER(GL_SwapWindow);
     SDL2_FUNCTION_POINTER(GL_DeleteContext);
+    SDL2_FUNCTION_POINTER(GetWindowWMInfo);
 };
 
 // :naming very close to the actual SDL naming could be confusing

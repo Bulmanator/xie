@@ -25,6 +25,7 @@
 // @todo: native windowing, sound and input handling? instead of using SDL2
 //
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_syswm.h>
 
 typedef void SDL2_SDL_SetWindowMinimumSize(SDL_Window *, int, int);
 typedef void SDL2_SDL_SetWindowMaximumSize(SDL_Window *, int, int);
@@ -62,6 +63,8 @@ typedef void SDL2_SDL_GL_SwapWindow(SDL_Window *);
 typedef void SDL2_SDL_GL_DeleteContext(SDL_GLContext);
 typedef void SDL2_SDL_GL_GetDrawableSize(SDL_Window *window, int *, int *);
 
+typedef SDL_bool SDL2_SDL_GetWindowWMInfo(SDL_Window *, SDL_SysWMinfo *);
+
 #define SDL2_FUNCTION_POINTER(name) SDL2_SDL_##name *name
 
 // :renderer_core
@@ -76,6 +79,7 @@ struct SDL2_WindowData {
     SDL2_FUNCTION_POINTER(GL_SetAttribute);
     SDL2_FUNCTION_POINTER(GL_SwapWindow);
     SDL2_FUNCTION_POINTER(GL_DeleteContext);
+    SDL2_FUNCTION_POINTER(GetWindowWMInfo);
 };
 
 typedef struct SDL2_Context SDL2_Context;
@@ -773,6 +777,7 @@ FileScope SDL2_Context *SDL2_Load(Linux_Context *context) {
         SDL2_FUNCTION_LOAD(window, GL_SetAttribute);
         SDL2_FUNCTION_LOAD(window, GL_SwapWindow);
         SDL2_FUNCTION_LOAD(window, GL_DeleteContext);
+        SDL2_FUNCTION_LOAD(window, GetWindowWMInfo);
 #undef  SDL2_FUNCTION_LOAD
 
         if (SDL->Init(SDL_INIT_VIDEO) == 0) {
@@ -1383,6 +1388,7 @@ extern int __xie_bootstrap_run(Xi_GameCode *game) {
                 renderer->setup.window_dim.w = xi->window.width;
                 renderer->setup.window_dim.h = xi->window.height;
 
+#if 0
                 M_Arena *temp = M_TempGet();
                 Str8 renderer_path = Str8_PushCopy(temp, Str8_Format(temp, "%s/xi_opengld.so", exe_path));
 
@@ -1404,6 +1410,31 @@ extern int __xie_bootstrap_run(Xi_GameCode *game) {
                 else {
                     Log(&context->logger, Str8_Literal("renderer"), "failed to load xi_opengld.so");
                 }
+#else
+                M_Arena *temp = M_TempGet();
+                Str8 renderer_path = Str8_PushCopy(temp, Str8_Format(temp, "%s/xi_vulkand.so", exe_path));
+
+                const char *path = cast(const char *) renderer_path.data;
+                context->renderer.lib = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
+
+                if (context->renderer.lib) {
+                    context->renderer.Init = dlsym(context->renderer.lib, "VK_Init");
+                    if (context->renderer.Init) {
+                        SDL2_WindowData *window_data = &context->renderer.window;
+                        window_data->window = SDL->window;
+
+                        context->renderer.valid = context->renderer.Init(renderer, window_data);
+                    }
+                    else {
+                        Log(&context->logger, Str8_Literal("renderer"), "'VK_Init' not found in xi_vulkand.so");
+                    }
+                }
+                else {
+                    Log(&context->logger, Str8_Literal("renderer"), "Failed to load xi_vulkand.so");
+                }
+#
+
+#endif
             }
 
             if (context->renderer.valid) {
